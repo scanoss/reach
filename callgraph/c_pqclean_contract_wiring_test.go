@@ -29,21 +29,21 @@ func TestPQCleanContractsResolveParsedCallIdentities(t *testing.T) {
 	dir := t.TempDir()
 	src := `#include "api.h"
 
-int flows(uint8_t *pk, uint8_t *sk, uint8_t *ct, uint8_t *ss, uint8_t *sig, size_t *siglen,
+int flows(uint8_t *pub, uint8_t *sec, uint8_t *ct, uint8_t *ss, uint8_t *sig, size_t *siglen,
           const uint8_t *m, size_t mlen, uint8_t *sm, size_t *smlen, polyvec *v) {
-    PQCLEAN_KYBER768_CLEAN_crypto_kem_keypair(pk, sk);
-    PQCLEAN_KYBER768_AVX2_crypto_kem_enc(ct, ss, pk);
-    PQCLEAN_MLKEM768_CLEAN_crypto_kem_dec(ss, ct, sk);
-    PQCLEAN_DILITHIUM3_CLEAN_crypto_sign_keypair(pk, sk);
-    PQCLEAN_DILITHIUM3_CLEAN_crypto_sign_signature(sig, siglen, m, mlen, sk);
-    PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(sig, *siglen, m, mlen, pk);
-    PQCLEAN_SPHINCSSHAKE256128FSIMPLE_CLEAN_crypto_sign(sm, smlen, m, mlen, sk);
-    PQCLEAN_MCELIECE348864_CLEAN_crypto_kem_enc(ct, ss, pk);
+    PQCLEAN_KYBER768_CLEAN_crypto_kem_keypair(pub, sec);
+    PQCLEAN_KYBER768_AVX2_crypto_kem_enc(ct, ss, pub);
+    PQCLEAN_MLKEM768_CLEAN_crypto_kem_dec(ss, ct, sec);
+    PQCLEAN_DILITHIUM3_CLEAN_crypto_sign_keypair(pub, sec);
+    PQCLEAN_DILITHIUM3_CLEAN_crypto_sign_signature(sig, siglen, m, mlen, sec);
+    PQCLEAN_FALCON512_CLEAN_crypto_sign_verify(sig, *siglen, m, mlen, pub);
+    PQCLEAN_SPHINCSSHAKE256128FSIMPLE_CLEAN_crypto_sign(sm, smlen, m, mlen, sec);
+    PQCLEAN_MCELIECE348864_CLEAN_crypto_kem_enc(ct, ss, pub);
 
     /* Internals, helpers and bare NIST names. None may resolve to a contract. */
     PQCLEAN_KYBER768_CLEAN_polyvec_ntt(v);
     randombytes(ss, 32);
-    crypto_kem_keypair(pk, sk);
+    crypto_kem_keypair(pub, sec);
     return 0;
 }
 `

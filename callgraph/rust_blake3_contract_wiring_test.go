@@ -133,11 +133,11 @@ fn xof(data: &[u8]) -> [u8; 64] {
 }
 
 fn hazmat_root() -> [u8; 32] {
-    blake3::hazmat::merge_subtrees_root(&[0u8; 32], &[1u8; 32], blake3::hazmat::Mode::Hash)
+    blake3::hazmat::merge_subtrees_root(&[7u8; 32], &[9u8; 32], blake3::hazmat::Mode::Hash)
 }
 
 fn hazmat_non_root() -> [u8; 32] {
-    blake3::hazmat::merge_subtrees_non_root(&[0u8; 32], &[1u8; 32], blake3::hazmat::Mode::Hash)
+    blake3::hazmat::merge_subtrees_non_root(&[7u8; 32], &[9u8; 32], blake3::hazmat::Mode::Hash)
 }
 
 fn hazmat_root_xof() -> [u8; 64] {
@@ -151,8 +151,8 @@ fn hazmat_root_xof() -> [u8; 64] {
     wide
 }
 
-fn hazmat_context() -> blake3::hazmat::ContextKey {
-    blake3::hazmat::hash_derive_key_context("example.com 2026 v1")
+fn derive_hazmat_ctx() -> blake3::hazmat::ContextKey {
+    blake3::hazmat::hash_derive_key_context("app.test 2031 v4")
 }
 
 fn hazmat_chunk(ck: &blake3::hazmat::ContextKey, data: &[u8]) -> blake3::hazmat::ChainingValue {

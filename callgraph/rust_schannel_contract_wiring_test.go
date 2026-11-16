@@ -51,10 +51,10 @@ use std::net::TcpStream;
 fn client(socket: TcpStream) {
     let cred = SchannelCred::builder()
         .enabled_protocols(&[Protocol::Tls12])
-        .supported_algorithms(&[Algorithm::Aes256])
+        .supported_algorithms(&[Algorithm::Aes128])
         .acquire(Direction::Outbound)
         .unwrap();
-    let _stream = tls_stream::Builder::new()
+    let _tls = tls_stream::Builder::new()
         .domain("example.com")
         .connect(cred, socket)
         .unwrap();
@@ -63,12 +63,12 @@ fn client(socket: TcpStream) {
 fn bound_builder() {
     let mut b = SchannelCred::builder();
     b.enabled_protocols(&[Protocol::Tls12]);
-    b.supported_algorithms(&[Algorithm::Aes256]);
+    b.supported_algorithms(&[Algorithm::Aes128]);
     let _c = b.acquire(Direction::Outbound);
 }
 
 fn server(socket: TcpStream, cred: SchannelCred) {
-    let _stream = tls_stream::Builder::new().accept(cred, socket).unwrap();
+    let _tls = tls_stream::Builder::new().accept(cred, socket).unwrap();
 }
 
 fn keys(der: &[u8], pkcs8: &[u8], pem: &[u8]) {
@@ -260,10 +260,10 @@ use std::net::TcpStream;
 fn client(socket: TcpStream) {
     let cred = SchannelCred::builder()
         .enabled_protocols(&[Protocol::Tls12])
-        .supported_algorithms(&[Algorithm::Aes256])
+        .supported_algorithms(&[Algorithm::Aes128])
         .acquire(Direction::Outbound)
         .unwrap();
-    let _stream = tls_stream::Builder::new()
+    let _tls = tls_stream::Builder::new()
         .domain("example.com")
         .connect(cred, socket)
         .unwrap();

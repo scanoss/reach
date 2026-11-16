@@ -34,10 +34,10 @@ int flows(const char *module, unsigned char *m, unsigned char *sig, unsigned cha
     PKCS11_KEY *keys;
     PKCS11_CERT *certs;
     unsigned int nslots, nkeys, ncerts, siglen = 0;
-    PKCS11_CTX *ctx = PKCS11_CTX_new();
-    PKCS11_CTX_load(ctx, module);
-    PKCS11_enumerate_slots(ctx, &slots, &nslots);
-    slot = PKCS11_find_token(ctx, slots, nslots);
+    PKCS11_CTX *pctx = PKCS11_CTX_new();
+    PKCS11_CTX_load(pctx, module);
+    PKCS11_enumerate_slots(pctx, &slots, &nslots);
+    slot = PKCS11_find_token(pctx, slots, nslots);
     PKCS11_TOKEN *token = slot->token;
     PKCS11_open_session(slot, 1);
     PKCS11_login(slot, 0, "1234");
@@ -52,10 +52,10 @@ int flows(const char *module, unsigned char *m, unsigned char *sig, unsigned cha
     PKCS11_private_decrypt(256, sig, to, keys, RSA_PKCS1_OAEP_PADDING);
 
     /* Teardown, logout and PIN management. None may resolve to a contract. */
-    PKCS11_change_pin(slot, "1234", "5678");
+    PKCS11_change_pin(slot, "0000", "9999");
     PKCS11_logout(slot);
-    PKCS11_release_all_slots(ctx, slots, nslots);
-    PKCS11_CTX_unload(ctx);
+    PKCS11_release_all_slots(pctx, slots, nslots);
+    PKCS11_CTX_unload(pctx);
     return pkey != NULL;
 }
 `

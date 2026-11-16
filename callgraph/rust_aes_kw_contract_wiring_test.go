@@ -36,23 +36,23 @@ fn legacy(key: &[u8], data: &[u8]) {
 }
 
 fn legacy_padded(key: &[u8], data: &[u8]) {
-    let kek = aes_kw::KekAes256::new(&key.into());
+    let k256 = aes_kw::KekAes256::new(&key.into());
     let mut out = [0u8; 48];
-    kek.wrap_with_padding(data, &mut out).unwrap();
-    let _v = kek.wrap_with_padding_vec(data).unwrap();
-    kek.unwrap_with_padding(data, &mut out).unwrap();
+    k256.wrap_with_padding(data, &mut out).unwrap();
+    let _v = k256.wrap_with_padding_vec(data).unwrap();
+    k256.unwrap_with_padding(data, &mut out).unwrap();
 }
 
 // 0.3.0-0.3.1: AesKw / AesKwp.
-fn modern(kw_key: &[u8], key: &[u8]) {
-    let kw = aes_kw::KwAes128::new(&kw_key.into());
+fn modern(kwk: &[u8], key: &[u8]) {
+    let kw = aes_kw::KwAes128::new(&kwk.into());
     let mut buf = [0u8; 24];
     kw.wrap_key(key, &mut buf).unwrap();
     kw.unwrap_key(&buf, &mut [0u8; 16]).unwrap();
 }
 
-fn modern_padded(kw_key: &[u8], key: &[u8]) {
-    let kwp = aes_kw::KwpAes256::new(&kw_key.into());
+fn modern_padded(kwk: &[u8], key: &[u8]) {
+    let kwp = aes_kw::KwpAes256::new(&kwk.into());
     let _wrapped = kwp.wrap_fixed_key(key);
 }
 `

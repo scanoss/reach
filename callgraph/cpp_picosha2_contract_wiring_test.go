@@ -41,12 +41,12 @@ void raw(const std::vector<unsigned char>& s, std::vector<unsigned char>& d) {
 }
 
 void streaming(const std::vector<unsigned char>& data, std::vector<unsigned char>& out) {
-    picosha2::hash256_one_by_one hasher;
-    hasher.init();
-    hasher.process(data.begin(), data.end());
-    hasher.finish();
-    hasher.get_hash_bytes(out.begin(), out.end());
-    std::string hex = picosha2::get_hash_hex_string(hasher);
+    picosha2::hash256_one_by_one h;
+    h.init();
+    h.process(data.begin(), data.end());
+    h.finish();
+    h.get_hash_bytes(out.begin(), out.end());
+    std::string hex = picosha2::get_hash_hex_string(h);
 }
 
 // Hex formatting only. Neither of these is a hashing operation.

@@ -33,10 +33,10 @@ func TestHaclStarContractsResolveParsedCallIdentities(t *testing.T) {
 
 void flows(uint8_t *key, uint8_t *iv, uint8_t *ad, uint8_t *pt, uint8_t *ct, uint8_t *tag, uint8_t *out,
            uint8_t *sk, uint8_t *pk, uint8_t *sig, uint8_t *ss, uint8_t *seed, uint64_t *f) {
-    EverCrypt_AEAD_state_s *st = NULL;
-    EverCrypt_AEAD_create_in(Spec_Agile_AEAD_AES128_GCM, &st, key);
-    EverCrypt_AEAD_encrypt(st, iv, 12, ad, 16, pt, 64, ct, tag);
-    EverCrypt_AEAD_decrypt(st, iv, 12, ad, 16, ct, 64, tag, pt);
+    EverCrypt_AEAD_state_s *session = NULL;
+    EverCrypt_AEAD_create_in(Spec_Agile_AEAD_AES128_GCM, &session, key);
+    EverCrypt_AEAD_encrypt(session, iv, 12, ad, 16, pt, 64, ct, tag);
+    EverCrypt_AEAD_decrypt(session, iv, 12, ad, 16, ct, 64, tag, pt);
     Hacl_Chacha20Poly1305_32_aead_encrypt(key, iv, 16, ad, 64, pt, ct, tag);
     EverCrypt_Hash_Incremental_state_t *h = EverCrypt_Hash_Incremental_create_in(Spec_Hash_Definitions_SHA2_256);
     EverCrypt_Hash_Incremental_init(h);
@@ -56,7 +56,7 @@ void flows(uint8_t *key, uint8_t *iv, uint8_t *ad, uint8_t *pt, uint8_t *ct, uin
     /* Internals, CPU detection, teardown. None may resolve to a contract. */
     Hacl_Impl_Curve25519_Field51_fadd(f, f, f);
     EverCrypt_AutoConfig2_init();
-    EverCrypt_AEAD_free(st);
+    EverCrypt_AEAD_free(session);
     EverCrypt_Hash_Incremental_free(h);
 }
 `
