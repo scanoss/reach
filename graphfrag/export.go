@@ -417,7 +417,7 @@ type GraphFragmentExport struct {
 	// AttributeStores are the assignments to an attribute of an object the
 	// scanned functions make (Python; optional, no schema bump), ordered by
 	// function, line and column. A rule that names one
-	// (`$CTX.verify_mode = ssl.CERT_NONE`) needs them without the source.
+	// (an assignment to a named attribute) needs them without the source.
 	AttributeStores []GraphFragmentAttributeStore `json:"attribute_stores,omitempty"`
 	// LocalBindings are, for each local a function binds more than once with
 	// a call among the values, the statements that bind it (Python,
