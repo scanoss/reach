@@ -119,7 +119,7 @@ func TestContributionArgumentPropertySurvivesDecodeStitchAndExport(t *testing.T)
 	  "crypto_annotations": [{
 	    "function_key": "acme.run#0",
 	    "finding_id": "finding-1",
-	    "rule_id": "javascript.crypto.keygen.rsa",
+	    "rule_id": "fixture.javascript.keygen.rsa",
 	    "symbol": "crypto.generateKeyPairSync",
 	    "supporting_call_ids": ["support-1"]
 	  }],
