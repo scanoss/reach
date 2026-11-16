@@ -24,6 +24,21 @@ REACH_TEST_CONTRACTS=/path/to/contracts go test ./callgraph/
 contracts, the layout `contracts.SetSource` reads. crypto-finder runs these
 tests against its KB with `make test-reach`.
 
+## What CI runs
+
+| Check | Step in `ci.yml` (job `build-test`) |
+|---|---|
+| Formatting | `gofmt` |
+| Build and vet | `Build`, `Vet` |
+| Import guard | `Import guard` (also in `Test`) |
+| All tests, race detector | `Test` |
+
+CI has no contracts KB, so the tests that need one skip here. They run in
+crypto-finder's `make test-reach` (job `guards` of its `test.yml`), against
+its crypto KB, on every pull request there. A reach change that breaks them
+shows up when crypto-finder takes the new tag, so run the command above
+against a KB before tagging.
+
 ## Rules
 
 | Rule | What it means | Enforced by |

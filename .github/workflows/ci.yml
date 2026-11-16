@@ -22,5 +22,10 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
+      # Also part of the full run below. Named so a breach reads as the import
+      # guard in the PR checks, and run on its own with -count=1 so a cached
+      # pass never hides a new import.
+      - name: Import guard
+        run: go test -count=1 -v ./internal/importguard/
       - name: Test
         run: go test -race ./...
