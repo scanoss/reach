@@ -1,41 +1,45 @@
 # reach
 
-reach is a Go library for static reachability analysis of source code. It
-parses a project and its dependencies, builds a function-level call graph with
-type resolution, and answers which application code reaches a given library
-call. It stores per-component graphs as reusable fragments and stitches a
-dependency closure of fragments back into root-to-call chains.
+reach is a Go library for static reachability analysis. It parses an
+application and its dependencies, builds a typed function-level call graph,
+and answers which application code reaches a given library function, with
+the call chains that prove it.
 
-reach holds no knowledge of any domain. A domain (an application built on
-reach) installs what it knows about library APIs as data: contracts that type
-calls, and hints that tune the parsers. The engine does the rest.
+reach knows nothing about any domain. An application built on it (a
+*domain*) supplies what it knows about library APIs as data, and decides
+which functions are targets. The first domain is
+[crypto-finder](https://github.com/scanoss/crypto-finder) (cryptography
+detection); reach was extracted from it at commit `08570a91`.
 
-reach was extracted from [crypto-finder](https://github.com/scanoss/crypto-finder)
-at commit `08570a91`, where it was the engine of its cryptography detection.
+## Quick path
+
+```sh
+go get github.com/scanoss/reach@v0.1.0
+```
+
+1. Install your knowledge base once, before the first build:
+   `contracts.SetSource(fsys)` (optional: `contracts.SetHints(...)`).
+2. Build the call graph of a directory:
+   `callgraph.NewBuilderForEcosystem(eco, callgraph.NewParserForEcosystem(eco)).BuildFromDirectories(...)`.
+3. Walk back from a target: `graph.Callers[target]` gives its callers.
+
+A runnable version is `ExampleSetSource` in
+[`callgraph/contracts/example_test.go`](callgraph/contracts/example_test.go).
+To reuse graphs across runs and stitch a dependency closure, see
+`ExampleStitch` in [`graphfrag/example_test.go`](graphfrag/example_test.go)
+and [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 
 ## What it does
 
-- **Language parsers** (tree-sitter): Java, Python, Go, JavaScript/TypeScript,
-  C, C++ and Rust. Each parser extracts declarations, call sites, imports and
-  type facts from source.
-- **Call graph**: `callgraph.Builder` parses package directories and links
-  call sites to declarations, including dispatch through interfaces,
-  supertypes and fluent chains. `CallGraph.Callers` is the reverse index that
-  reachability walks.
-- **Type resolution**: tree-sitter facts plus per-language resolvers (Java
-  bytecode and JDK platform signatures, Python dependency signatures, Go,
-  Node, C, C++ and Rust manifests), and return-type inference through
-  library contracts.
-- **Graph fragments** (`graphfrag`): the structural graph of one component,
-  serialized as JSON, plus a stitcher that composes the fragments of a
-  dependency closure into reachability chains, and the callgraph JSON
-  renderer.
-- **Reachability** (`graphwalk`): the backward traversal shared by the live
-  call graph and the stitcher.
-- **Entry points** (`callgraph/entrypoints`): a catalog of the functions that
-  web frameworks, task queues, CLI libraries and containers call, one YAML
-  file per framework, so that a chain can start at a route or handler rather
-  than at a function with no callers.
+| Capability | Where | Notes |
+|---|---|---|
+| Parse source | `callgraph` | tree-sitter parsers for Java, Python, Go, JavaScript/TypeScript, C, C++, Rust |
+| Build the call graph | `callgraph.Builder`, `CallGraph` | Links call sites to declarations, including dispatch through interfaces, supertypes and fluent chains. `CallGraph.Callers` is the reverse index. |
+| Resolve types | `callgraph` resolvers | Java bytecode and JDK platform signatures, Python dependency signatures, per-language manifests, and return types from library contracts |
+| Store one component's graph | `graphfrag` | The graph-fragment JSON format, encode and decode |
+| Stitch a dependency closure | `graphfrag.Stitch` | Composes stored fragments into root-to-target chains; renders the callgraph JSON |
+| Walk backwards | `graphwalk` | The traversal shared by the live graph and the stitcher |
+| Start chains at real entry points | `callgraph/entrypoints` | One embedded YAML file per framework (web, task queues, CLI, containers) |
 
 ## Packages
 
@@ -50,81 +54,34 @@ at commit `08570a91`, where it was the engine of its cryptography detection.
 | `paramcondition` | Parser for the `param[<selector>]<op><value>` condition grammar |
 | `purl` | Package URLs for dependency metadata |
 | `language` | Language detection of a directory (go-enry) |
-| `skip` | Which files and directories a walk skips (defaults, `.gitignore`-style user patterns, generated and built output) |
+| `skip` | Which files and directories a walk skips |
 | `javaruntime` | Java runtime selection for bytecode and platform signature indexing |
 | `perf` | Opt-in wall-clock, CPU and allocation timings of build phases |
 
-The layout is flat: every package sits at the module root, under the name it
-had in crypto-finder (`internal/callgraph` became `callgraph`, `pkg/graphfrag`
-became `graphfrag`). Applications import these packages, so none of them is
-under `internal/`. `language`, `skip`, `javaruntime` and `perf` are support
-packages the builder needs; grouping them under a `source/` directory would
-add a path segment without changing what imports what, so they stay flat.
-`internal/importguard` is a test-only package that keeps the module's imports
-inside the standard library, reach and the third-party modules it lists.
+How they fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Injecting domain knowledge
+## What a domain supplies
 
-reach ships no contracts. An application installs its knowledge base once,
-before the first build:
+| Input | API | Required |
+|---|---|---|
+| Library contracts (what a method returns, parameter roles, type hierarchy) | `contracts.SetSource(fs.FS)`, one directory per ecosystem of `*.yaml` | Yes, for typed calls into libraries |
+| Language-level hints | `contracts.SetHints(contracts.Hints{...})` | No |
+| Cache root for type indexes | `callgraph.NewDiskBytecodeIndexCache(root)`, `callgraph.NewDiskPythonSignatureIndexCache(root)` | No |
+| Targets (the functions whose reachability matters) | Walk from them in `CallGraph.Callers`, or attach them to fragments before `Stitch` | Yes |
 
-- `contracts.SetSource(fsys fs.FS)`: one directory per ecosystem (`java`,
-  `python`, `go`, `node`, `c`, `cpp`, `rust`), each holding the `*.yaml`
-  contract files of that ecosystem. A contract states what a library method
-  returns, its parameter roles and the type hierarchy, so the builder can type
-  calls into that library.
-- `contracts.SetHints(contracts.Hints{...})`: language-level hints, such as
-  which package a Java wildcard import resolves a simple class name to, and
-  which declared return types are vague enough for inference to refine.
-
-A minimal example (it runs as `ExampleSetSource` in
-`callgraph/contracts/example_test.go`):
-
-```go
-contracts.SetSource(fstest.MapFS{
-	"python/werkzeug.yaml": &fstest.MapFile{Data: []byte(`schema_version: "2"
-ecosystem: python
-library:
-  name: werkzeug
-  coordinates: [Werkzeug]
-  version_range: ">=2.3,<4.0"
-contracts:
-  - method: werkzeug.security.generate_password_hash
-    arity: 1
-    return: { type: builtins.str, confidence: high }
-    role: output
-hierarchy:
-  builtins.str: [builtins.object]
-  builtins.object: []
-`)},
-})
-
-builder := callgraph.NewBuilderForEcosystem("python", callgraph.NewParserForEcosystem("python"))
-graph, err := builder.BuildFromDirectories([]callgraph.PackageDir{{Dir: dir}}, nil)
-if err != nil {
-	return err
-}
-// graph.Callers["werkzeug.security.generate_password_hash"] == ["app.store"]
-// graph.Callers["app.store"] == ["app.signup"]
-```
-
-An application typically embeds its YAML with `go:embed` and calls
-`SetSource` and `SetHints` from an `init` function of its knowledge-base
-package, so that importing that package is enough to install it.
+Details and a worked example: [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 
 ## Domains
 
-- **Cryptography**: [crypto-finder](https://github.com/scanoss/crypto-finder)
-  installs its crypto KB (`internal/cryptokb`) and reports which cryptographic
-  calls the application reaches.
+| Domain | Status |
+|---|---|
+| Cryptography: [crypto-finder](https://github.com/scanoss/crypto-finder) | In production. Installs its crypto KB from `internal/cryptokb`. |
+| Vulnerability reachability (does the application reach a dependency's vulnerable function) | Possible with the current API; not built |
+| AI usage detection (does it reach a model or provider SDK call) | Possible with the current API; not built |
 
-The engine is not specific to cryptography. It is designed to serve other
-domains the same way, among them vulnerability reachability (does the
-application reach the vulnerable function of a dependency) and AI usage
-detection (does it reach a model or provider SDK call). Some names still carry
-the crypto origin: the graph-fragment JSON keys `crypto_*`, Go identifiers such
-as `CryptoCall`, and doc comments. The JSON keys and schema versions are a
-stored format and stay as they are.
+Some names still carry the crypto origin: the graph-fragment JSON keys
+`crypto_*`, Go identifiers such as `CryptoCall` and `CryptoOperation`, and
+doc comments. The JSON keys are a stored format and stay as they are.
 
 ## Building and testing
 
@@ -134,27 +91,35 @@ go vet ./...
 go test ./...
 ```
 
-Go 1.26.
+Requires Go 1.26.
 
-Many `callgraph` tests type calls through library contracts and were written
-against crypto-finder's crypto KB. reach does not carry it, so those tests skip
-unless `REACH_TEST_CONTRACTS` names a contracts directory:
+Many `callgraph` tests type calls through library contracts. reach carries
+no contracts, so those tests skip unless `REACH_TEST_CONTRACTS` names a
+contracts directory (one subdirectory per ecosystem):
 
 ```sh
-REACH_TEST_CONTRACTS=/path/to/crypto-finder/internal/cryptokb go test ./callgraph/
+REACH_TEST_CONTRACTS=/path/to/contracts go test ./callgraph/
 ```
 
-crypto-finder runs them this way (`make test-reach`).
+crypto-finder runs them against its KB with `make test-reach`.
 
 ## Stability
 
-reach has no tagged release yet, and its API may change between commits.
-The graph-fragment and callgraph JSON formats carry their own schema versions
-(`graphfrag.SchemaVersion`, `graphfrag.CallgraphSchemaVersion`) and graph
-algorithm ids (`graphfrag.GraphAlgoVersion`, `graphfrag.GraphAlgoVersionPython`);
-a change to what they mean bumps them.
+| Item | Status |
+|---|---|
+| Go API | `v0.x`: may change between minor releases |
+| Graph-fragment JSON | Versioned by `graphfrag.SchemaVersion` |
+| Callgraph JSON | Versioned by `graphfrag.CallgraphSchemaVersion` and `CallgraphInternedSchemaVersion` |
+| Graph construction | Versioned per ecosystem by `graphfrag.GraphAlgoVersion` and `GraphAlgoVersionPython` |
+
+Why the stored formats must stay stable, and when each id bumps:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#schema-versioning).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Third-party dependencies keep their own licenses
-(`go list -m all` lists them).
+MIT. See [LICENSE](LICENSE). Third-party dependencies keep their own
+licenses (`go list -m all` lists them).
