@@ -1,0 +1,193 @@
+// Copyright (C) 2026 SCANOSS.COM
+// SPDX-License-Identifier: MIT
+
+package graphfrag
+
+import "strings"
+
+// GraphAlgoVersionPython identifies the callgraph-construction algorithm of
+// Python graphs. Python has its own id so a change to Python graph
+// construction never marks a Java graph stale: consumers compare a stored
+// graph's graph_algo_version with GraphAlgoVersionFor of its ecosystem.
+//
+// graph-algo-py-1: the Python graphs of graph-algo-37, under their own id.
+// graph-algo-py-2: defs and classes inside module-level if / try / with
+// blocks, and classes nested in a class body, are in the graph; a name
+// defined twice in one file keeps both bodies' calls.
+// graph-algo-py-3: Python classes carry their resolved bases as supertypes.
+// graph-algo-py-4: self / cls / super() calls and class instantiations are
+// edges to the declaration the method resolution order gives.
+// graph-algo-py-5: dunder methods whose body makes a call are graph functions.
+// graph-algo-py-6: calls of builtins (len, isinstance, ValueError, ...) are
+// not exported as calls of the caller's module.
+// graph-algo-py-7: a method called on an imported class object
+// (`Signer.default()`) is an edge to its declaration.
+// graph-algo-py-8: a method called on a local typed after the caller index
+// (`key = ec.generate_private_key(..)` then `key.sign(..)`) has one site, at
+// the typed key, with its text, receiver and arguments.
+// graph-algo-py-9: a comment inside a call's argument list is not glued onto
+// an argument.
+// graph-algo-py-10: a call nothing typed (a method on a duck-typed receiver,
+// a call of a parameter) is name_only, and a subclass-dispatch edge is
+// interface_dispatch.
+// graph-algo-py-11: super() calls and class instantiations do not dispatch to
+// subclass overrides.
+// graph-algo-py-12: a call on a receiver whose text holds a call with
+// arguments (`b64encode(x).decode("utf-8").replace(..)`) keeps its site's
+// text, arguments and resolution.
+// graph-algo-py-13: a generator expression passed as a call's only argument
+// (`s.update(k for k in xs)`) is the call's argument.
+// graph-algo-py-14: a call on `self.<field>` is typed with the class every
+// write of the field that can reach self names (assignments, annotations,
+// properties), across the methods of the class hierarchy.
+// graph-algo-py-15: parameter and return annotations name the class where they
+// are written (module classes, imports, builtin classes); a class, function or
+// method named through another module's import links to its declaration; an
+// `async def` call types no local.
+// graph-algo-py-16: a local built from a class that declares no method of its
+// own is typed with that class.
+// graph-algo-py-17: a field's own annotation decides its class; a field
+// assigned an attribute of a typed value, self or `cast(C, v)` is typed;
+// `self.a.b` receivers are typed field by field; a write on an annotated
+// receiver reaches only that class's fields.
+// graph-algo-py-18: a keyword argument carries its keyword, apart from its
+// value, at its place in the call.
+// graph-algo-py-19: fragments list each file's import bindings (`imports`).
+// graph-algo-py-20: fragments map the component's public names to the
+// declarations they name (`exports`).
+// graph-algo-py-21: a package's own binding of a name shadows its submodule
+// of that name in the exports (github.GithubException is the class).
+// graph-algo-py-22: a keyword argument whose value spans lines carries its
+// keyword too.
+// graph-algo-py-23: fragments list the constants Python code references
+// outside a call (`constant_refs`: attribute chains rooted in an import,
+// from-imported names, dotted case patterns) with their position and the
+// operand a comparison, membership test or case compares them with; a
+// module or class body with references and no call gets its synthetic
+// function.
+// graph-algo-py-24: fragments list the assignments to an attribute of an
+// object (`attribute_stores`: `ctx.verify_mode = ssl.CERT_NONE`) with the
+// value traced; a local or module name written more than once carries the
+// string literals it may hold (`may_values`, exhaustive when every write is
+// one).
+// graph-algo-py-25: fragments list annotated assignments as declarations and
+// `typing.cast(T, f(..))` as casts; methods decorated @abstractmethod, stubs
+// of a Protocol class and bodies that only raise NotImplementedError are
+// abstract, and scan_metadata.abstract_methods says so.
+// graph-algo-py-26: fragments carry the graph-fragment-1.21 call data (call
+// anchors with target, text, arguments and their provenance, parameter
+// names, return provenance) and rebind_lines (1.23), so a source-free
+// annotate rebuilds the calls a scan reads.
+// graph-algo-py-27: `self.f = g(..)` is no attribute store: the call's
+// assigned_var names the field.
+// graph-algo-py-28: inside a branch guarded by `v == X`, `v in (X, Y)` or
+// `case X` / `case X | Y` of `match v`, an argument or compared operand v
+// traces to X (a VALUE, or the may-values X and Y); a dotted `case` pattern
+// binds no name of its function.
+// graph-algo-py-29: a method's parameter and a keyword-only parameter are
+// PARAMETER sources: a method's at the position the caller writes it (self
+// or cls left out), a keyword-only one at -1, read by its name.
+// graph-algo-py-30: a subscript of a dispatch table (a dict display with
+// literal keys, in place or through a name bound once to it) whose key
+// resolves traces to the value of the entry the key selects.
+// graph-algo-py-31: a field compared with a constant (`self.f == X`) carries
+// the fixed values its class assigns to it.
+// graph-algo-py-32: a local or module name bound once to a dotted name rooted
+// in an import (`variant = Type.ID`) traces to that name, as one bound to a
+// literal traces to the literal.
+// graph-algo-py-33: a read of a table the function itself writes or binds,
+// with a key that does not resolve, carries the values of the table's
+// entries as may-values; a local bound once to a table read traces to it.
+// graph-algo-py-34: a table handed to other code (passed as an argument,
+// aliased, returned, put in a display) is no fixed table: its reads keep no
+// value, as for one whose items the file writes.
+// graph-algo-py-35: fragments list the bindings of each local a function
+// binds more than once with a call among the values (`local_bindings`), so a
+// reader tells which assignment of a local reaches a use; a name bound once
+// to a list or tuple of literals (`algs = ["HS256"]`) traces to its display;
+// each target of a tuple pattern assigned a call is listed with its element.
+// graph-algo-py-36: a constant reference tested by isinstance / issubclass
+// has the position type_check (E2.7-py.15).
+// graph-algo-py-37: import-time edges: a module's `<module>` (created for a
+// module that only imports or defines classes) calls the `<module>` of each
+// module it imports and of the packages on its path, a function each module
+// it imports in its body, and `<module>` the `<clinit>` of its classes; none
+// under `if TYPE_CHECKING:`, from a stub, or into the standard library
+// (E2.7-py.24).
+// graph-algo-py-38: a class handed around as a value (stored in a table,
+// passed, returned, raised, assigned; not tested, caught or annotated) gets
+// a name_only edge from the function reading it to `pkg.(K).<class>`
+// (E2.7-py.24).
+// graph-algo-py-39: fragments map the names a package's `__init__.py`
+// imports to the modules that declare them (`public_paths`), so annotate
+// surfaces a library's API declared behind a re-export as a scan does
+// (E2.7-py.21b; numbered 37 on its own branch).
+// graph-algo-py-40: a module statement writing a field on a module-level
+// object (`_obj.f = v`, the module binding _obj once, to a call) is a write
+// on the instances of the object's class, and a module-level object as the
+// value tells that class: the field stays typed when the writes agree
+// (pyjwt's `self._jws`), instead of untyped for any write off self
+// (E2.7-py.26).
+const GraphAlgoVersionPython = pythonGraphAlgoPrefix + "40"
+
+// pythonGraphAlgoPrefix starts every Python graph algorithm id: a fragment
+// stamped with one is a Python graph.
+const pythonGraphAlgoPrefix = "graph-algo-py-"
+
+// GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
+// (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
+// stamped with and checked against. Java and every ecosystem without an id
+// of its own get GraphAlgoVersion; so does "", the ecosystem of a fragment
+// written before scan_metadata named one.
+func GraphAlgoVersionFor(ecosystem string) string {
+	if ecosystem == "python" {
+		return GraphAlgoVersionPython
+	}
+	return GraphAlgoVersion
+}
+
+// GraphAlgoVersionForPurl is GraphAlgoVersionFor of the purl's ecosystem.
+func GraphAlgoVersionForPurl(purl string) string {
+	return GraphAlgoVersionFor(EcosystemForPurl(purl))
+}
+
+// EcosystemForPurl is crypto-finder's ecosystem name for a purl's type, or ""
+// for a type crypto-finder has no ecosystem for.
+func EcosystemForPurl(purl string) string {
+	switch {
+	case strings.HasPrefix(purl, "pkg:maven/"):
+		return "java"
+	case strings.HasPrefix(purl, "pkg:golang/"):
+		return "go"
+	case strings.HasPrefix(purl, "pkg:pypi/"):
+		return "python"
+	case strings.HasPrefix(purl, "pkg:cargo/"):
+		return "rust"
+	default:
+		return ""
+	}
+}
+
+// GraphEcosystem is the ecosystem of the graph the export carries: the one its
+// scan metadata names, else the one its graph algorithm id names when that id
+// is an ecosystem's own (Python), else "" (a graph written before scan
+// metadata named an ecosystem: Java's).
+func (e *GraphFragmentExport) GraphEcosystem() string {
+	if e.ScanMetadata.Ecosystem != "" {
+		return e.ScanMetadata.Ecosystem
+	}
+	if strings.HasPrefix(e.ScanMetadata.GraphAlgoVersion, pythonGraphAlgoPrefix) {
+		return "python"
+	}
+	return ""
+}
+
+// fragmentEcosystem is the ecosystem of the graph a fragment carries: the one
+// its graph algorithm id names when that id is an ecosystem's own (Python),
+// else its component's purl's.
+func fragmentEcosystem(fragment Fragment) string {
+	if strings.HasPrefix(fragment.GraphAlgoVersion, pythonGraphAlgoPrefix) {
+		return "python"
+	}
+	return EcosystemForPurl(fragment.Component.Purl)
+}

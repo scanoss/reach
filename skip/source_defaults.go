@@ -1,0 +1,169 @@
+// Copyright (C) 2026 SCANOSS.COM
+// SPDX-License-Identifier: MIT
+
+package skip
+
+// DefaultSkippedDirs contains commonly excluded directories across projects.
+var DefaultSkippedDirs = []string{
+	"nbproject",
+	"nbbuild",
+	"nbdist",
+	"__pycache__",
+	"venv",
+	"_yardoc",
+	"eggs",
+	"wheels",
+	"htmlcov",
+	"__pypackages__",
+	// "example" and "examples" stay out of this list on purpose. They are
+	// fingerprinting-noise filters: a gitignore-style "example" match drops
+	// every path segment of that name, including Java com.example packages
+	// and shipped SDK samples. Crypto inventory has to see those files.
+	// Operators who still want them excluded can pass --exclude.
+	"docs",
+	"doc",
+	"node_modules",
+	"dist",
+	"build",
+	"target",
+	"vendor",
+	// Relocated copies of another artifact (Maven shade, grpc-xds Envoy
+	// protobufs). Authored crypto does not live under this segment.
+	"shaded",
+}
+
+// DefaultSkippedGeneratedPatterns are gitignore-style globs for compiler
+// generated stubs that sit beside authored sources. --no-default-exclusions
+// drops these with the rest of the built-in list. Protobuf runtimes that
+// *are* the scanned artifact are kept by NewMatcher, not by omitting these
+// globs.
+var DefaultSkippedGeneratedPatterns = []string{
+	"**/*OuterClass.java",
+	"**/*_pb2.py",
+	"**/*_pb2_grpc.py",
+	"**/*.pb.go",
+	"**/zz_generated*.go",
+	"**/*_pb.js",
+	"**/*_pb.ts",
+	"**/*.pb.cc",
+	"**/*.pb.h",
+	"**/*.grpc.pb.cc",
+	"**/*.grpc.pb.h",
+}
+
+// DefaultSkippedTestPatterns contains gitignore-style patterns for excluding test sources.
+var DefaultSkippedTestPatterns = []string{
+	"test/",
+	"tests/",
+	"src/test/",
+	"src/tests/",
+	"__tests__/",
+	"**/*Test.java",
+	"**/*Tests.java",
+	"**/*_test.go",
+	"**/test_*.py",
+}
+
+// DefaultSkippedCTestPatterns are C/C++ test, benchmark and known-answer
+// generator sources a vendored library ships beside its product code but never
+// compiles into it. They apply only through CTestPatternsFor.
+var DefaultSkippedCTestPatterns = []string{
+	"**/test.c", "**/tests.c", "**/test_*.c",
+	"**/*_test.c", "**/*_tests.c", "**/bench.c",
+	"**/bench_*.c", "**/*_bench.c", "**/genkat.c",
+	"**/test.cc", "**/tests.cc", "**/test_*.cc",
+	"**/*_test.cc", "**/*_tests.cc", "**/bench.cc",
+	"**/bench_*.cc", "**/*_bench.cc", "**/genkat.cc",
+	"**/test.cpp", "**/tests.cpp", "**/test_*.cpp",
+	"**/*_test.cpp", "**/*_tests.cpp", "**/bench.cpp",
+	"**/bench_*.cpp", "**/*_bench.cpp", "**/genkat.cpp",
+}
+
+// defaultDirMatcher is the shared matcher for DefaultSkippedDirs. Directory
+// walks (language detection, callgraph, crate indexing) consult this instead
+// of per-language skip lists. File-level generated-stub policy lives on
+// NewDefaultMatcher, which includes these directory names.
+var defaultDirMatcher = NewGitIgnoreMatcher(DefaultSkippedDirs)
+
+// DefaultDirMatcher returns the matcher for the built-in skipped directories.
+func DefaultDirMatcher() SkipMatcher {
+	return defaultDirMatcher
+}
+
+// DefaultsSource provides the built-in default skip patterns.
+// These patterns cover excluded directories and generated-stub globs.
+type DefaultsSource struct {
+	// rescued holds the built-output directory names that must stay in the
+	// scan for this target because they hold its only source. Empty for a
+	// source built without a target, which keeps the defaults verbatim.
+	rescued []string
+}
+
+// NewDefaultsSource creates a new source that returns the built-in default patterns.
+//
+// Returns:
+//   - *DefaultsSource: Source providing default skip patterns
+func NewDefaultsSource() *DefaultsSource {
+	return &DefaultsSource{}
+}
+
+// NewDefaultsSourceForTarget creates a defaults source aware of what targetDir
+// actually contains: a built-output directory that holds the target's only
+// source is dropped from the exclusions, because excluding it would make the
+// scan read nothing. See BuiltOutputOnlySource. The directory walk happens
+// once, here, so Load and Rescued agree and neither repeats it.
+func NewDefaultsSourceForTarget(targetDir string) *DefaultsSource {
+	return &DefaultsSource{rescued: BuiltOutputOnlySource(targetDir)}
+}
+
+// Rescued returns the built-output directory names this source left in the
+// scan, for logging. Nil when the defaults apply unchanged.
+func (d *DefaultsSource) Rescued() []string {
+	return d.rescued
+}
+
+// Load returns the built-in skip patterns (directories plus generated-stub globs).
+// This source never fails - it always returns the built-in defaults.
+//
+// Returns:
+//   - []string: Default skip patterns
+//   - error: Always nil (included for interface compatibility)
+func (d *DefaultsSource) Load() ([]string, error) {
+	return withoutPatterns(DefaultPatterns(), d.rescued), nil
+}
+
+// DefaultPatterns returns the built-in directory names plus generated-stub
+// globs. Callers that currently splice DefaultSkippedDirs should use this
+// when they want the full default skip policy.
+func DefaultPatterns() []string {
+	out := make([]string, 0, len(DefaultSkippedDirs)+len(DefaultSkippedGeneratedPatterns))
+	out = append(out, DefaultSkippedDirs...)
+	out = append(out, DefaultSkippedGeneratedPatterns...)
+	return out
+}
+
+// Name returns a descriptive name for this pattern source.
+func (d *DefaultsSource) Name() string {
+	return "defaults"
+}
+
+// WithDefaultTestPatterns appends the built-in test skip patterns and deduplicates the result.
+func WithDefaultTestPatterns(patterns []string) []string {
+	combined := append(append([]string{}, patterns...), DefaultSkippedTestPatterns...)
+	return dedupePatterns(combined)
+}
+
+// dedupePatterns removes empty and repeated patterns, keeping the first
+// occurrence of each in order.
+func dedupePatterns(patterns []string) []string {
+	seen := make(map[string]bool, len(patterns))
+	result := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		if pattern == "" || seen[pattern] {
+			continue
+		}
+		seen[pattern] = true
+		result = append(result, pattern)
+	}
+	return result
+}
