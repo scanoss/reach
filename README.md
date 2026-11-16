@@ -14,7 +14,7 @@ detection); reach was extracted from it at commit `08570a91`.
 ## Quick path
 
 ```sh
-go get github.com/scanoss/reach@v0.1.0
+go get github.com/scanoss/reach@v0.1.1
 ```
 
 1. Install your knowledge base once, before the first build:
