@@ -24,13 +24,13 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "positional exact value match",
-			raw:  "param[0]==true",
+			raw:  "param[0]==yes",
 			want: Condition{
-				Raw:      "param[0]==true",
+				Raw:      "param[0]==yes",
 				Selector: Selector{Index: intPtr(0)},
 				Operator: OpExact,
 				Match:    MatchValue,
-				Value:    "true",
+				Value:    "yes",
 			},
 		},
 		{
@@ -182,9 +182,9 @@ func TestParseAll(t *testing.T) {
 	}{
 		{
 			name: "two comma-joined predicates",
-			raw:  "param[0]==true,param[1]==256",
+			raw:  "param[0]==yes,param[1]==256",
 			want: []Condition{
-				{Raw: "param[0]==true", Selector: Selector{Index: intPtr(0)}, Operator: OpExact, Match: MatchValue, Value: "true"},
+				{Raw: "param[0]==yes", Selector: Selector{Index: intPtr(0)}, Operator: OpExact, Match: MatchValue, Value: "yes"},
 				{Raw: "param[1]==256", Selector: Selector{Index: intPtr(1)}, Operator: OpExact, Match: MatchValue, Value: "256"},
 			},
 		},
@@ -204,9 +204,9 @@ func TestParseAll(t *testing.T) {
 		},
 		{
 			name: "whitespace around comma-separated predicates is trimmed",
-			raw:  " param[0]==true , param[1]==256 ",
+			raw:  " param[0]==yes , param[1]==256 ",
 			want: []Condition{
-				{Raw: "param[0]==true", Selector: Selector{Index: intPtr(0)}, Operator: OpExact, Match: MatchValue, Value: "true"},
+				{Raw: "param[0]==yes", Selector: Selector{Index: intPtr(0)}, Operator: OpExact, Match: MatchValue, Value: "yes"},
 				{Raw: "param[1]==256", Selector: Selector{Index: intPtr(1)}, Operator: OpExact, Match: MatchValue, Value: "256"},
 			},
 		},
@@ -241,15 +241,15 @@ func TestParseAllMalformedSeparators(t *testing.T) {
 	}{
 		{
 			name: "concatenated predicates without comma separator",
-			raw:  "param[0]==trueparam[1]==256",
+			raw:  "param[0]==yesparam[1]==256",
 		},
 		{
 			name: "space-separated predicates without comma",
-			raw:  "param[0]==true param[1]==256",
+			raw:  "param[0]==yes param[1]==256",
 		},
 		{
 			name: "leading text before first predicate",
-			raw:  "xx param[0]==true",
+			raw:  "xx param[0]==yes",
 		},
 	}
 
@@ -275,7 +275,7 @@ func TestSelectorJSONNullRoundTrip(t *testing.T) {
 	t.Run("positional selector renders name as null", func(t *testing.T) {
 		t.Parallel()
 
-		cond, err := Parse("param[0]==true")
+		cond, err := Parse("param[0]==yes")
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}

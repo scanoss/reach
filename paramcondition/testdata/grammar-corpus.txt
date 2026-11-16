@@ -21,7 +21,7 @@ param[Layout]~=GRID_(2|3|4)
 param[0]=="hello"
 param[0]==example.Constant
 param[1]==example.OtherConstant
-param[0]==true
-param[0]==false
+param[0]==yes
+param[0]==no
 param[0]==Plain
 param[0]==With-Dash
