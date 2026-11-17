@@ -103,14 +103,32 @@ type goSourceIndex struct {
 // goSourcePackage holds one package's exported value types and result types,
 // each written `[*]<import path>.<Type>`; "" for a builtin or untraced type.
 type goSourcePackage struct {
-	types   map[string]bool              // declared type names
-	values  map[string]string            // package-level var or const -> type
-	funcs   map[string]string            // function -> first result type
-	methods map[string]map[string]string // receiver type (no *) -> method -> first result type
+	types      map[string]bool              // declared type names
+	interfaces map[string]bool              // declared interface type names
+	values     map[string]string            // package-level var or const -> type
+	funcs      map[string]string            // function -> first result type
+	methods    map[string]map[string]string // receiver type (no *) -> method -> first result type
 }
 
 func newGoSourceIndex(roots []GoSourceRoot) *goSourceIndex {
 	return &goSourceIndex{roots: roots, packages: map[string]*goSourcePackage{}}
+}
+
+func (x *goSourceIndex) isInterface(pkg, typ string) bool {
+	if p := x.pkg(pkg); p != nil {
+		return p.interfaces[strings.TrimLeft(typ, "*")]
+	}
+	return false
+}
+
+// GoInterfaceCall reports a Go call whose callee is a method of an interface
+// type a read package declares (`crypto/cipher.(AEAD).Seal`): it names no
+// implementation, so it identifies no target by itself.
+func (g *CallGraph) GoInterfaceCall(call *FunctionCall) bool {
+	if g == nil || g.goSourceTypes == nil || call == nil || call.Callee.Type == "" {
+		return false
+	}
+	return g.goSourceTypes.isInterface(call.Callee.Package, call.Callee.Type)
 }
 
 func (x *goSourceIndex) valueType(pkg, name string) string {
@@ -173,7 +191,7 @@ func (x *goSourceIndex) dirOf(path string) string {
 }
 
 func parseGoSourcePackage(dir, path string) *goSourcePackage {
-	p := &goSourcePackage{types: map[string]bool{}, values: map[string]string{}, funcs: map[string]string{}, methods: map[string]map[string]string{}}
+	p := &goSourcePackage{types: map[string]bool{}, interfaces: map[string]bool{}, values: map[string]string{}, funcs: map[string]string{}, methods: map[string]map[string]string{}}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return p
@@ -218,6 +236,9 @@ func parseGoSourcePackage(dir, path string) *goSourcePackage {
 					for _, spec := range d.Specs {
 						if ts, ok := spec.(*ast.TypeSpec); ok {
 							p.types[ts.Name.Name] = true
+							if _, iface := ts.Type.(*ast.InterfaceType); iface {
+								p.interfaces[ts.Name.Name] = true
+							}
 						}
 					}
 					continue

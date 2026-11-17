@@ -220,7 +220,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // graph-algo-go-8: with a GoSourceTypeResolver, a call on an imported package
 // value or on a local bound from a call into a read package is typed from
 // that package's declarations.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "8"
+// graph-algo-go-9: a call on an interface value of a read package outside the
+// graph (`aead.Seal` on a crypto/cipher.AEAD) is exported name_only.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "9"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.

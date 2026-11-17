@@ -37,6 +37,10 @@ func Open(name string) (*Key, error) { return &Key{}, nil }
 func (k *Key) Public() *Key { return k }
 
 func (k *Key) Use() {}
+
+type Sealer interface{ Seal([]byte) []byte }
+
+func NewSealer() Sealer { return nil }
 `
 
 const goSourceTypesApp = `package app
@@ -49,6 +53,8 @@ func run() {
 	k, _ := dep.Open("x")
 	pub := k.Public()
 	pub.Use()
+	s := dep.NewSealer()
+	s.Seal(nil)
 }
 `
 
@@ -84,7 +90,16 @@ func TestGoSourceTypeResolver(t *testing.T) {
 			got[c.Raw] = c.Callee.String()
 		}
 	}
+	for _, fn := range graph.Functions {
+		for i := range fn.Calls {
+			c := &fn.Calls[i]
+			if iface := graph.GoInterfaceCall(c); iface != (c.Raw == "s.Seal") {
+				t.Errorf("%s: GoInterfaceCall = %v, want it only for the call on the interface value", c.Raw, iface)
+			}
+		}
+	}
 	for raw, want := range map[string]string{
+		"s.Seal":                 "example.com/dep.(Sealer).Seal",
 		"dep.StdEncoding.Strict": "example.com/dep.(*Encoding).Strict",
 		"dep.B.New":              "example.com/dep.(Hash).New",
 		"k.Public":               "example.com/dep.(*Key).Public",
