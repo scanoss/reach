@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -97,4 +98,49 @@ const hash = H.sha256;
 	if got[0].TargetKey != "app.sha256" || strings.Join(got[0].CandidateModules, " ") != "acme-h/sha256 acme-h/sha3" {
 		t.Errorf("read = %+v, want app.sha256 with candidates acme-h/sha256 acme-h/sha3", got[0])
 	}
+}
+
+// A call or read on a chain the merged variable heads, whatever its length,
+// lists the same candidate modules as a call on the variable itself, its key
+// unchanged. A chain headed by another variable lists none.
+func TestNodeMergedModuleChainListsCandidateModules(t *testing.T) {
+	t.Parallel()
+
+	graph := buildNodeGraph(t, `const H = Object.assign({}, require('acme-h/sha256'), require('acme-h/sha3'));
+const other = makeOther();
+H.sha256.create();
+H.sha256.create().update(1);
+H.sha3.keccak_256(2);
+other.sha256.create();
+const n = H.sha256.outputLen;
+const m = other.sha256.outputLen;
+`)
+	calls := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, call := range fn.Calls {
+			calls[fmt.Sprintf("%d:%s", call.Line, call.Callee.Name)] = call.Callee.String() + " [" + strings.Join(call.CandidateModules, " ") + "]"
+		}
+	}
+	want := map[string]string{
+		"3:create":     "app.create [acme-h/sha256 acme-h/sha3]",
+		"4:create":     "app.create [acme-h/sha256 acme-h/sha3]",
+		"4:update":     "app.update [acme-h/sha256 acme-h/sha3]",
+		"5:keccak_256": "app.keccak_256 [acme-h/sha256 acme-h/sha3]",
+		"6:create":     "app.create []",
+	}
+	for at, w := range want {
+		if calls[at] != w {
+			t.Errorf("call %s = %q, want %q", at, calls[at], w)
+		}
+	}
+	reads := map[int]string{}
+	for _, list := range graph.NodePropertyReads {
+		for _, read := range list {
+			reads[read.Line] = read.TargetKey + " [" + strings.Join(read.CandidateModules, " ") + "]"
+		}
+	}
+	assertNodeCallees(t, reads, map[int]string{
+		7: "app.outputLen [acme-h/sha256 acme-h/sha3]",
+		8: "app.outputLen []",
+	})
 }

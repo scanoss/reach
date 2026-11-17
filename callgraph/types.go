@@ -395,8 +395,9 @@ type GoFieldType struct {
 // FunctionCall represents a call expression within a function body.
 type FunctionCall struct {
 	// CandidateModules lists, sorted and unique, the module specifiers a Node
-	// member call's receiver may hold the member from when the receiver is a
-	// variable bound to an object that merges several modules
+	// member call's receiver may hold the member from when the receiver is,
+	// or is a chain headed by (`H.sha256.create()`), a variable bound to an
+	// object that merges several modules
 	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`). The
 	// key stays caller-local, since it cannot name one module; the candidates
 	// are the modules the receiver may hold the member from. Nil otherwise.

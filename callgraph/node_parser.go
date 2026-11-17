@@ -1357,9 +1357,33 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 	boundByImport := requiredObject || (object.Type() != nodeCallExpression && importedObject)
 	call.nodeUnboundMember = !boundByImport && call.Callee.Type == ""
 	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) {
-		call.CandidateModules = p.nodeMergedModules(object)
+		call.CandidateModules = p.nodeMergedModules(nodeMemberChainHead(object))
 	}
 	return call
+}
+
+// nodeMemberChainHead is the expression a member chain starts at, through
+// member reads, string-literal indexes and calls: `H` for `H.sha256`,
+// `H.sha256.create()` and `H['sha3'].keccak_256`. An expression that is not a
+// chain is its own head.
+func nodeMemberChainHead(node *sitter.Node) *sitter.Node {
+	for node != nil {
+		var next *sitter.Node
+		switch node.Type() {
+		case nodeMemberExpression, nodeSubscriptExpression:
+			next = node.ChildByFieldName("object")
+		case nodeCallExpression:
+			next = node.ChildByFieldName("function")
+			if next != nil {
+				next = unwrapNodeCallee(next)
+			}
+		}
+		if next == nil {
+			return node
+		}
+		node = next
+	}
+	return nil
 }
 
 // heldModuleReceiver keys a member call on a module binding the file holds

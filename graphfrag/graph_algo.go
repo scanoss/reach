@@ -216,7 +216,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // name's calls as the member's, as const and let ones did (was caller-local).
 // A call or read on a variable bound to an object merging several modules
 // (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`) keeps
-// its caller-local key and lists the modules (CandidateModules).
+// its caller-local key and lists the modules (CandidateModules), and so does
+// every call or read on a chain the variable heads (`H.sha256.create()`,
+// `H.sha256.outputLen`).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

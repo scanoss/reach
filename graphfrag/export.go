@@ -197,7 +197,8 @@ import (
 // object decodes with none. 1.29 also adds candidate_modules to an external
 // call and a property read (Node): the modules a receiver bound to an object
 // merging several modules (Object.assign of modules, or a spread of them) may
-// hold the member from, its key left caller-local.
+// hold the member from, its key left caller-local, on a member of the
+// variable or on any longer chain it heads (`H.sha256.create()`).
 const SchemaVersion = "graph-fragment-1.29"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
@@ -1314,8 +1315,9 @@ type GraphFragmentExternal struct {
 	// did not resolve a concrete type, or on fragments exported with schema < 1.6.
 	ResolvedReceiverType string `json:"resolved_receiver_type,omitempty"`
 	// CandidateModules (1.29, Node) lists, sorted and unique, the module
-	// specifiers the call's receiver may hold the member from when it is a
-	// variable bound to an object merging several modules
+	// specifiers the call's receiver may hold the member from when it is, or
+	// is a chain headed by (`H.sha256.create()`), a variable bound to an
+	// object merging several modules
 	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`), the
 	// graph's FunctionCall.CandidateModules. target_key stays caller-local,
 	// since it cannot name one module; the candidates are the modules the
