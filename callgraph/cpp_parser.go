@@ -93,6 +93,7 @@ func (p *CPPParser) parseFile(filePath, packagePath string) (*FileAnalysis, erro
 	collectCPPStaticFunctions(tree.RootNode(), src, staticFunctions)
 	collectCPPDeclaredTypes(tree.RootNode(), src, "", analysis.DeclaredTypes)
 	p.walkFile(tree.RootNode(), src, filePath, packagePath, "", staticFunctions, analysis.DeclaredTypes, analysis)
+	analysis.CStrings = cStringLiterals(tree.RootNode(), src)
 	return analysis, nil
 }
 

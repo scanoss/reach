@@ -304,7 +304,9 @@ const goGraphAlgoPrefix = "graph-algo-go-"
 // directive's text and span, and whether it sits in a preprocessor
 // conditional; a declaration of a name another declaration of the package
 // already holds (alternative backends, #if/#else bodies) is kept under a key
-// scoped to its file (and line) instead of being dropped.
+// scoped to its file (and line) instead of being dropped; and each project
+// file's string literals (`strings`, the graph's CStrings: the literal as
+// written and its span, at most 256 bytes each).
 const GraphAlgoVersionC = cGraphAlgoPrefix + "1"
 
 // cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped
@@ -315,8 +317,9 @@ const cGraphAlgoPrefix = "graph-algo-c-"
 // graphs, apart from C's and every other ecosystem's.
 //
 // graph-algo-cpp-1: the C++ graphs of graph-algo-39, under their own id, with
-// each project file's #include directives as graph-algo-c-1 lists C's, and
-// redefinitions kept as graph-algo-c-1 keeps them.
+// each project file's #include directives and string literals as
+// graph-algo-c-1 lists C's, and redefinitions kept as graph-algo-c-1 keeps
+// them.
 const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "1"
 
 // cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped

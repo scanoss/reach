@@ -506,6 +506,11 @@ type GraphFragmentExport struct {
 	// BinaryExprs are, by file path, the binary expressions of each scanned
 	// Rust file's function bodies, in source order (1.30, Rust).
 	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
+	// Strings are, by file path, the string literals each scanned C or C++
+	// file writes, in source order (graph-algo-c-1, graph-algo-cpp-1;
+	// optional, no schema bump): a rule that matches a literal anywhere (a
+	// global table, a comparison) needs them without the source.
+	Strings map[string][]GraphFragmentString `json:"strings,omitempty"`
 	// Exports maps each public dotted name of the component (Python; optional,
 	// no schema bump) that names a declaration made elsewhere in it to that
 	// declaration: a function key, or a class as `pkg.(Type)`. Re-exports
@@ -815,6 +820,34 @@ func AppendBinaryExprJSON(dst []byte, e GraphFragmentBinaryExpr) []byte {
 // UnmarshalJSON decodes the positional expression array.
 func (e *GraphFragmentBinaryExpr) UnmarshalJSON(data []byte) error {
 	return decodePositional("binary expression", data, 9, &e.Line, &e.StartCol, &e.EndCol, &e.Op, &e.Left, &e.Right, &e.LeftEndCol, &e.RightStartCol, &e.Function, &e.EndLine, &e.LeftEndLine, &e.RightLine)
+}
+
+// GraphFragmentString is one string literal of a C or C++ file. JSON is a
+// positional array: [line, start_col, end_col, text, end_line].
+//
+// text is the literal as written, prefix and quotes included (`L"x"`); each
+// piece of a concatenation is a literal of its own. Columns are 1-based, end
+// exclusive; end_line is written only for a literal continued over lines.
+type GraphFragmentString struct {
+	Line, StartCol, EndCol, EndLine int
+	Text                            string
+}
+
+// MarshalJSON encodes the literal as a positional JSON array.
+func (s GraphFragmentString) MarshalJSON() ([]byte, error) {
+	return AppendStringJSON(nil, s), nil
+}
+
+// AppendStringJSON appends the positional encoding of s to dst.
+func AppendStringJSON(dst []byte, s GraphFragmentString) []byte {
+	dst = appendPositionalInts(append(dst, '['), s.Line, s.StartCol, s.EndCol)
+	dst = appendPositionalStrings(dst, s.Text)
+	return appendPositionalEnd(dst, s.EndLine)
+}
+
+// UnmarshalJSON decodes the positional literal array.
+func (s *GraphFragmentString) UnmarshalJSON(data []byte) error {
+	return decodePositional("string", data, 4, &s.Line, &s.StartCol, &s.EndCol, &s.Text, &s.EndLine)
 }
 
 // GraphFragmentExternalSignature is one signature of a method outside the

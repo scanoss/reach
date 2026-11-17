@@ -733,6 +733,9 @@ type FileAnalysis struct {
 	// CIncludes lists the #include directives of the file, in source order
 	// (C and C++ only).
 	CIncludes []CInclude
+	// CStrings lists the string literals of the file, in source order (C and
+	// C++ only).
+	CStrings []CString
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -842,6 +845,9 @@ type CallGraph struct {
 	// CIncludes holds the #include directives of each project source file, by
 	// file path (C and C++ only), with headers as written.
 	CIncludes map[string][]CInclude
+	// CStrings holds the string literals of each project source file, by file
+	// path (C and C++ only), as written.
+	CStrings map[string][]CString
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

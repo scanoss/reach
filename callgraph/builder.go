@@ -973,6 +973,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 		}
 		graph.CIncludes[analysis.FilePath] = analysis.CIncludes
 	}
+	if (b.ecosystem == ecosystemC || b.ecosystem == ecosystemCPP) && projectLocal && len(analysis.CStrings) > 0 {
+		if graph.CStrings == nil {
+			graph.CStrings = make(map[string][]CString)
+		}
+		graph.CStrings[analysis.FilePath] = analysis.CStrings
+	}
 	if b.ecosystem == ecosystemNode && projectLocal && len(analysis.NodeImports) > 0 {
 		if graph.NodeImports == nil {
 			graph.NodeImports = make(map[string][]NodeImport)

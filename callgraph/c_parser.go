@@ -108,6 +108,7 @@ func (p *CParser) parseFile(filePath, packagePath string) (*FileAnalysis, error)
 	staticFunctions := make(map[string]bool)
 	collectCStaticFunctions(root, src, staticFunctions)
 	p.walkFile(root, src, filePath, packagePath, staticFunctions, analysis)
+	analysis.CStrings = cStringLiterals(root, src)
 	return analysis, nil
 }
 
