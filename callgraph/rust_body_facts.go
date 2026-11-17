@@ -5,7 +5,9 @@ package callgraph
 
 import (
 	"cmp"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -163,4 +165,41 @@ func (f *rustBodyFacts) sorted() ([]ConstantRef, []VarDecl) {
 		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.StartCol, b.StartCol))
 	})
 	return f.refs, f.decls
+}
+
+// collectRustItemInit walks the initializer of a const or static item that
+// stands outside any function body, in its scope, for the file's <varinit>.
+func (p *RustParser) collectRustItemInit(node *sitter.Node, src []byte, filePath string, scope *FileAnalysis, selfType string, generics map[string]string) {
+	value := node.ChildByFieldName("value")
+	if value == nil {
+		return
+	}
+	ctx := p.newRustTypeCtx(nil, nil, src, scope, selfType, generics)
+	p.itemInitCalls = append(p.itemInitCalls, p.extractCalls(value, ctx, filePath, &p.itemInit)...)
+}
+
+// appendRustVarinit adds the file's synthetic <varinit:file> declaration,
+// which makes the calls and reads the initializers of its const and static
+// items outside function bodies make (`static K: Lazy<Kdf> = Lazy::new(..)`),
+// as Go's package variable initializers are. A file without any gets none.
+func (p *RustParser) appendRustVarinit(root *sitter.Node, filePath, packagePath string, analysis *FileAnalysis) {
+	calls := p.itemInitCalls
+	refs, decls := p.itemInit.sorted()
+	p.itemInit, p.itemInitCalls = rustBodyFacts{}, nil
+	if len(calls) == 0 && len(refs) == 0 {
+		return
+	}
+	base := strings.TrimSuffix(filepath.Base(filePath), ".rs")
+	analysis.Functions = append(analysis.Functions, FunctionDecl{
+		ID:           FunctionID{Package: packagePath, Name: "<varinit:" + base + ">"},
+		FilePath:     filePath,
+		StartLine:    1,
+		EndLine:      int(root.EndPoint().Row) + 1,
+		OwnerType:    "module",
+		OwnerName:    packagePath,
+		FunctionType: "function",
+		Calls:        calls,
+		ConstantRefs: refs,
+		Declarations: decls,
+	})
 }

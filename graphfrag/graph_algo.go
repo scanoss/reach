@@ -148,7 +148,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // reads outside a callee (`constant_refs`, text as written, with the position
 // kind: compare, case for a match arm pattern, return, assign, init, array,
 // arg, other) and one declaration per name a `let` binds (`declarations`).
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "3"
+// graph-algo-rs-4: every call is a call of the graph, resolved or not: a call
+// of a value the parser cannot name (`fs[0](x)`, `make()(x)`) is keyed
+// `<pkg>.<value>`, `(f)(x)` calls f, and the initializers of const and static
+// items outside function bodies make their calls and references in the
+// file's synthetic `<varinit:<file>>`, as Go's package variables do.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "4"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
