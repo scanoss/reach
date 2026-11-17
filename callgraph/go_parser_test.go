@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -414,6 +415,46 @@ func TestGoBuilder_PrunesBuiltinsWithoutAnImportPath(t *testing.T) {
 			for _, c := range fn.Calls {
 				t.Errorf("import path %q: %s keeps builtin call %s", importPath, key, c.Raw)
 			}
+		}
+	}
+}
+
+// TestGoBuilder_KeepsMethodsNamedLikeBuiltins: only a bare call is pruned; a
+// method named like a builtin, called through a field, a chain or an index,
+// stays a call.
+func TestGoBuilder_KeepsMethodsNamedLikeBuiltins(t *testing.T) {
+	for _, importPath := range []string{"example.com/p", ""} {
+		dir := t.TempDir()
+		const source = `package p
+type conn struct{}
+func (c *conn) close() {}
+func (c *conn) len() int { return 0 }
+func mk() *conn { return &conn{} }
+type S struct{ c *conn; cs []*conn }
+func (s *S) Run() {
+	s.c.close()
+	mk().close()
+	_ = s.cs[0].len()
+	_ = len(s.cs)
+}
+`
+		if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: importPath}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var raws []string
+		for key, fn := range graph.Functions {
+			if strings.HasSuffix(key, "Run") {
+				for _, c := range fn.Calls {
+					raws = append(raws, c.Raw)
+				}
+			}
+		}
+		if len(raws) != 4 {
+			t.Errorf("import path %q: Run keeps %q, want mk and the three method calls, not len", importPath, raws)
 		}
 	}
 }

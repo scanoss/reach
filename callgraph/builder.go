@@ -3212,9 +3212,10 @@ func pruneGoPredeclaredCalls(graph *CallGraph, ecosystem string) {
 		kept := fn.Calls[:0]
 		for i := range fn.Calls {
 			call := &fn.Calls[i]
-			// A package with no import path (a directory outside any module)
-			// keys its calls with an empty package: pruned the same way.
-			if call.Callee.Type == "" && call.ReceiverVar == "" && !call.StaticReceiver && goPredeclaredIdentifiers[BaseFunctionName(call.Callee.Name)] {
+			// Only a bare call (`len(x)`, raw text equal to its name) can be a
+			// builtin; a package with no import path keys it with an empty package.
+			if call.Callee.Type == "" && call.Raw == call.Callee.Name && call.ReceiverVar == "" && !call.StaticReceiver &&
+				call.FieldReceiver == nil && goPredeclaredIdentifiers[call.Callee.Name] {
 				if _, declared := graph.Functions[call.Callee.String()]; !declared {
 					pruned++
 					continue

@@ -225,7 +225,11 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // graph-algo-go-10: a call's arguments are its argument nodes (`1<<15` no
 // longer splits them); builtin calls are pruned in a package without an import
 // path too; a call a pass retypes leaves no site under its former callee.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "10"
+// graph-algo-go-11: a method named like a builtin (`s.c.close()`) is no longer
+// pruned; a type parameter types no call; a `package main` file beside a read
+// package lends it nothing; GoUnreadTypeCall tells calls on a type of an
+// unread package.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "11"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
