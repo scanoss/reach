@@ -394,6 +394,14 @@ type GoFieldType struct {
 
 // FunctionCall represents a call expression within a function body.
 type FunctionCall struct {
+	// CandidateModules lists, sorted and unique, the module specifiers a Node
+	// member call's receiver may hold the member from when the receiver is,
+	// or is a chain headed by (`H.sha256.create()`), a variable bound to an
+	// object that merges several modules
+	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`). The
+	// key stays caller-local, since it cannot name one module; the candidates
+	// are the modules the receiver may hold the member from. Nil otherwise.
+	CandidateModules []string
 	// StaticReceiver reports a call qualified by a type name
 	// (TikaInputStream.get(..)), which binds at compile time and never
 	// dispatches to a subtype (Java only).
@@ -484,6 +492,11 @@ type FunctionCall struct {
 	// nodeReturnOf names the project function whose result a Node call's
 	// receiver holds; the callee takes that function's declared return class.
 	nodeReturnOf FunctionID
+	// nodeNewOf is the constructor call of the `new` expression a Node member
+	// call or read is made directly on, `new m.X(p).verify()`, when nothing
+	// typed it: the KB types the instance as it types a variable the
+	// constructor call is assigned to.
+	nodeNewOf *FunctionCall
 	// nodeUnboundMember marks a Node member call `<expr>.name(..)` whose
 	// receiver is neither an import, `this` in a class, nor a typed value. The
 	// callee keeps the bare name so contracts can still match it, but it names
@@ -705,6 +718,9 @@ type FileAnalysis struct {
 	// NodeObjectLiterals lists the outermost object expressions of the file,
 	// in source order (Node only).
 	NodeObjectLiterals []NodeObjectLiteral
+	// nodePropertyReads lists the property reads of the file's functions, in
+	// source order, as the parser keyed them (Node only).
+	nodePropertyReads []nodePropertyReadSite
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -795,6 +811,12 @@ type CallGraph struct {
 	// project source file, by file path (Node only), for a rule whose pattern
 	// is a bare object literal.
 	NodeObjectLiterals map[string][]NodeObjectLiteral
+	// NodePropertyReads holds the property reads of each project source file,
+	// by file path, in source order (Node only), each keyed as a call of the
+	// expression would be, for a rule whose pattern is a bare member
+	// expression. nodePropertyReads holds them while the graph is built.
+	NodePropertyReads map[string][]NodePropertyRead
+	nodePropertyReads []*nodePropertyReadSite
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

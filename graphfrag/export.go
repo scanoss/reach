@@ -182,7 +182,24 @@ import (
 // (GraphFragmentObjectLiteral). A detector matches a rule whose pattern is a
 // bare object literal against the text, without the source. A 1.27 fragment
 // decodes with none: such a rule then matches nothing.
-const SchemaVersion = "graph-fragment-1.28"
+//
+// 1.29 adds property_reads (Node): by file path, every member expression of
+// each scanned file whose value is read, not called (`acme.enums.hash.md5`,
+// `cert.fingerprint`), outermost of its chain, in source order, with its span,
+// its text, the key of the function that holds it and the target key a call
+// of the expression would have in the same place, with that call's receiver
+// and assigned variables (GraphFragmentPropertyRead). A detector matches a
+// rule whose pattern is a bare member expression against them, without the
+// source. A 1.28 fragment decodes with none: such a rule then matches nothing.
+// 1.29 also gives an object literal the variable it is bound to
+// (assigned_var, assign_start_col, assign_line), so a detector matches a rule
+// that names the variable an object is assigned to (`$X = {...}`); a 1.28
+// object decodes with none. 1.29 also adds candidate_modules to an external
+// call and a property read (Node): the modules a receiver bound to an object
+// merging several modules (Object.assign of modules, or a spread of them) may
+// hold the member from, its key left caller-local, on a member of the
+// variable or on any longer chain it heads (`H.sha256.create()`).
+const SchemaVersion = "graph-fragment-1.29"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -435,6 +452,10 @@ type GraphFragmentExport struct {
 	// each scanned file in source order (1.28, Node). The text of every object
 	// is written in full, so the field can be large on big files.
 	ObjectLiterals map[string][]GraphFragmentObjectLiteral `json:"object_literals,omitempty"`
+	// PropertyReads are, by file path, the member expressions each scanned
+	// file reads without calling them, in source order (1.29, Node), each
+	// keyed as a call of the expression would be.
+	PropertyReads map[string][]GraphFragmentPropertyRead `json:"property_reads,omitempty"`
 	// Items are, by file path, the items each scanned Rust file declares at
 	// any depth, in source order (1.26, Rust; type aliases from 1.27): the
 	// scopes a call, a use or a declaration stands in.
@@ -516,13 +537,51 @@ type GraphFragmentImport struct {
 // object's exact source, which a consumer parses itself; it can be large.
 // caller_key is the key of the innermost function that holds the object, as
 // its call sites carry it, or the module's `<module>` key at module level.
+// assigned_var (1.29) is the variable the object is bound to, as a call's
+// assigned_var is: the name of the `const`, `let` or `var` declarator it
+// initializes, or the plain name an assignment writes it to; omitted for any
+// other object. assign_start_col (1.29) is then the 1-based column that name
+// starts at, and assign_line (1.29) its line, written only when it is not
+// line (a declarator whose name and object stand on different lines).
 type GraphFragmentObjectLiteral struct {
-	Line      int    `json:"line"`
-	StartCol  int    `json:"start_col"`
-	EndLine   int    `json:"end_line,omitempty"`
-	EndCol    int    `json:"end_col"`
-	Text      string `json:"text"`
-	CallerKey string `json:"caller_key"`
+	Line           int    `json:"line"`
+	StartCol       int    `json:"start_col"`
+	EndLine        int    `json:"end_line,omitempty"`
+	EndCol         int    `json:"end_col"`
+	Text           string `json:"text"`
+	CallerKey      string `json:"caller_key"`
+	AssignedVar    string `json:"assigned_var,omitempty"`
+	AssignStartCol int    `json:"assign_start_col,omitempty"`
+	AssignLine     int    `json:"assign_line,omitempty"`
+}
+
+// GraphFragmentPropertyRead is one member expression of a Node file whose
+// value is read, not called (callgraph.NodePropertyRead,
+// graph-fragment-1.29): `a.b.c` or `a['b']`, the outermost of its chain only,
+// never a callee, an assignment or update target, a `delete` operand, a
+// destructuring target or a TypeScript type. target_key is the key a call of
+// the expression would target in the same place (module-qualified for an
+// import, the declared class for a typed receiver, caller-local otherwise),
+// method_name its last property, raw the expression as written, and
+// receiver_var and assigned_var are set as that call's would be. caller_key
+// is the key of the function that holds the read, or the module's `<module>`
+// key at module level. The span follows the calls' convention: columns
+// 1-based, end exclusive, end_line written only for a read that spans lines.
+type GraphFragmentPropertyRead struct {
+	CallerKey   string `json:"caller_key"`
+	TargetKey   string `json:"target_key"`
+	MethodName  string `json:"method_name"`
+	Raw         string `json:"raw"`
+	Line        int    `json:"line"`
+	StartCol    int    `json:"start_col"`
+	EndLine     int    `json:"end_line,omitempty"`
+	EndCol      int    `json:"end_col"`
+	ReceiverVar string `json:"receiver_var,omitempty"`
+	AssignedVar string `json:"assigned_var,omitempty"`
+	// CandidateModules (1.29) are the module specifiers a read on a merged
+	// module object may read the member from, as an external call's
+	// candidate_modules; target_key stays caller-local.
+	CandidateModules []string `json:"candidate_modules,omitempty"`
 }
 
 // GraphFragmentItem is one item a Rust file declares (graph-fragment-1.26).
@@ -1255,6 +1314,15 @@ type GraphFragmentExternal struct {
 	// or return-type inference for this call site (1.6+). Empty when inference
 	// did not resolve a concrete type, or on fragments exported with schema < 1.6.
 	ResolvedReceiverType string `json:"resolved_receiver_type,omitempty"`
+	// CandidateModules (1.29, Node) lists, sorted and unique, the module
+	// specifiers the call's receiver may hold the member from when it is, or
+	// is a chain headed by (`H.sha256.create()`), a variable bound to an
+	// object merging several modules
+	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`), the
+	// graph's FunctionCall.CandidateModules. target_key stays caller-local,
+	// since it cannot name one module; the candidates are the modules the
+	// receiver may hold the member from. Omitted otherwise.
+	CandidateModules []string `json:"candidate_modules,omitempty"`
 }
 
 // GraphFragmentCryptoOp is one crypto finding annotation attached to a function

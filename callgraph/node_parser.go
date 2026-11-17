@@ -56,6 +56,10 @@ type NodeParser struct {
 	// values indexes the bindings of the file being parsed, for argument
 	// provenance; see node_value_index.go.
 	values *nodeValueIndex
+	// readScope names the function whose body is being walked for calls, and
+	// reads collects the property reads found there (node_property_read.go).
+	readScope *nodeReadScope
+	reads     []nodePropertyReadSite
 }
 
 // NewNodeParser creates a parser for JavaScript, TypeScript, and TSX source files.
@@ -198,6 +202,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	defer p.anchors.reset()
 	p.names = newNodeScopeNames()
 	defer func() { p.names = nil }()
+	p.reads = nil
 
 	analysis := &FileAnalysis{
 		FilePath:    filePath,
@@ -238,6 +243,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	}
 	analysis.EntryRefs = nodeEntryRefs(root, src, filePath, modulePath, bindings)
 	analysis.NodeObjectLiterals = collectNodeObjectLiterals(root, src, analysis.Functions, modulePath)
+	analysis.nodePropertyReads = p.takeNodePropertyReads()
 	return analysis, nil
 }
 
@@ -546,7 +552,7 @@ func isNodeImportInteropHelperName(name string) bool {
 		name = name[:dollar]
 	}
 	switch name {
-	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault":
+	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault", "_interopDefaultLegacy":
 		return true
 	}
 	return false
@@ -656,7 +662,11 @@ func nodeAssignmentTarget(left *sitter.Node, src []byte) (name, owner string) {
 // parser also emits. A module that makes no such call gets none.
 func (p *NodeParser) moduleInitDecl(root *sitter.Node, src []byte, filePath, packagePath, modulePath string, bindings nodeBindings) *FunctionDecl {
 	locals := bindings.withModuleVariables(nil)
-	calls := p.extractCalls(root, src, filePath, modulePath, "", bindings, locals)
+	var calls []FunctionCall
+	moduleKey := FunctionID{Package: modulePath, Name: moduleInitMethodName}.String()
+	p.withReadScope(moduleKey, nil, func() {
+		calls = p.extractCalls(root, src, filePath, modulePath, "", bindings, locals)
+	})
 	implicit := nodeImplicitCalls(root, src, filePath, modulePath, bindings, locals)
 	implicit = append(implicit, nodeCallbackReferences(root, src, filePath, modulePath, "", bindings, locals, nil)...)
 	implicit = append(implicit, nodeModuleImportReferences(root, src, filePath, packagePath, modulePath)...)
@@ -832,9 +842,11 @@ func (p *NodeParser) appendClassInit(body *sitter.Node, inits []*sitter.Node, sr
 		p.scope = &nodeScope{own: own, shadowed: make(map[string]bool), enclosing: p.enclosingFunctionNames(body, src)}
 		defer func() { p.scope = previous }()
 	}
-	for _, init := range inits {
-		decl.Calls = append(decl.Calls, p.extractCalls(init, src, filePath, packagePath, owner, bindings, locals)...)
-	}
+	p.withReadScope(decl.ID.String(), own, func() {
+		for _, init := range inits {
+			decl.Calls = append(decl.Calls, p.extractCalls(init, src, filePath, packagePath, owner, bindings, locals)...)
+		}
+	})
 	decl.ModuleVars = bindings.moduleReceivers(decl.Calls, own)
 	analysis.Functions = append(analysis.Functions, *decl)
 }
@@ -874,7 +886,9 @@ func (p *NodeParser) parseNodeFunction(node *sitter.Node, src []byte, filePath, 
 	previousScope := p.scope
 	p.scope = p.scopeFor(params, body, own, src)
 	defer func() { p.scope = previousScope }()
-	decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+	p.withReadScope(decl.ID.String(), own, func() {
+		decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+	})
 	decl.ImplicitCalls = nodeImplicitCalls(body, src, filePath, packagePath, imports, locals)
 	decl.ImplicitCalls = append(decl.ImplicitCalls, nodeCallbackReferences(body, src, filePath, packagePath, owner, imports, locals, p.nodeBoundNames(node, own, src))...)
 	decl.ModuleVars = imports.moduleReceivers(decl.Calls, own)
@@ -1222,6 +1236,7 @@ func (p *NodeParser) walkNodeCalls(node *sitter.Node, src []byte, filePath, pack
 		p.anchors.set(call, node)
 		*calls = append(*calls, *call)
 	}
+	p.recordNodePropertyRead(node, src, filePath, packagePath, owner, imports, locals)
 	for i := 0; i < int(node.ChildCount()); i++ {
 		p.walkNodeCalls(node.Child(i), src, filePath, packagePath, owner, imports, locals, calls)
 	}
@@ -1268,6 +1283,14 @@ func (p *NodeParser) parseNodeCall(node *sitter.Node, src []byte, filePath, pack
 		return call
 	case nodeMemberExpression:
 		return p.parseNodeMemberCall(call, function, src, packagePath, owner, imports, locals)
+	case nodeSubscriptExpression:
+		// `hash['sha256'](..)` calls the member `hash.sha256(..)` does; any
+		// other index names no member.
+		object, name, ok := nodeReadMember(function, src)
+		if !ok {
+			return nil
+		}
+		return p.resolveNodeMember(call, object, name, src, packagePath, owner, imports, locals)
 	case nodeCallExpression:
 		// `require('m')(..)` calls the module itself, as `const f =
 		// require('m'); f(..)` does.
@@ -1295,8 +1318,14 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 	if object == nil || property == nil {
 		return nil
 	}
-	name := property.Content(src)
-	objectText := object.Content(src)
+	return p.resolveNodeMember(call, object, property.Content(src), src, packagePath, owner, imports, locals)
+}
+
+// resolveNodeMember keys call, the use of `<object>.<name>`, as
+// parseNodeMemberCall describes. A property read goes through it too, so a
+// read is keyed exactly as a call of the property would be.
+func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, name string, src []byte, packagePath, owner string, imports nodeBindings, locals map[string]bool) *FunctionCall {
+	objectText := nodeDottedText(object, src)
 	call.Callee = FunctionID{Package: packagePath, Name: name}
 	if iface, ok := nodeWebCryptoCallInterface(object, src, name, imports.webCryptoScope(locals)); ok {
 		// Every spelling reaches the one WebCrypto object, so the interface is
@@ -1322,12 +1351,42 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 		call.ReceiverVar = objectText
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
+	if !importedObject && call.Callee.Type == "" && object.Type() == nodeNewExpression {
+		call.nodeNewOf = p.parseNodeNewCall(object, src, imports, locals)
+	}
 	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) && p.heldModuleReceiver(call, object, name) {
 		importedObject, call.ReceiverVar = true, ""
 	}
 	boundByImport := requiredObject || (object.Type() != nodeCallExpression && importedObject)
 	call.nodeUnboundMember = !boundByImport && call.Callee.Type == ""
+	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) {
+		call.CandidateModules = p.nodeMergedModules(nodeMemberChainHead(object))
+	}
 	return call
+}
+
+// nodeMemberChainHead is the expression a member chain starts at, through
+// member reads, string-literal indexes and calls: `H` for `H.sha256`,
+// `H.sha256.create()` and `H['sha3'].keccak_256`. An expression that is not a
+// chain is its own head.
+func nodeMemberChainHead(node *sitter.Node) *sitter.Node {
+	for node != nil {
+		var next *sitter.Node
+		switch node.Type() {
+		case nodeMemberExpression, nodeSubscriptExpression:
+			next = node.ChildByFieldName("object")
+		case nodeCallExpression:
+			next = node.ChildByFieldName("function")
+			if next != nil {
+				next = unwrapNodeCallee(next)
+			}
+		}
+		if next == nil {
+			return node
+		}
+		node = next
+	}
+	return nil
 }
 
 // heldModuleReceiver keys a member call on a module binding the file holds
@@ -1389,6 +1448,15 @@ func parseNodeNew(node *sitter.Node, src []byte, filePath string, imports nodeBi
 		return nil
 	}
 	return nodeConstructionCall(node, constructor, src, filePath, pkg, typeName)
+}
+
+// parseNodeNewCall is the constructor call a `new` expression records, as
+// walkNodeCalls finds it, or nil.
+func (p *NodeParser) parseNodeNewCall(node *sitter.Node, src []byte, imports nodeBindings, locals map[string]bool) *FunctionCall {
+	if call := parseNodeNew(node, src, "", imports, locals); call != nil {
+		return call
+	}
+	return p.parseHeldModuleNew(node, src, "")
 }
 
 // nodeConstructionCall is the call to typeName's constructor in pkg that a
@@ -1481,6 +1549,46 @@ func nodeCallArguments(node *sitter.Node, src []byte) []string {
 	return args
 }
 
+// nodeDottedText is the text of a member chain with each string-literal
+// index written as the property it names, `acme['mode'].CTR` as
+// `acme.mode.CTR`, so it resolves as the dotted spelling does. A chain with no
+// such index is its text as written.
+func nodeDottedText(node *sitter.Node, src []byte) string {
+	if !nodeChainHasStringIndex(node) {
+		return node.Content(src)
+	}
+	switch node.Type() {
+	case nodeMemberExpression:
+		object, property := node.ChildByFieldName("object"), node.ChildByFieldName("property")
+		if object != nil && property != nil && node.ChildByFieldName("optional_chain") == nil {
+			return nodeDottedText(object, src) + "." + property.Content(src)
+		}
+	case nodeSubscriptExpression:
+		if object, name, ok := nodeReadMember(node, src); ok && node.ChildByFieldName("optional_chain") == nil {
+			return nodeDottedText(object, src) + "." + name
+		}
+	}
+	return node.Content(src)
+}
+
+// nodeChainHasStringIndex reports whether a member chain reads a member
+// through a string-literal index anywhere along it.
+func nodeChainHasStringIndex(node *sitter.Node) bool {
+	for node != nil {
+		switch node.Type() {
+		case nodeSubscriptExpression:
+			if index := node.ChildByFieldName("index"); index != nil && index.Type() == nodeStringNode {
+				return true
+			}
+		case nodeMemberExpression:
+		default:
+			return false
+		}
+		node = node.ChildByFieldName("object")
+	}
+	return false
+}
+
 func splitNodeMemberObject(object string) (first, suffix string) {
 	if dot := strings.Index(object, "."); dot > 0 {
 		return object[:dot], object[dot+1:]
@@ -1494,7 +1602,7 @@ func nodeCallChainContext(node *sitter.Node, src []byte) (chainID, assignedVar s
 		return fmt.Sprintf("%d", root.StartByte()), ""
 	}
 	function := node.ChildByFieldName("function")
-	if function != nil && function.Type() == nodeMemberExpression {
+	if function != nil && isNodeNamedMember(function) {
 		object := function.ChildByFieldName("object")
 		if object != nil && object.Type() == nodeCallExpression {
 			chainID = fmt.Sprintf("%d", root.StartByte())
@@ -1521,7 +1629,7 @@ func nodeChainRoot(node *sitter.Node) *sitter.Node {
 	root := node
 	for {
 		member := root.Parent()
-		if member == nil || member.Type() != nodeMemberExpression || !sameSyntaxNode(member.ChildByFieldName("object"), root) {
+		if member == nil || !isNodeNamedMember(member) || !sameSyntaxNode(member.ChildByFieldName("object"), root) {
 			break
 		}
 		call := member.Parent()
@@ -1531,6 +1639,19 @@ func nodeChainRoot(node *sitter.Node) *sitter.Node {
 		root = call
 	}
 	return root
+}
+
+// isNodeNamedMember reports a member expression, `o.name`, or a subscript
+// by a string literal, `o['name']`, which a call keys as the member.
+func isNodeNamedMember(node *sitter.Node) bool {
+	switch node.Type() {
+	case nodeMemberExpression:
+		return true
+	case nodeSubscriptExpression:
+		index := node.ChildByFieldName("index")
+		return index != nil && index.Type() == nodeStringNode
+	}
+	return false
 }
 
 func sameSyntaxNode(a, b *sitter.Node) bool {

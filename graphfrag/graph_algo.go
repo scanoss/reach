@@ -201,7 +201,31 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // graph-algo-node-5: fragments list each file's outermost object literals
 // (`object_literals`, the graph's NodeObjectLiterals, graph-fragment-1.28):
 // a stored node-4 graph has none.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "5"
+// graph-algo-node-6: fragments list each file's property reads
+// (`property_reads`, the graph's NodePropertyReads, graph-fragment-1.29):
+// a stored node-5 graph has none. A call the KB re-keys (an assigned-variable
+// receiver or a fluent chain link) no longer leaves its site under the
+// caller-local key it shared with other calls of the method name, where an
+// export listed it again with another call's raw, columns and variables.
+// An object literal carries the variable a declarator or an assignment binds
+// it to (AssignedVar, AssignStartCol, AssignLine). A call through a
+// string-literal index (`hash['sha256']()`, `acme['mode'].CTR.create()`) is
+// a call site keyed as its dotted spelling is (was none, or caller-local), and
+// a read through one keys as the dotted read does. A var destructuring of a
+// module binding (`var { sm2: signer } = smCrypto`, renamed or not) keys the
+// name's calls as the member's, as const and let ones did (was caller-local).
+// A call or read on a variable bound to an object merging several modules
+// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`) keeps
+// its caller-local key and lists the modules (CandidateModules), and so does
+// every call or read on a chain the variable heads (`H.sha256.create()`,
+// `H.sha256.outputLen`). A call or read made directly on `new X(...)` of an
+// imported class whose constructor the KB contracts (`new m.X(p).verify()`,
+// `new m.X(p).fingerprint`) keys as on a variable the instance is assigned to
+// (`m.(X).verify`, was caller-local). Rollup's `_interopDefaultLegacy` (and
+// its `$N` copies) passes a module through as the other interop helpers do, so
+// `x['default'].init()` and `x.default.CURVE` on its result key as
+// `require('m').default.init()` and its read do (were caller-local).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

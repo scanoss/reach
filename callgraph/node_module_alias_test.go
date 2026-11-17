@@ -3,7 +3,10 @@
 
 package callgraph
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // A promise of a dynamic import, awaited or not and with a rejection handler
 // or not, holds the module: a member call on it names the module's export.
@@ -154,6 +157,48 @@ function run(x) {
 	})
 }
 
+// Rollup's _interopDefaultLegacy, `$N` copies included, passes a module
+// binding through as the other helpers do, so `x['default']` or `x.default`
+// on its result is the module's default export: the call and the read key as
+// `require('m').default.init()` and `require('m').default.CURVE` do, at
+// module level and in a function.
+func TestNodeInteropDefaultLegacyKeysTheModuleDefault(t *testing.T) {
+	t.Parallel()
+
+	graph := buildNodeGraph(t, `var bls = require('acme-bls');
+var bls__default = /*#__PURE__*/_interopDefaultLegacy(bls);
+var dup = _interopDefaultLegacy$1(bls);
+const a = bls__default['default'].init(bls__default['default'].CURVE);
+const b = bls__default.default.init(bls__default.default.CURVE);
+const c = dup['default'].init(dup['default'].CURVE);
+const d = require('acme-bls').default.init(require('acme-bls').default.CURVE);
+function run() {
+  return bls__default['default'].init(bls__default['default'].CURVE);
+}
+`)
+	got := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, call := range fn.Calls {
+			if call.Callee.Name == "init" {
+				got[fmt.Sprintf("%d call", call.Line)] = call.Callee.String()
+			}
+		}
+	}
+	for _, reads := range graph.NodePropertyReads {
+		for _, read := range reads {
+			got[fmt.Sprintf("%d read", read.Line)] = read.TargetKey
+		}
+	}
+	want := map[string]string{}
+	for _, line := range []int{4, 5, 6, 7, 9} {
+		want[fmt.Sprintf("%d call", line)] = "acme-bls.init"
+		want[fmt.Sprintf("%d read", line)] = "acme-bls.CURVE"
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("keys:\n got %v\nwant %v", got, want)
+	}
+}
+
 // A member chain on an inline require names the module's export at any depth,
 // awaited or not.
 func TestNodeInlineRequireMemberChainKeysTheModule(t *testing.T) {
@@ -170,5 +215,64 @@ func TestNodeInlineRequireMemberChainKeysTheModule(t *testing.T) {
 		2: "acme-gen.Gen.create",
 		3: "acme-gen.Gen.create",
 		4: "acme-gen.create",
+	})
+}
+
+// A renamed destructuring of a module binding, `{ sm2: signer }`, keys the
+// renamed name's calls as the member's, as the unrenamed form does: const,
+// let or var, at module level or in a function body, from a default import, a
+// namespace import or a require. A shadowing parameter, a reassigned name and
+// a var read before its declaration ran stay caller-local.
+func TestNodeRenamedDestructuredModuleMemberKeysTheModule(t *testing.T) {
+	t.Parallel()
+
+	src := `import smCrypto from 'acme-sm';
+import * as ns from 'acme-ns';
+const req = require('acme-req');
+var { sm2: signer } = smCrypto;
+var { sm2 } = smCrypto;
+let { box: opener } = ns;
+const { hmac: mac } = req;
+signer.doSignature(1);
+sm2.doSignature(2);
+opener.open(3);
+mac.digest(4);
+function inBody(x) {
+  early.doSignature(x);
+  var { sm2: early } = smCrypto;
+  early.doSignature(x);
+  const { box: b } = ns;
+  b.open(x);
+  let { hmac: h } = req;
+  h.digest(x);
+  signer.doSignature(x);
+}
+function shadowed(signer) {
+  signer.doSignature(1);
+}
+function moved() {
+  var { sm2: again } = smCrypto;
+  again = other;
+  again.doSignature(1);
+}
+`
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, moduleInitMethodName), map[int]string{
+		8:  "acme-sm.sm2.doSignature",
+		9:  "acme-sm.sm2.doSignature",
+		10: "acme-ns.box.open",
+		11: "acme-req.hmac.digest",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "inBody"), map[int]string{
+		13: "app/run.doSignature",
+		15: "acme-sm.sm2.doSignature",
+		17: "acme-ns.box.open",
+		19: "acme-req.hmac.digest",
+		20: "acme-sm.sm2.doSignature",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "shadowed"), map[int]string{
+		23: "app/run.doSignature",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "moved"), map[int]string{
+		28: "app/run.doSignature",
 	})
 }

@@ -972,20 +972,28 @@ func mergeNodeInstances(graph *CallGraph, analysis *FileAnalysis) {
 func resolveNodeTypedReceivers(graph *CallGraph) {
 	for _, fn := range graph.Functions {
 		for i := range fn.Calls {
-			call := &fn.Calls[i]
-			if class, ok := nodeReceiverClass(graph, call); ok {
-				call.Callee = FunctionID{Package: class.Package, Type: class.Type, Name: call.Callee.Name}
-				continue
-			}
-			if call.nodeUntyped == (FunctionID{}) {
-				continue
-			}
-			if class, ok := graph.nodeDeclaredClass(call.Callee); ok && !graph.nodeFieldReassigned(call) {
-				call.Callee = FunctionID{Package: class.Package, Type: class.Type, Name: call.Callee.Name}
-			} else {
-				call.Callee = call.nodeUntyped
-			}
+			resolveNodeTypedReceiver(graph, &fn.Calls[i])
 		}
+	}
+	for _, read := range graph.nodePropertyReads {
+		resolveNodeTypedReceiver(graph, &read.call)
+	}
+}
+
+// resolveNodeTypedReceiver completes one call's receiver type, or one
+// property read's, keyed as a call (see resolveNodeTypedReceivers).
+func resolveNodeTypedReceiver(graph *CallGraph, call *FunctionCall) {
+	if class, ok := nodeReceiverClass(graph, call); ok {
+		call.Callee = FunctionID{Package: class.Package, Type: class.Type, Name: call.Callee.Name}
+		return
+	}
+	if call.nodeUntyped == (FunctionID{}) {
+		return
+	}
+	if class, ok := graph.nodeDeclaredClass(call.Callee); ok && !graph.nodeFieldReassigned(call) {
+		call.Callee = FunctionID{Package: class.Package, Type: class.Type, Name: call.Callee.Name}
+	} else {
+		call.Callee = call.nodeUntyped
 	}
 }
 

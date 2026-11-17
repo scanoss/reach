@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,5 +181,51 @@ function make(opts: { mode: string }): Opts {
 	assertNodeLiteralTexts(t, got, "{ mode: opts.mode, size: 4 }")
 	if want := (FunctionID{Package: "app/mod", Name: "make"}).String(); len(got) == 1 && got[0].CallerKey != want {
 		t.Errorf("caller key = %q, want %q", got[0].CallerKey, want)
+	}
+}
+
+// An outermost object bound to a variable carries it, as a call's assigned
+// variable: a const, let or var declarator, or an assignment to a plain name,
+// with the column the name starts at, and its line when the declarator starts
+// on another line. An argument, a nested object and a member target carry
+// none.
+func TestNodeObjectLiteralsAssignedVar(t *testing.T) {
+	t.Parallel()
+
+	src := `const head = { alg: 'frob-256' };
+let opts = { mode: 'quux' };
+var legacy = { rounds: 3 };
+current = { level: 9 };
+zork.seal(payload, { mode: 'quux' });
+const outer = { inner: { deep: 1 } };
+const spread =
+  { wide: true };
+cfg.value = { tag: 1 };
+const wrapped = ({ paren: 1 });
+`
+	got := nodeObjectLiteralsOf(t, map[string]string{"mod.js": src}, "mod.js")
+	type assigned struct {
+		Line           int
+		AssignedVar    string
+		AssignStartCol int
+		AssignLine     int
+	}
+	var have []assigned
+	for _, lit := range got {
+		have = append(have, assigned{lit.Line, lit.AssignedVar, lit.AssignStartCol, lit.AssignLine})
+	}
+	want := []assigned{
+		{1, "head", 7, 0},
+		{2, "opts", 5, 0},
+		{3, "legacy", 5, 0},
+		{4, "current", 1, 0},
+		{5, "", 0, 0},
+		{6, "outer", 7, 0},
+		{8, "spread", 7, 7},
+		{9, "", 0, 0},
+		{10, "wrapped", 7, 0},
+	}
+	if fmt.Sprint(have) != fmt.Sprint(want) {
+		t.Errorf("assigned variables:\n got  %+v\n want %+v", have, want)
 	}
 }

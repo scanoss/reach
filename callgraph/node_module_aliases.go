@@ -36,7 +36,7 @@ func (p *NodeParser) receiverModuleBinding(expr *sitter.Node) (nodeHeldModule, b
 	if binding, ok := nodeRequireBinding(expr, src); ok {
 		return nodeHeldModule{binding: p.resolveRelativeBinding(binding)}, true
 	}
-	root, rest := nodeMemberChain(unwrapNodeValue(expr), src)
+	root, rest := nodeReceiverChain(unwrapNodeValue(expr), src)
 	if root == nil {
 		return nodeHeldModule{}, false
 	}
@@ -45,6 +45,25 @@ func (p *NodeParser) receiverModuleBinding(expr *sitter.Node) (nodeHeldModule, b
 		return nodeHeldModule{}, false
 	}
 	return held.member(rest...), true
+}
+
+// nodeReceiverChain splits a receiver as nodeMemberChain does, reading a
+// string-literal index as the property it names (`acme['mode'].CTR` is
+// acme, [mode CTR]), as a call through it is keyed.
+func nodeReceiverChain(node *sitter.Node, src []byte) (*sitter.Node, []string) {
+	var rest []string
+	for node != nil && (node.Type() == nodeMemberExpression || node.Type() == nodeSubscriptExpression) {
+		object, name, ok := nodeReadMember(node, src)
+		if !ok || node.Type() == nodeMemberExpression && node.ChildByFieldName("property").Type() != nodePropertyIdentifier {
+			return nil, nil
+		}
+		rest = append([]string{name}, rest...)
+		node = unwrapNodeValue(object)
+	}
+	if node == nil || node.Type() != goNodeIdentifier {
+		return nil, nil
+	}
+	return node, rest
 }
 
 // member is the binding of a member path read from held: a promise is no
@@ -85,6 +104,9 @@ func (p *NodeParser) nameModuleBinding(name *sitter.Node, depth int) (nodeHeldMo
 	case d.hasRequired:
 		return nodeHeldModule{binding: p.resolveRelativeBinding(d.required)}, true
 	case d.from != nil:
+		if d.fromVar && !x.varHoldsAt(d, name) {
+			return nodeHeldModule{}, false
+		}
 		held, ok := p.valueModuleBinding(d.from, depth+1)
 		if !ok || held.pending {
 			return nodeHeldModule{}, false
@@ -195,6 +217,17 @@ func nodeDeclaredByImport(name *sitter.Node) bool {
 		}
 	}
 	return false
+}
+
+// varHoldsAt reports whether a var a destructuring declares holds the member
+// it read at use, as holdsInitializer reports for a var's initializer: read
+// after its declaration ran in the same function, or a module-level var read
+// from inside a function.
+func (x *nodeValueIndex) varHoldsAt(d *nodeDecl, use *sitter.Node) bool {
+	if d.writes != 0 {
+		return false
+	}
+	return x.varInitializedBefore(d, use) || d.fn == nil && nodeEnclosingFunction(use) != nil
 }
 
 // holdsInitializer reports whether a variable holds its initializer at use:

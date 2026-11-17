@@ -134,6 +134,9 @@ type Builder struct {
 	// ecosystem identifies which contract KB of the installed source to load during BuildFromDirectories.
 	// Defaults to "java" for backward compatibility with NewBuilder.
 	ecosystem string
+	// kb, when set, replaces the installed source's KB for the build's
+	// ecosystem, so a test can build with a KB of its own.
+	kb *contracts.KnowledgeBase
 	// pythonReExports accumulates every package's `__init__.py` re-exports
 	// discovered during Phase 1 source parsing (addAnalyses), keyed by the
 	// owning package's dotted path, then by symbol name -> origin module
@@ -362,7 +365,10 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	// pass is a no-op since no function will have ReturnSources set.
 	inferenceStart := time.Now()
 	kbSpan := perf.Start("callgraph.build.kb_load")
-	kb, err := contracts.ForEcosystem(b.ecosystem)
+	kb, err := b.kb, error(nil)
+	if kb == nil {
+		kb, err = contracts.ForEcosystem(b.ecosystem)
+	}
 	kbSpan.End()
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: load embedded %s KB: %w", b.ecosystem, err)
@@ -396,6 +402,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	// after inference so both declared and KB-inferred return types are
 	// available. See resolveParameterPassthroughDispatch for the full contract.
 	perf.Time("callgraph.build.passthrough_dispatch", func() { resolveParameterPassthroughDispatch(graph) })
+	finishNodePropertyReads(graph, kb)
 	inferenceDuration := time.Since(inferenceStart)
 
 	log.Info().
@@ -955,6 +962,11 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			graph.NodeObjectLiterals = make(map[string][]NodeObjectLiteral)
 		}
 		graph.NodeObjectLiterals[analysis.FilePath] = analysis.NodeObjectLiterals
+	}
+	if b.ecosystem == ecosystemNode && projectLocal {
+		for i := range analysis.nodePropertyReads {
+			graph.nodePropertyReads = append(graph.nodePropertyReads, &analysis.nodePropertyReads[i])
+		}
 	}
 }
 
@@ -2891,6 +2903,7 @@ func resolveChainCalleesInFunction(graph *CallGraph, callerKey string, fn *Funct
 	}
 
 	resolved := 0
+	oldKeys := make(map[string]bool)
 	for _, cid := range order {
 		idxs := chains[cid]
 		if len(idxs) < 2 {
@@ -2901,12 +2914,13 @@ func resolveChainCalleesInFunction(graph *CallGraph, callerKey string, fn *Funct
 		sort.SliceStable(idxs, func(a, b int) bool {
 			return len(fn.Calls[idxs[a]].Raw) < len(fn.Calls[idxs[b]].Raw)
 		})
-		resolved += resolveChainLinkCallees(graph, callerKey, fn, idxs, kb)
+		resolved += resolveChainLinkCallees(graph, callerKey, fn, idxs, kb, oldKeys)
 	}
+	reconcileRewrittenCallers(graph, callerKey, fn, oldKeys)
 	return resolved
 }
 
-func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDecl, idxs []int, kb *contracts.KnowledgeBase) int {
+func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDecl, idxs []int, kb *contracts.KnowledgeBase, oldKeys map[string]bool) int {
 	// Seed the receiver type from the root (innermost) link's KB return type.
 	rootCall := &fn.Calls[idxs[0]]
 	rootFQN, rootArity := splitMethodArity(&rootCall.Callee)
@@ -2967,7 +2981,17 @@ func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDec
 			// instead of the stale fallback. Without this the index and the
 			// FunctionCall.Callee diverge and the exported edge carries a synthesized
 			// key with no object identity.
-			addCaller(graph.Callers, newKey, callerKey, oldKey)
+			if kb.Ecosystem == ecosystemNode {
+				// A Node caller-local key is shared by every call of the method
+				// name in the function: drop only this call's site, and the
+				// caller once no call targets the key, or an export keeps a
+				// copy of the call under the old key with another call's data.
+				dropCallEdgeResolution(graph, callerKey, oldKey, call)
+				oldKeys[oldKey] = true
+				addCaller(graph.Callers, newKey, callerKey)
+			} else {
+				addCaller(graph.Callers, newKey, callerKey, oldKey)
+			}
 			recordCallEdgeResolution(graph, callerKey, newKey, EdgeKindExact, "", call)
 			resolved++
 		}

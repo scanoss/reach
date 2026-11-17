@@ -90,10 +90,12 @@ type nodeDecl struct {
 	// the module; hasRequired marks it set.
 	required    nodeBinding
 	hasRequired bool
-	// from is the value a const or let destructuring reads the name's member
-	// fromMember of: `const { a: b } = v` binds b to member a of v.
+	// from is the value a destructuring declaration reads the name's member
+	// fromMember of: `const { a: b } = v` binds b to member a of v. fromVar
+	// marks a var one, which holds the member only once it has run.
 	from       *sitter.Node
 	fromMember string
+	fromVar    bool
 }
 
 // nodeValueIndex holds, for one file, every binding of every name and every
@@ -293,16 +295,18 @@ func (x *nodeValueIndex) declarator(node, fn, root *sitter.Node) {
 		x.add(name, &d)
 		return
 	}
-	destructures := name.Type() == nodeObjectPattern && value != nil && (d.kind == nodeDeclConst || d.kind == nodeDeclLet)
+	destructures := name.Type() == nodeObjectPattern && value != nil && d.kind != nodeDeclOther
+	isVar := d.kind == nodeDeclVar
 	d.kind, d.value = nodeDeclOther, nil
 	if destructures {
+		d.fromVar = isVar
 		x.destructure(name, d, value)
 		return
 	}
 	x.addPattern(name, d)
 }
 
-// destructure records the names `const { a, b: c } = v` binds, each with the
+// destructure records the names `const { a, b: c } = v` (or let, or var) binds, each with the
 // member of v it reads, so a name that destructures a module binding can be
 // followed to the module (nodeModuleBindingOf).
 func (x *nodeValueIndex) destructure(pattern *sitter.Node, d nodeDecl, value *sitter.Node) {
@@ -831,6 +835,9 @@ func (x *nodeValueIndex) stable(d *nodeDecl, node *sitter.Node) bool {
 // function. A var has no temporal dead zone: a read before it is undefined.
 func (x *nodeValueIndex) varInitializedBefore(d *nodeDecl, node *sitter.Node) bool {
 	statement := d.name.Parent()
+	for statement != nil && statement.Type() != nodeVariableDeclarator {
+		statement = statement.Parent()
+	}
 	if statement != nil {
 		statement = statement.Parent()
 	}

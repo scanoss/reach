@@ -139,27 +139,46 @@ func resolveNodeAssignedVarCalleesInFunction(graph *CallGraph, callerKey string,
 	resolved := 0
 	for _, i := range assignmentPropagationOrder(fn.Calls) {
 		call := &fn.Calls[i]
-		if receiverType, ok := varTypes[call.ReceiverVar]; ok && call.Callee.Type == "" {
+		receiverType, ok := varTypes[call.ReceiverVar]
+		if !ok && call.ReceiverVar == "" && call.nodeNewOf != nil {
+			receiverType, ok = nodeContractResultType(call.nodeNewOf, kb, receivers)
+		}
+		if ok && call.Callee.Type == "" {
 			pkg, typ := splitQualifiedTypeName(receiverType)
 			oldKeys[call.Callee.String()] = true
+			dropCallEdgeResolution(graph, callerKey, call.Callee.String(), call)
 			call.Callee = FunctionID{Package: pkg, Type: typ, Name: call.Callee.Name}
 			addCaller(graph.Callers, call.Callee.String(), callerKey)
 			recordCallEdgeResolution(graph, callerKey, call.Callee.String(), EdgeKindExact, "", call)
 			resolved++
 		}
-		if call.AssignedVar == "" {
-			continue
-		}
-		fqn, arity := splitMethodArity(&call.Callee)
-		if arity < 0 {
-			arity = len(call.Arguments)
-		}
-		if ret := unconditionalContractReturn(kb.ContractsFor(fqn, arity)); receivers[ret] {
-			varTypes[call.AssignedVar] = ret
-		} else {
-			delete(varTypes, call.AssignedVar)
-		}
+		bindNodeAssignedVarType(varTypes, call, kb, receivers)
 	}
 	reconcileRewrittenCallers(graph, callerKey, fn, oldKeys)
 	return resolved, varTypes
+}
+
+// bindNodeAssignedVarType records the type a call's result gives the variable
+// it is assigned to: the contract's unconditional return when the KB declares
+// methods on it, else none, which drops what was known about the variable.
+func bindNodeAssignedVarType(varTypes map[string]string, call *FunctionCall, kb *contracts.KnowledgeBase, receivers map[string]bool) {
+	if call.AssignedVar == "" {
+		return
+	}
+	if ret, ok := nodeContractResultType(call, kb, receivers); ok {
+		varTypes[call.AssignedVar] = ret
+	} else {
+		delete(varTypes, call.AssignedVar)
+	}
+}
+
+// nodeContractResultType is the type the KB gives a call's result: the
+// contract's unconditional return, when the KB declares methods on it.
+func nodeContractResultType(call *FunctionCall, kb *contracts.KnowledgeBase, receivers map[string]bool) (string, bool) {
+	fqn, arity := splitMethodArity(&call.Callee)
+	if arity < 0 {
+		arity = len(call.Arguments)
+	}
+	ret := unconditionalContractReturn(kb.ContractsFor(fqn, arity))
+	return ret, receivers[ret]
 }

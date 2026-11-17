@@ -17,13 +17,24 @@ import sitter "github.com/smacker/go-tree-sitter"
 // key of the innermost function whose span holds the object, the key its call
 // sites carry; at module level it is the module's `<module>` key, which the
 // module's own top-level calls carry.
+//
+// AssignedVar is the variable the object is bound to, as a call's assigned
+// variable is: the name of a `const`, `let` or `var` declarator the object
+// initializes (`const o = {...}`), or the plain name an assignment writes it
+// to (`o = {...}`); empty for any other object (an argument, a property
+// value, a return value). AssignStartCol is then the 1-based column the name
+// starts at, and AssignLine the 1-based line it is on when that is not Line
+// (a declarator whose name and object stand on different lines), else 0.
 type NodeObjectLiteral struct {
-	Line      int
-	StartCol  int
-	EndLine   int
-	EndCol    int
-	Text      string
-	CallerKey string
+	Line           int
+	StartCol       int
+	EndLine        int
+	EndCol         int
+	Text           string
+	CallerKey      string
+	AssignedVar    string
+	AssignStartCol int
+	AssignLine     int
 }
 
 // collectNodeObjectLiterals lists, in source order, the outermost non-empty
@@ -48,6 +59,13 @@ func collectNodeObjectLiterals(root *sitter.Node, src []byte, functions []Functi
 					Text:     n.Content(src),
 				}
 				lit.CallerKey = enclosingNodeFunctionKey(functions, lit, moduleKey)
+				if target := nodeAssignedTarget(n); target != nil {
+					at := target.StartPoint()
+					lit.AssignedVar, lit.AssignStartCol = target.Content(src), int(at.Column)+1
+					if line := int(at.Row) + 1; line != lit.Line {
+						lit.AssignLine = line
+					}
+				}
 				out = append(out, lit)
 			}
 			return
@@ -58,6 +76,34 @@ func collectNodeObjectLiterals(root *sitter.Node, src []byte, functions []Functi
 	}
 	walk(root)
 	return out
+}
+
+// nodeAssignedTarget returns the name a value is bound to, as a call's
+// assigned variable is (parentheses and `await` between them looked through):
+// the name of the declarator it initializes, or the plain name an assignment
+// writes it to. It returns nil for a value bound to a pattern or a member, or
+// not bound at all.
+func nodeAssignedTarget(value *sitter.Node) *sitter.Node {
+	value = nodeResolvedValue(value)
+	parent := value.Parent()
+	if parent == nil {
+		return nil
+	}
+	var target *sitter.Node
+	switch parent.Type() {
+	case nodeVariableDeclarator:
+		if sameSyntaxNode(parent.ChildByFieldName("value"), value) {
+			target = parent.ChildByFieldName("name")
+		}
+	case nodeAssignmentExpression:
+		if sameSyntaxNode(parent.ChildByFieldName("right"), value) {
+			target = parent.ChildByFieldName("left")
+		}
+	}
+	if target == nil || target.Type() != goNodeIdentifier {
+		return nil
+	}
+	return target
 }
 
 // nodeObjectHasMembers reports whether an object expression holds anything
