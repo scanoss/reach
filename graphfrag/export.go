@@ -199,7 +199,18 @@ import (
 // merging several modules (Object.assign of modules, or a spread of them) may
 // hold the member from, its key left caller-local, on a member of the
 // variable or on any longer chain it heads (`H.sha256.create()`).
-const SchemaVersion = "graph-fragment-1.29"
+//
+// 1.30 gives a Rust fragment two facts for rules that match operators and
+// typed parameters. binary_exprs lists, by file path, every binary
+// expression of each file's function bodies (`s * base`, `&s * &p`, `a ==
+// b`), nested ones included, with its span, its operator, both operands as
+// written with their spans, and the key of the function that holds it
+// (GraphFragmentBinaryExpr). A fn item gains a trailing params field, its
+// parameters as written, each with its pattern, its type, its span and
+// whether it is a self receiver (GraphFragmentParam). A 1.29 fragment decodes
+// with neither; a 1.29 reader rejects the longer item array of a fn with
+// parameters, which is why this is a bump and not an optional field.
+const SchemaVersion = "graph-fragment-1.30"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -460,6 +471,9 @@ type GraphFragmentExport struct {
 	// any depth, in source order (1.26, Rust; type aliases from 1.27): the
 	// scopes a call, a use or a declaration stands in.
 	Items map[string][]GraphFragmentItem `json:"items,omitempty"`
+	// BinaryExprs are, by file path, the binary expressions of each scanned
+	// Rust file's function bodies, in source order (1.30, Rust).
+	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
 	// Exports maps each public dotted name of the component (Python; optional,
 	// no schema bump) that names a declaration made elsewhere in it to that
 	// declaration: a function key, or a class as `pkg.(Type)`. Re-exports
@@ -598,12 +612,15 @@ type GraphFragmentPropertyRead struct {
 // type alias's fields. type (1.27) is a type alias's aliased type, the text
 // after `=` as written, whitespace kept, and keyword_col the 1-based column
 // of its `type` keyword on line (0 when the keyword is on another line); both
-// are written only for a type alias.
+// are written only for a type alias, or as "" and 0 before a fn's params.
+// params (1.30) are a fn's parameters in order, self receiver included
+// (GraphFragmentParam), written only for a fn with parameters.
 type GraphFragmentItem struct {
 	Line, StartCol, EndCol, EndLine int
 	Kind, Name                      string
 	Type                            string
 	KeywordCol                      int
+	Params                          []GraphFragmentParam
 }
 
 // MarshalJSON encodes the item as a positional JSON array.
@@ -615,17 +632,115 @@ func (it GraphFragmentItem) MarshalJSON() ([]byte, error) {
 func AppendItemJSON(dst []byte, it GraphFragmentItem) []byte {
 	dst = appendPositionalInts(append(dst, '['), it.Line, it.StartCol, it.EndCol)
 	dst = appendPositionalStrings(dst, it.Kind, it.Name)
-	if it.Type == "" && it.KeywordCol == 0 {
+	if it.Type == "" && it.KeywordCol == 0 && len(it.Params) == 0 {
 		return appendPositionalEnd(dst, it.EndLine)
 	}
 	dst = appendPositionalInts(dst, it.EndLine)
 	dst = appendPositionalStrings(dst, it.Type)
-	return appendPositionalEnd(dst, it.KeywordCol)
+	if len(it.Params) == 0 {
+		return appendPositionalEnd(dst, it.KeywordCol)
+	}
+	dst = appendPositionalInts(dst, it.KeywordCol)
+	dst = append(dst, '[')
+	for i, param := range it.Params {
+		if i > 0 {
+			dst = append(dst, ',')
+		}
+		dst = AppendParamJSON(dst, param)
+	}
+	return append(dst, ']', ']')
 }
 
 // UnmarshalJSON decodes the positional item array.
 func (it *GraphFragmentItem) UnmarshalJSON(data []byte) error {
-	return decodePositional("item", data, 5, &it.Line, &it.StartCol, &it.EndCol, &it.Kind, &it.Name, &it.EndLine, &it.Type, &it.KeywordCol)
+	return decodePositional("item", data, 5, &it.Line, &it.StartCol, &it.EndCol, &it.Kind, &it.Name, &it.EndLine, &it.Type, &it.KeywordCol, &it.Params)
+}
+
+// GraphFragmentParam is one parameter of a Rust fn item (graph-fragment-1.30).
+// JSON is a positional array: [line, start_col, end_col, pattern, type,
+// end_line, self].
+//
+// pattern is the text before the `:` as written (`key`, `mut key`, `(a,
+// b)`, `_`), or the whole receiver for a shorthand self (`self`, `mut self`,
+// `&self`, `&'a mut self`); type is the text after the `:` as written,
+// whitespace kept, "" for a shorthand self. The span is the parameter without
+// its attributes, columns 1-based, end exclusive. end_line is written only
+// for a parameter that spans lines, or as 0 before self. self is written,
+// as true, only for a receiver: a shorthand self or a typed `self:
+// Box<Self>`.
+type GraphFragmentParam struct {
+	Line, StartCol, EndCol, EndLine int
+	Pattern, Type                   string
+	Self                            bool
+}
+
+// MarshalJSON encodes the parameter as a positional JSON array.
+func (p GraphFragmentParam) MarshalJSON() ([]byte, error) {
+	return AppendParamJSON(nil, p), nil
+}
+
+// AppendParamJSON appends the positional encoding of p to dst.
+func AppendParamJSON(dst []byte, p GraphFragmentParam) []byte {
+	dst = appendPositionalInts(append(dst, '['), p.Line, p.StartCol, p.EndCol)
+	dst = appendPositionalStrings(dst, p.Pattern, p.Type)
+	if !p.Self {
+		return appendPositionalEnd(dst, p.EndLine)
+	}
+	dst = appendPositionalInts(dst, p.EndLine)
+	return append(dst, "true]"...)
+}
+
+// UnmarshalJSON decodes the positional parameter array.
+func (p *GraphFragmentParam) UnmarshalJSON(data []byte) error {
+	return decodePositional("param", data, 5, &p.Line, &p.StartCol, &p.EndCol, &p.Pattern, &p.Type, &p.EndLine, &p.Self)
+}
+
+// GraphFragmentBinaryExpr is one binary expression of a Rust function body
+// (callgraph.RustBinaryExpr, graph-fragment-1.30). JSON is a positional
+// array: [line, start_col, end_col, op, left, right, left_end_col,
+// right_start_col, function, end_line, left_end_line, right_line].
+//
+// op is the operator as written (`*`, `+`, `==`, `&&`, ...), left and right
+// the operands' source text as written. Every binary expression of a body is
+// listed, an operand of another included (`a * b + c` gives two), and one in
+// the arguments of an expression macro too. The span is the expression,
+// columns 1-based, end exclusive. The left operand starts where the
+// expression starts and ends at left_end_col, on left_end_line; the right
+// operand starts at right_start_col, on right_line, and ends where the
+// expression ends. function is the key of the innermost function whose span
+// holds the expression, "" when none does. The three trailing lines are each
+// 0 when they equal line, and written only up to the last that is not 0.
+type GraphFragmentBinaryExpr struct {
+	Line, StartCol, EndCol, EndLine int
+	Op, Left, Right                 string
+	LeftEndCol, LeftEndLine         int
+	RightStartCol, RightLine        int
+	Function                        string
+}
+
+// MarshalJSON encodes the expression as a positional JSON array.
+func (e GraphFragmentBinaryExpr) MarshalJSON() ([]byte, error) {
+	return AppendBinaryExprJSON(nil, e), nil
+}
+
+// AppendBinaryExprJSON appends the positional encoding of e to dst.
+func AppendBinaryExprJSON(dst []byte, e GraphFragmentBinaryExpr) []byte {
+	dst = appendPositionalInts(append(dst, '['), e.Line, e.StartCol, e.EndCol)
+	dst = appendPositionalStrings(dst, e.Op, e.Left, e.Right)
+	dst = appendPositionalInts(dst, e.LeftEndCol, e.RightStartCol)
+	dst = appendPositionalStrings(dst, e.Function)
+	lines := []int{e.EndLine, e.LeftEndLine, e.RightLine}
+	for len(lines) > 0 && lines[len(lines)-1] == 0 {
+		lines = lines[:len(lines)-1]
+	}
+	dst = appendPositionalInts(dst, lines...)
+	dst[len(dst)-1] = ']'
+	return dst
+}
+
+// UnmarshalJSON decodes the positional expression array.
+func (e *GraphFragmentBinaryExpr) UnmarshalJSON(data []byte) error {
+	return decodePositional("binary expression", data, 9, &e.Line, &e.StartCol, &e.EndCol, &e.Op, &e.Left, &e.Right, &e.LeftEndCol, &e.RightStartCol, &e.Function, &e.EndLine, &e.LeftEndLine, &e.RightLine)
 }
 
 // GraphFragmentExternalSignature is one signature of a method outside the

@@ -399,6 +399,9 @@ func (p *RustParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 	defer func() { p.rustConsts = nil }()
 	p.extractDeclarations(root, src, filePath, packagePath, analysis, analysis)
 	analysis.EntryRefs, p.entryRefs, p.letIndex = p.entryRefs, nil, nil
+	// Before the synthetic <varinit>, whose span is the whole file, so each
+	// expression keys to a function it stands in.
+	p.collectRustBinaryExprs(root, src, analysis)
 	p.appendRustVarinit(root, filePath, packagePath, analysis)
 
 	return analysis, nil
