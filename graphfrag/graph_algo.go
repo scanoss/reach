@@ -217,7 +217,10 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // (`declarations`, type written `<import path>.<name>`, with `*`, `[]`).
 // graph-algo-go-7: fragments carry the call data (call anchors, rebind
 // lines) a source-free annotate rebuilds Go calls from, as Java and Python.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "7"
+// graph-algo-go-8: with a GoSourceTypeResolver, a call on an imported package
+// value or on a local bound from a call into a read package is typed from
+// that package's declarations.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "8"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.

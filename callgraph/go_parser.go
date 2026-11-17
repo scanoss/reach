@@ -980,6 +980,27 @@ func goConstructedType(expr *sitter.Node, src []byte, pkg string, analysis *File
 	return goNamedType(typeNode, src, pkg, analysis)
 }
 
+// goPackageValueOperand is `<import path>.<Name>` for a receiver that reads
+// a value of an imported package (`base64.StdEncoding`), or "".
+func goPackageValueOperand(operand *sitter.Node, src []byte, analysis *FileAnalysis, currentReceiverVar string, varTypes map[string]string) string {
+	if operand.Type() != goNodeSelectorExpression {
+		return ""
+	}
+	root, field := operand.ChildByFieldName(goFieldOperand), operand.ChildByFieldName(goFieldField)
+	if root == nil || field == nil || root.Type() != goNodeIdentifier {
+		return ""
+	}
+	alias := root.Content(src)
+	if _, local := varTypes[alias]; local || alias == currentReceiverVar {
+		return ""
+	}
+	path, ok := analysis.Imports[alias]
+	if !ok {
+		return ""
+	}
+	return path + "." + field.Content(src)
+}
+
 // goConstructedReceiverType is goConstructedType of a call's receiver, with
 // the pointer `&T{}` and `new(T)` build spelled as a typed local's is (`*T`).
 func goConstructedReceiverType(expr *sitter.Node, src []byte, analysis *FileAnalysis) (string, string) {
@@ -1548,6 +1569,16 @@ func (p *GoParser) parseSelectorCall(
 	}
 
 	if operandNode.Type() != goNodeIdentifier {
+		if value := goPackageValueOperand(operandNode, src, analysis, currentReceiverVar, varTypes); value != "" {
+			return &FunctionCall{
+				Callee:         FunctionID{Name: field},
+				GoPackageValue: value,
+				Raw:            node.Content(src),
+				FilePath:       filePath,
+				Line:           line,
+				Arguments:      args,
+			}
+		}
 		// Any other receiver shape — a field chain (`s.c.XORKeyStream(...)`),
 		// an index expression (`hs[i].Sum(...)`), a composite literal — is a
 		// real call whose receiver this pass cannot type. Dropping it removed

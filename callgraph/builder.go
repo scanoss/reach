@@ -3134,6 +3134,10 @@ func goAssignedVarContractTypes(graph *CallGraph, fn *FunctionDecl, kb *contract
 			}
 		}
 		if ret == "" {
+			// A producer in a package the resolver reads: its declared result.
+			ret = goReceiverTypeOf(graph.goSourceTypes.resultType(call.Callee))
+		}
+		if ret == "" {
 			continue
 		}
 		if prev, seen := types[call.AssignedVar]; seen && prev != ret {
