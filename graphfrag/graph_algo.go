@@ -161,7 +161,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // with its position among the call's arguments, `self` left out), a call
 // (CALL_RESULT over the values of its receiver and arguments), and an
 // operation or expression macro (EXPRESSION over its operands).
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "5"
+// graph-algo-rs-6: fragments list each file's type aliases among its items
+// (kind type, `[pub] type A<T> = X;` in a module, a function body or an impl,
+// whose associated type definitions are type aliases too), with the aliased
+// type as written and the column of the `type` keyword
+// (graph-fragment-1.27).
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "6"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

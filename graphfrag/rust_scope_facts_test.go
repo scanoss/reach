@@ -10,12 +10,15 @@ import (
 )
 
 // An item is a positional array; end_line is written only for an item over
-// several lines, and both forms decode back.
+// several lines, or as 0 before a type alias's aliased type and keyword
+// column, and every form decodes back.
 func TestGraphFragmentItemRoundTrip(t *testing.T) {
 	t.Parallel()
 	for want, item := range map[string]GraphFragmentItem{
-		`[4,5,26,"const","K"]`:                           {Line: 4, StartCol: 5, EndCol: 26, Kind: "const", Name: "K"},
-		`[9,1,2,"impl","acme_kdf::Kdf\u003cH\u003e",13]`: {Line: 9, StartCol: 1, EndCol: 2, EndLine: 13, Kind: "impl", Name: "acme_kdf::Kdf<H>"},
+		`[4,5,26,"const","K"]`:                                              {Line: 4, StartCol: 5, EndCol: 26, Kind: "const", Name: "K"},
+		`[9,1,2,"impl","acme_kdf::Kdf\u003cH\u003e",13]`:                    {Line: 9, StartCol: 1, EndCol: 2, EndLine: 13, Kind: "impl", Name: "acme_kdf::Kdf<H>"},
+		`[1,1,32,"type","Pair",0,"AcmeGcm\u003cT, U12\u003e",1]`:            {Line: 1, StartCol: 1, EndCol: 32, Kind: "type", Name: "Pair", Type: "AcmeGcm<T, U12>", KeywordCol: 1},
+		`[3,1,30,"type","Multi",4,"acme::Mode\u003cacme::Cipher\u003e",12]`: {Line: 3, StartCol: 1, EndCol: 30, EndLine: 4, Kind: "type", Name: "Multi", Type: "acme::Mode<acme::Cipher>", KeywordCol: 12},
 	} {
 		data, err := json.Marshal(item)
 		if err != nil || string(data) != want {

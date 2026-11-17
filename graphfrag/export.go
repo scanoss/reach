@@ -167,7 +167,14 @@ import (
 // two or more segments a body reads outside a callee, `acme::Mode::Cbc`) and
 // declarations (one per name a `let` binds, any type, the statement's span),
 // in their 1.17 and 1.18 forms.
-const SchemaVersion = "graph-fragment-1.26"
+//
+// 1.27 adds type alias items to a Rust fragment's items (kind type, `type A
+// = X;` at any depth, an impl's associated type definitions included), each
+// with two trailing fields: the aliased type as written and the column of the
+// `type` keyword (GraphFragmentItem). A 1.26 fragment decodes with none; a
+// 1.26 reader rejects the longer item array, which is why this is a bump and
+// not an optional field.
+const SchemaVersion = "graph-fragment-1.27"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -417,8 +424,8 @@ type GraphFragmentExport struct {
 	// argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// Items are, by file path, the items each scanned Rust file declares at
-	// any depth, in source order (1.26, Rust): the scopes a call, a use or a
-	// declaration stands in.
+	// any depth, in source order (1.26, Rust; type aliases from 1.27): the
+	// scopes a call, a use or a declaration stands in.
 	Items map[string][]GraphFragmentItem `json:"items,omitempty"`
 	// Exports maps each public dotted name of the component (Python; optional,
 	// no schema bump) that names a declaration made elsewhere in it to that
@@ -488,17 +495,25 @@ type GraphFragmentImport struct {
 }
 
 // GraphFragmentItem is one item a Rust file declares (graph-fragment-1.26).
-// JSON is a positional array: [line, start_col, end_col, kind, name, end_line].
+// JSON is a positional array: [line, start_col, end_col, kind, name,
+// end_line, type, keyword_col].
 //
 // kind is mod (an inline module with a body), fn (a function with a body),
-// impl, trait, const, static, struct or extern_crate; name is the item's name
-// as written, an impl block's self type without whitespace (`Kdf<H>`), an
-// `extern crate`'s crate. The span is the item without its attributes,
+// impl, trait, const, static, struct, extern_crate or type (a type alias,
+// 1.27, an impl's associated type definition included); name is the item's
+// name as written, an impl block's self type without whitespace (`Kdf<H>`),
+// an `extern crate`'s crate. The span is the item without its attributes,
 // visibility to closing brace or semicolon, columns 1-based, end exclusive.
-// end_line is written only for an item that spans lines.
+// end_line is written only for an item that spans lines, or as 0 before a
+// type alias's fields. type (1.27) is a type alias's aliased type, the text
+// after `=` as written, whitespace kept, and keyword_col the 1-based column
+// of its `type` keyword on line (0 when the keyword is on another line); both
+// are written only for a type alias.
 type GraphFragmentItem struct {
 	Line, StartCol, EndCol, EndLine int
 	Kind, Name                      string
+	Type                            string
+	KeywordCol                      int
 }
 
 // MarshalJSON encodes the item as a positional JSON array.
@@ -510,12 +525,17 @@ func (it GraphFragmentItem) MarshalJSON() ([]byte, error) {
 func AppendItemJSON(dst []byte, it GraphFragmentItem) []byte {
 	dst = appendPositionalInts(append(dst, '['), it.Line, it.StartCol, it.EndCol)
 	dst = appendPositionalStrings(dst, it.Kind, it.Name)
-	return appendPositionalEnd(dst, it.EndLine)
+	if it.Type == "" && it.KeywordCol == 0 {
+		return appendPositionalEnd(dst, it.EndLine)
+	}
+	dst = appendPositionalInts(dst, it.EndLine)
+	dst = appendPositionalStrings(dst, it.Type)
+	return appendPositionalEnd(dst, it.KeywordCol)
 }
 
 // UnmarshalJSON decodes the positional item array.
 func (it *GraphFragmentItem) UnmarshalJSON(data []byte) error {
-	return decodePositional("item", data, 5, &it.Line, &it.StartCol, &it.EndCol, &it.Kind, &it.Name, &it.EndLine)
+	return decodePositional("item", data, 5, &it.Line, &it.StartCol, &it.EndCol, &it.Kind, &it.Name, &it.EndLine, &it.Type, &it.KeywordCol)
 }
 
 // GraphFragmentExternalSignature is one signature of a method outside the

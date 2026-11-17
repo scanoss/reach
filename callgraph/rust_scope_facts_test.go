@@ -136,3 +136,36 @@ func TestRustScopeFactsInGraph(t *testing.T) {
 		t.Errorf("RustItems[%s] = %+v, want the fn derive", file, got)
 	}
 }
+
+// TestRustTypeAliasItems: a type alias is an item at any depth, in a module,
+// a function body and an impl (an associated type definition), with its
+// aliased type as written and the column of its `type` keyword after any
+// visibility; a trait's associated type declaration is none.
+func TestRustTypeAliasItems(t *testing.T) {
+	src := `pub type Cipher = acme_ctr::Ctr<acme_block::Block128>;
+type Pair<T> = AcmeGcm<T, U12>;
+pub(crate) type Multi =
+    acme::Mode<acme::Cipher>;
+trait Out { type Output; type Bounded: Clone; }
+impl Out for Key {
+    type Output = acme::Digest;
+}
+fn run() {
+    type Local = acme::Hash;
+}
+`
+	_, items := parseRustScopeFacts(t, src)
+	want := []RustItem{
+		{Kind: RustItemType, Name: "Cipher", Line: 1, StartCol: 1, EndCol: 55, Type: "acme_ctr::Ctr<acme_block::Block128>", KeywordCol: 5},
+		{Kind: RustItemType, Name: "Pair", Line: 2, StartCol: 1, EndCol: 32, Type: "AcmeGcm<T, U12>", KeywordCol: 1},
+		{Kind: RustItemType, Name: "Multi", Line: 3, StartCol: 1, EndCol: 30, EndLine: 4, Type: "acme::Mode<acme::Cipher>", KeywordCol: 12},
+		{Kind: RustItemTrait, Name: "Out", Line: 5, StartCol: 1, EndCol: 48},
+		{Kind: RustItemImpl, Name: "Key", Line: 6, StartCol: 1, EndCol: 2, EndLine: 8},
+		{Kind: RustItemType, Name: "Output", Line: 7, StartCol: 5, EndCol: 32, Type: "acme::Digest", KeywordCol: 5},
+		{Kind: RustItemFn, Name: "run", Line: 9, StartCol: 1, EndCol: 2, EndLine: 11},
+		{Kind: RustItemType, Name: "Local", Line: 10, StartCol: 5, EndCol: 29, Type: "acme::Hash", KeywordCol: 5},
+	}
+	if !reflect.DeepEqual(items, want) {
+		t.Errorf("items:\n got %+v\nwant %+v", items, want)
+	}
+}
