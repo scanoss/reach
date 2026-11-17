@@ -506,9 +506,10 @@ type FunctionCall struct {
 	// moves the call's edge from this key to the new one.
 	pythonUntyped string
 	// nodeModuleValue marks a Node call of an imported module value itself:
-	// a default import, or `const f = require('m')` with `f(..)`. The callee
-	// name is then the local binding, and the call reaches the module's
-	// default export (module.exports for CommonJS).
+	// a default or namespace import, `const f = require('m')` with `f(..)`, or
+	// `require('m')(..)`. The callee is then m.default whatever the local
+	// binding is called (nodeBinding.qualifyValue), and the call reaches the
+	// module's default export (module.exports for CommonJS).
 	nodeModuleValue bool
 	// nodeUntyped is the callee before a receiver type that the builder still
 	// checks was applied: a default-imported class, or an unannotated field.

@@ -360,6 +360,20 @@ func (b nodeBinding) qualify(path ...string) (pkg, last string) {
 	return pkg, segments[len(segments)-1]
 }
 
+// qualifyValue is qualify for a binding used as a value: a call or a `new`
+// of it. The module itself, which qualify leaves without a last segment, is
+// spelled as its default export, so the key never depends on the local name
+// a consumer gave it: `const kk = require('m'); kk(x)`, `import f from 'm'`,
+// `import * as ns from 'm'`, `require('m')(x)` and `m.default(x)` all call
+// m.default, and `new X()` of any of them constructs m.(default).
+func (b nodeBinding) qualifyValue(path ...string) (pkg, last string) {
+	pkg, last = b.qualify(path...)
+	if last == "" {
+		last = nodeDefaultKeyword
+	}
+	return pkg, last
+}
+
 func extractNodeImports(node *sitter.Node, src []byte, bindings nodeBindings) {
 	if node == nil {
 		return
@@ -377,6 +391,10 @@ func extractNodeImports(node *sitter.Node, src []byte, bindings nodeBindings) {
 }
 
 func extractNodeESImport(node *sitter.Node, src []byte, bindings nodeBindings) {
+	if name, module, ok := nodeImportRequireClause(node, src); ok {
+		bindings[name] = nodeBinding{module: module}
+		return
+	}
 	source := node.ChildByFieldName("source")
 	if source == nil {
 		return
@@ -391,6 +409,24 @@ func extractNodeESImport(node *sitter.Node, src []byte, bindings nodeBindings) {
 			recordNodeImportAliases(child, src, module, bindings)
 		}
 	}
+}
+
+// nodeImportRequireClause reads TypeScript's `import x = require('m')`: the
+// local name and the module, which x binds as `const x = require('m')` does.
+func nodeImportRequireClause(statement *sitter.Node, src []byte) (name, module string, ok bool) {
+	for i := 0; i < int(statement.NamedChildCount()); i++ {
+		clause := statement.NamedChild(i)
+		if clause.Type() != nodeImportRequireNode {
+			continue
+		}
+		source := clause.ChildByFieldName("source")
+		if source == nil || clause.NamedChildCount() == 0 || clause.NamedChild(0).Type() != goNodeIdentifier {
+			return "", "", false
+		}
+		module = unquoteNodeString(source.Content(src))
+		return clause.NamedChild(0).Content(src), module, module != ""
+	}
+	return "", "", false
 }
 
 func recordNodeImportAliases(node *sitter.Node, src []byte, module string, bindings nodeBindings) {
@@ -1202,16 +1238,25 @@ func (p *NodeParser) parseNodeCall(node *sitter.Node, src []byte, filePath, pack
 		}
 		call.Callee = FunctionID{Package: packagePath, Name: name}
 		if binding, ok := imports.lookup(locals, name); ok {
-			pkg, last := binding.qualify()
-			if last == "" {
-				last = name
-				call.nodeModuleValue = true
-			}
+			_, last := binding.qualify()
+			call.nodeModuleValue = last == ""
+			pkg, last := binding.qualifyValue()
 			call.Callee = FunctionID{Package: pkg, Name: last}
 		}
 		return call
 	case nodeMemberExpression:
 		return p.parseNodeMemberCall(call, function, src, packagePath, owner, imports, locals)
+	case nodeCallExpression:
+		// `require('m')(..)` calls the module itself, as `const f =
+		// require('m'); f(..)` does.
+		binding, ok := p.requireReceiver(function, src)
+		if !ok {
+			return nil
+		}
+		call.nodeModuleValue = true
+		pkg, last := binding.qualifyValue()
+		call.Callee = FunctionID{Package: pkg, Name: last}
+		return call
 	default:
 		return nil
 	}
@@ -1326,6 +1371,17 @@ func nodeConstructorType(constructor *sitter.Node, src []byte, packagePath strin
 	if constructor == nil {
 		return "", "", false, false
 	}
+	constructor = unwrapNodeCallee(constructor)
+	if binding, ok := nodeRequireBinding(constructor, src); ok {
+		// `new (require('m'))()` and `new (require('m').K)()`. A relative
+		// specifier names a project module, whose path this function cannot
+		// resolve, so it stays out as before.
+		if isNodeRelativeSpecifier(binding.module) {
+			return "", "", false, false
+		}
+		pkg, typeName = binding.qualifyValue()
+		return pkg, typeName, true, true
+	}
 	switch constructor.Type() {
 	case goNodeIdentifier:
 		name := constructor.Content(src)
@@ -1333,10 +1389,7 @@ func nodeConstructorType(constructor *sitter.Node, src []byte, packagePath strin
 		if !bound {
 			return packagePath, name, false, true
 		}
-		pkg, typeName = binding.qualify()
-		if typeName == "" {
-			typeName = name
-		}
+		pkg, typeName = binding.qualifyValue()
 		return pkg, typeName, true, true
 	case nodeMemberExpression:
 		object := constructor.ChildByFieldName("object")
@@ -1349,7 +1402,7 @@ func nodeConstructorType(constructor *sitter.Node, src []byte, packagePath strin
 		if !bound {
 			return "", "", false, false
 		}
-		pkg, typeName = binding.qualify(suffix, property.Content(src))
+		pkg, typeName = binding.qualifyValue(suffix, property.Content(src))
 		return pkg, typeName, true, true
 	}
 	return "", "", false, false

@@ -36,6 +36,7 @@ const (
 	nodeRequiredParameter   = "required_parameter"
 	nodeOptionalParameter   = "optional_parameter"
 	nodeRequireFunction     = "require"
+	nodeImportRequireNode   = "import_require_clause"
 	nodeExpressionStatement = rustNodeExpressionStatement
 	nodeForInStatement      = "for_in_statement"
 	nodeShorthandPattern    = "shorthand_property_identifier_pattern"

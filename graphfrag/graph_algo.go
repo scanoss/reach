@@ -164,7 +164,15 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // Node graph construction never marks a Java, Python or Rust graph stale.
 //
 // graph-algo-node-1: the Node graphs of graph-algo-39, under their own id.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "1"
+// graph-algo-node-2: a call or `new` of a module binding itself is keyed by
+// the module's default export, not the local name: `const kk =
+// require('m'); kk(x)`, `import f from 'm'; f(x)`, `import * as ns from 'm';
+// ns(x)` and `require('m')(x)` all call m.default (was m.kk, m.f, m.ns, no
+// call), and `new X()` of such a binding constructs m.(default).<init> (was
+// m.(X).<init>). `new (require('m'))()` and `new (require('m').K)()` are
+// calls (they were none), and TypeScript's `import x = require('m')` binds x
+// as `const x = require('m')` does.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "2"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

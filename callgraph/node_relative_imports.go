@@ -29,12 +29,18 @@ func resolveNodeRelativeImports(bindings nodeBindings, filePath, packagePath str
 	}
 }
 
+// isNodeRelativeSpecifier reports whether a module specifier names a file of
+// the project ('./a', '../b', '.') rather than a package.
+func isNodeRelativeSpecifier(specifier string) bool {
+	return specifier == "." || specifier == ".." || strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
+}
+
 // resolveNodeRelativeModule maps a relative specifier written in filePath, a
 // file of the package at packagePath, to a module path. It reports false for a
 // bare specifier (a package such as 'crypto') and for one that climbs above the
 // scanned tree, which keep their written form.
 func resolveNodeRelativeModule(filePath, packagePath, specifier string) (string, bool) {
-	if specifier != "." && specifier != ".." && !strings.HasPrefix(specifier, "./") && !strings.HasPrefix(specifier, "../") {
+	if !isNodeRelativeSpecifier(specifier) {
 		return "", false
 	}
 	modulePath := path.Clean(path.Join(packagePath, specifier))
