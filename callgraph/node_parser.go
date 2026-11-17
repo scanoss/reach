@@ -534,8 +534,18 @@ func isNodeImportInteropHelper(function *sitter.Node, src []byte) bool {
 	if name == nil {
 		return false
 	}
-	switch name.Content(src) {
-	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault":
+	return isNodeImportInteropHelperName(name.Content(src))
+}
+
+// isNodeImportInteropHelperName reports the name of an interop helper a
+// compiler or bundler emits, tsc's and Babel's and the ones Rollup defines
+// locally, with the `$1` suffix a bundler adds to a second copy.
+func isNodeImportInteropHelperName(name string) bool {
+	if dollar := strings.LastIndexByte(name, '$'); dollar > 0 && dollar < len(name)-1 && strings.Trim(name[dollar+1:], "0123456789") == "" {
+		name = name[:dollar]
+	}
+	switch name {
+	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault":
 		return true
 	}
 	return false
@@ -1202,6 +1212,9 @@ func (p *NodeParser) walkNodeCalls(node *sitter.Node, src []byte, filePath, pack
 		call = p.parseNodeCall(node, src, filePath, packagePath, owner, imports, locals)
 	case nodeNewExpression:
 		call = parseNodeNew(node, src, filePath, imports, locals)
+		if call == nil {
+			call = p.parseHeldModuleNew(node, src, filePath)
+		}
 	}
 	if call != nil {
 		call.ArgumentSources = p.nodeArgumentSources(node, len(call.Arguments))
@@ -1238,7 +1251,14 @@ func (p *NodeParser) parseNodeCall(node *sitter.Node, src []byte, filePath, pack
 			return nil
 		}
 		call.Callee = FunctionID{Package: packagePath, Name: name}
-		if binding, ok := imports.lookup(locals, name); ok {
+		binding, ok := imports.lookup(locals, name)
+		if !ok {
+			var held nodeHeldModule
+			held, ok = p.receiverModuleBinding(function)
+			ok = ok && !held.pending
+			binding = held.binding
+		}
+		if ok {
 			_, last := binding.qualify()
 			call.nodeModuleValue = last == ""
 			pkg, last := binding.qualifyValue()
@@ -1301,9 +1321,25 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 		call.ReceiverVar = objectText
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
+	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) && p.heldModuleReceiver(call, object, name) {
+		importedObject, call.ReceiverVar = true, ""
+	}
 	boundByImport := requiredObject || (object.Type() != nodeCallExpression && importedObject)
 	call.nodeUnboundMember = !boundByImport && call.Callee.Type == ""
 	return call
+}
+
+// heldModuleReceiver keys a member call on a module binding the file holds
+// through its own declarations (receiverModuleBinding): `s.f()` after `const
+// s = sodium` calls the module's f. A promise of a module answers its own
+// then, catch and finally.
+func (p *NodeParser) heldModuleReceiver(call *FunctionCall, object *sitter.Node, name string) bool {
+	held, ok := p.receiverModuleBinding(object)
+	if !ok || held.pending && nodePromiseMethods[name] {
+		return false
+	}
+	call.Callee.Package, _ = held.binding.qualify("", name)
+	return true
 }
 
 // requireReceiver reads a receiver written as `require('m')`, bare or wrapped
@@ -1351,6 +1387,12 @@ func parseNodeNew(node *sitter.Node, src []byte, filePath string, imports nodeBi
 	if !ok || !imported {
 		return nil
 	}
+	return nodeConstructionCall(node, constructor, src, filePath, pkg, typeName)
+}
+
+// nodeConstructionCall is the call to typeName's constructor in pkg that a
+// `new` expression makes.
+func nodeConstructionCall(node, constructor *sitter.Node, src []byte, filePath, pkg, typeName string) *FunctionCall {
 	call := &FunctionCall{
 		Callee:    FunctionID{Package: pkg, Type: typeName, Name: constructorMethodName},
 		Raw:       "new " + constructor.Content(src),
@@ -1363,6 +1405,21 @@ func parseNodeNew(node *sitter.Node, src []byte, filePath string, imports nodeBi
 	}
 	call.ChainID, call.AssignedVar = nodeCallChainContext(node, src)
 	return call
+}
+
+// parseHeldModuleNew records `new C(..)` as parseNodeNew does when C is, or
+// is a member of, a module binding the file holds (receiverModuleBinding).
+func (p *NodeParser) parseHeldModuleNew(node *sitter.Node, src []byte, filePath string) *FunctionCall {
+	constructor := node.ChildByFieldName("constructor")
+	if constructor == nil {
+		return nil
+	}
+	held, ok := p.receiverModuleBinding(unwrapNodeCallee(constructor))
+	if !ok || held.pending || isNodeRelativeSpecifier(held.binding.module) {
+		return nil
+	}
+	pkg, typeName := held.binding.qualifyValue()
+	return nodeConstructionCall(node, constructor, src, filePath, pkg, typeName)
 }
 
 // nodeConstructorType names the class a `new` expression constructs. A class

@@ -85,6 +85,15 @@ type nodeDecl struct {
 	// other than as the callee of a direct call in the binding's own
 	// function: `o.m` taken as a value, or `o.m()` inside a closure.
 	memberValue bool
+	// required is the module binding a require-style declarator gives the
+	// name, `const c = require('m')` or `const { a } = require('m')`, whatever
+	// the module; hasRequired marks it set.
+	required    nodeBinding
+	hasRequired bool
+	// from is the value a const or let destructuring reads the name's member
+	// fromMember of: `const { a: b } = v` binds b to member a of v.
+	from       *sitter.Node
+	fromMember string
 }
 
 // nodeValueIndex holds, for one file, every binding of every name and every
@@ -284,8 +293,30 @@ func (x *nodeValueIndex) declarator(node, fn, root *sitter.Node) {
 		x.add(name, &d)
 		return
 	}
+	destructures := name.Type() == nodeObjectPattern && value != nil && (d.kind == nodeDeclConst || d.kind == nodeDeclLet)
 	d.kind, d.value = nodeDeclOther, nil
+	if destructures {
+		x.destructure(name, d, value)
+		return
+	}
 	x.addPattern(name, d)
+}
+
+// destructure records the names `const { a, b: c } = v` binds, each with the
+// member of v it reads, so a name that destructures a module binding can be
+// followed to the module (nodeModuleBindingOf).
+func (x *nodeValueIndex) destructure(pattern *sitter.Node, d nodeDecl, value *sitter.Node) {
+	for i := 0; i < int(pattern.NamedChildCount()); i++ {
+		item := pattern.NamedChild(i)
+		local, member := nodeRequiredMember(item, x.src)
+		if local == nil {
+			x.addPattern(item, d)
+			continue
+		}
+		entry := d
+		entry.from, entry.fromMember = value, member
+		x.add(local, &entry)
+	}
 }
 
 // requireDecl records the names `const m = require('./m')` and `const { a, b:
@@ -296,6 +327,7 @@ func (x *nodeValueIndex) requireDecl(name *sitter.Node, d nodeDecl, binding node
 	if !relative {
 		module = ""
 	}
+	d.required, d.hasRequired = binding, true
 	if name.Type() == goNodeIdentifier {
 		d.module, d.member = module, binding.member
 		d.exportKey = nodeExportKey(module, binding.member)
@@ -303,7 +335,7 @@ func (x *nodeValueIndex) requireDecl(name *sitter.Node, d nodeDecl, binding node
 		return
 	}
 	if name.Type() != nodeObjectPattern {
-		d.kind, d.module = nodeDeclOther, ""
+		d.kind, d.module, d.hasRequired = nodeDeclOther, "", false
 		x.addPattern(name, d)
 		return
 	}
@@ -312,11 +344,12 @@ func (x *nodeValueIndex) requireDecl(name *sitter.Node, d nodeDecl, binding node
 		entry := d
 		local, member := nodeRequiredMember(item, x.src)
 		if local == nil {
-			entry.kind, entry.module = nodeDeclOther, ""
+			entry.kind, entry.module, entry.hasRequired = nodeDeclOther, "", false
 			x.addPattern(item, entry)
 			continue
 		}
 		entry.module, entry.member = module, joinNodeMember(binding.member, member)
+		entry.required = nodeBinding{module: binding.module, member: entry.member}
 		entry.exportKey = nodeExportKey(module, entry.member)
 		x.add(local, &entry)
 	}

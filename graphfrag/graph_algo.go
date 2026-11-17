@@ -184,7 +184,16 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // graph's NodeImports): import declarations, TypeScript `import x =
 // require()`, require() at any level, import() and `export ... from`, with
 // the module specifier as written and the import's kind.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "3"
+// graph-algo-node-4: a module binding the file holds through its own
+// declarations keys calls as the import does: an alias (`const s = sodium;
+// s.f()`), a destructuring of a module binding (`const { sm2 } = smCrypto`),
+// a require or destructured require inside a function body, an awaited or
+// `.catch`-handled import() bound to a name, and an interop helper
+// (`_interopNamespaceDefault` and the rest, `$1` copies included) called on a
+// module binding all call m.f (were caller-local), and a member chain on an
+// inline require (`require('m').Gen.create()`) calls m.Gen.create (was
+// caller-local create).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "4"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
