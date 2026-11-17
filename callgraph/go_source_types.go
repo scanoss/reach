@@ -124,12 +124,23 @@ func (x *goSourceIndex) isInterface(pkg, typ string) bool {
 
 // GoInterfaceCall reports a Go call whose callee is a method of an interface
 // type a read package declares (`crypto/cipher.(AEAD).Seal`): it names no
-// implementation, so it identifies no target by itself.
+// implementation, so it identifies no target by itself. Applications export
+// such a call name_only.
 func (g *CallGraph) GoInterfaceCall(call *FunctionCall) bool {
 	if g == nil || g.goSourceTypes == nil || call == nil || call.Callee.Type == "" {
 		return false
 	}
 	return g.goSourceTypes.isInterface(call.Callee.Package, call.Callee.Type)
+}
+
+// GoUnreadTypeCall reports a Go method call typed to a package the source
+// roots do not hold (a dependency missing from the module cache): whether its
+// type is an interface is unknown, so it may name no implementation either.
+func (g *CallGraph) GoUnreadTypeCall(call *FunctionCall) bool {
+	if g == nil || g.goSourceTypes == nil || call == nil || call.Callee.Type == "" || call.Callee.Package == "" {
+		return false
+	}
+	return g.goSourceTypes.pkg(call.Callee.Package) == nil
 }
 
 func (x *goSourceIndex) valueType(pkg, name string) string {
@@ -204,15 +215,7 @@ func parseGoSourcePackage(dir, path string) *goSourcePackage {
 		file  map[string]string
 	}
 	var pending []pendingValue
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
-		if err != nil {
-			continue
-		}
+	for _, f := range goSourcePackageFiles(fset, dir, entries) {
 		imports := goFileImports(f)
 		for _, decl := range f.Decls {
 			switch d := decl.(type) {
@@ -220,7 +223,11 @@ func parseGoSourcePackage(dir, path string) *goSourcePackage {
 				if !d.Name.IsExported() || d.Type.Results == nil || len(d.Type.Results.List) == 0 {
 					continue
 				}
+				// A type parameter (`func Make[T any]() *T`) names no type of the package.
 				result := goSourceTypeText(d.Type.Results.List[0].Type, path, imports)
+				if goTypeParamNames(d)[strings.TrimPrefix(strings.TrimPrefix(result, "*"), path+".")] {
+					result = ""
+				}
 				if d.Recv == nil || len(d.Recv.List) == 0 {
 					p.funcs[d.Name.Name] = firstNonEmpty(p.funcs[d.Name.Name], result)
 					continue
@@ -306,6 +313,71 @@ func goSourceValueType(e ast.Expr, path string, imports map[string]string, p *go
 		}
 	}
 	return ""
+}
+
+// goSourcePackageFiles parses a directory's non-test files and keeps those of
+// its main package clause: a `package main` generator or a stray package does
+// not lend its declarations to the package.
+func goSourcePackageFiles(fset *token.FileSet, dir string, entries []os.DirEntry) []*ast.File {
+	var files []*ast.File
+	count := map[string]int{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			continue
+		}
+		files = append(files, f)
+		count[f.Name.Name]++
+	}
+	best := ""
+	for name, n := range count {
+		if n > count[best] || (n == count[best] && (best == "" || best == "main" || (name != "main" && name < best))) {
+			best = name
+		}
+	}
+	kept := files[:0]
+	for _, f := range files {
+		if f.Name.Name == best {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+// goTypeParamNames are the type parameters a function declares or its
+// receiver binds (`func (b *Box[T]) Get() T`).
+func goTypeParamNames(d *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	if d.Type.TypeParams != nil {
+		for _, f := range d.Type.TypeParams.List {
+			for _, n := range f.Names {
+				out[n.Name] = true
+			}
+		}
+	}
+	if d.Recv != nil && len(d.Recv.List) > 0 {
+		recv := d.Recv.List[0].Type
+		if star, ok := recv.(*ast.StarExpr); ok {
+			recv = star.X
+		}
+		switch r := recv.(type) {
+		case *ast.IndexExpr:
+			if id, ok := r.Index.(*ast.Ident); ok {
+				out[id.Name] = true
+			}
+		case *ast.IndexListExpr:
+			for _, x := range r.Indices {
+				if id, ok := x.(*ast.Ident); ok {
+					out[id.Name] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // goFileImports maps a file's import names to their paths.

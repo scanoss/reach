@@ -96,7 +96,14 @@ func TestGoSourceTypeResolver(t *testing.T) {
 			if iface := graph.GoInterfaceCall(c); iface != (c.Raw == "s.Seal") {
 				t.Errorf("%s: GoInterfaceCall = %v, want it only for the call on the interface value", c.Raw, iface)
 			}
+			if graph.GoUnreadTypeCall(c) {
+				t.Errorf("%s: GoUnreadTypeCall on a read package", c.Raw)
+			}
 		}
+	}
+	missing := &FunctionCall{Callee: FunctionID{Package: "example.com/missing", Type: "Hasher", Name: "Sum"}}
+	if !graph.GoUnreadTypeCall(missing) {
+		t.Error("GoUnreadTypeCall: want true for a type of a package no root holds")
 	}
 	for raw, want := range map[string]string{
 		"s.Seal":                 "example.com/dep.(Sealer).Seal",
@@ -108,5 +115,29 @@ func TestGoSourceTypeResolver(t *testing.T) {
 		if got[raw] != want {
 			t.Errorf("%s -> %q, want %q (all: %v)", raw, got[raw], want, got)
 		}
+	}
+}
+
+// TestGoSourcePackage_TypeParamsAndStrayFiles: a type parameter names no type
+// of the package, and a `package main` file beside the package lends nothing.
+func TestGoSourcePackage_TypeParamsAndStrayFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("box.go", "package dep\n\ntype Box[T any] struct{ v T }\n\nfunc (b *Box[T]) Get() T { return b.v }\n\nfunc Make[T any]() *T { return new(T) }\n\nfunc Open() *Box[int] { return nil }\n")
+	write("gen.go", "//go:build ignore\n\npackage main\n\ntype Gen struct{}\n\nfunc Open() *Gen { return nil }\n")
+	p := parseGoSourcePackage(dir, "example.com/dep")
+	if got := p.methods["Box"]["Get"]; got != "" {
+		t.Errorf("Box.Get result %q, want none for a type parameter", got)
+	}
+	if got := p.funcs["Make"]; got != "" {
+		t.Errorf("Make result %q, want none for a type parameter", got)
+	}
+	if got := p.funcs["Open"]; got != "*example.com/dep.Box" {
+		t.Errorf("Open result %q, want the package's own *Box", got)
 	}
 }

@@ -14,7 +14,7 @@ import (
 // name, in the function whose span holds it most tightly; a package-level one
 // goes to the file's <varinit>. The type is written with its import path
 // (`crypto/dsa.Parameters`). Declarations of builtin or file-local types are
-// not recorded: no rule names them.
+// not recorded.
 func collectGoDeclarations(root *sitter.Node, src []byte, filePath, packagePath string, analysis *FileAnalysis) {
 	endLine := int(root.EndPoint().Row) + 1
 	var walk func(n *sitter.Node)
