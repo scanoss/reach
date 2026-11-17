@@ -198,7 +198,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // module binding all call m.f (were caller-local), and a member chain on an
 // inline require (`require('m').Gen.create()`) calls m.Gen.create (was
 // caller-local create).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "4"
+// graph-algo-node-5: fragments list each file's outermost object literals
+// (`object_literals`, the graph's NodeObjectLiterals, graph-fragment-1.28):
+// a stored node-4 graph has none.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "5"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
