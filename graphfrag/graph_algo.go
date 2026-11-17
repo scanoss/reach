@@ -203,7 +203,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // a stored node-4 graph has none.
 // graph-algo-node-6: fragments list each file's property reads
 // (`property_reads`, the graph's NodePropertyReads, graph-fragment-1.29):
-// a stored node-5 graph has none.
+// a stored node-5 graph has none. A call the KB re-keys (an assigned-variable
+// receiver or a fluent chain link) no longer leaves its site under the
+// caller-local key it shared with other calls of the method name, where an
+// export listed it again with another call's raw, columns and variables.
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

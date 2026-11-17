@@ -142,6 +142,7 @@ func resolveNodeAssignedVarCalleesInFunction(graph *CallGraph, callerKey string,
 		if receiverType, ok := varTypes[call.ReceiverVar]; ok && call.Callee.Type == "" {
 			pkg, typ := splitQualifiedTypeName(receiverType)
 			oldKeys[call.Callee.String()] = true
+			dropCallEdgeResolution(graph, callerKey, call.Callee.String(), call)
 			call.Callee = FunctionID{Package: pkg, Type: typ, Name: call.Callee.Name}
 			addCaller(graph.Callers, call.Callee.String(), callerKey)
 			recordCallEdgeResolution(graph, callerKey, call.Callee.String(), EdgeKindExact, "", call)

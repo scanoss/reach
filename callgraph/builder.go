@@ -2897,6 +2897,7 @@ func resolveChainCalleesInFunction(graph *CallGraph, callerKey string, fn *Funct
 	}
 
 	resolved := 0
+	oldKeys := make(map[string]bool)
 	for _, cid := range order {
 		idxs := chains[cid]
 		if len(idxs) < 2 {
@@ -2907,12 +2908,13 @@ func resolveChainCalleesInFunction(graph *CallGraph, callerKey string, fn *Funct
 		sort.SliceStable(idxs, func(a, b int) bool {
 			return len(fn.Calls[idxs[a]].Raw) < len(fn.Calls[idxs[b]].Raw)
 		})
-		resolved += resolveChainLinkCallees(graph, callerKey, fn, idxs, kb)
+		resolved += resolveChainLinkCallees(graph, callerKey, fn, idxs, kb, oldKeys)
 	}
+	reconcileRewrittenCallers(graph, callerKey, fn, oldKeys)
 	return resolved
 }
 
-func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDecl, idxs []int, kb *contracts.KnowledgeBase) int {
+func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDecl, idxs []int, kb *contracts.KnowledgeBase, oldKeys map[string]bool) int {
 	// Seed the receiver type from the root (innermost) link's KB return type.
 	rootCall := &fn.Calls[idxs[0]]
 	rootFQN, rootArity := splitMethodArity(&rootCall.Callee)
@@ -2973,7 +2975,17 @@ func resolveChainLinkCallees(graph *CallGraph, callerKey string, fn *FunctionDec
 			// instead of the stale fallback. Without this the index and the
 			// FunctionCall.Callee diverge and the exported edge carries a synthesized
 			// key with no object identity.
-			addCaller(graph.Callers, newKey, callerKey, oldKey)
+			if kb.Ecosystem == ecosystemNode {
+				// A Node caller-local key is shared by every call of the method
+				// name in the function: drop only this call's site, and the
+				// caller once no call targets the key, or an export keeps a
+				// copy of the call under the old key with another call's data.
+				dropCallEdgeResolution(graph, callerKey, oldKey, call)
+				oldKeys[oldKey] = true
+				addCaller(graph.Callers, newKey, callerKey)
+			} else {
+				addCaller(graph.Callers, newKey, callerKey, oldKey)
+			}
 			recordCallEdgeResolution(graph, callerKey, newKey, EdgeKindExact, "", call)
 			resolved++
 		}
