@@ -191,6 +191,10 @@ import (
 // and assigned variables (GraphFragmentPropertyRead). A detector matches a
 // rule whose pattern is a bare member expression against them, without the
 // source. A 1.28 fragment decodes with none: such a rule then matches nothing.
+// 1.29 also gives an object literal the variable it is bound to
+// (assigned_var, assign_start_col, assign_line), so a detector matches a rule
+// that names the variable an object is assigned to (`$X = {...}`); a 1.28
+// object decodes with none.
 const SchemaVersion = "graph-fragment-1.29"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
@@ -529,13 +533,22 @@ type GraphFragmentImport struct {
 // object's exact source, which a consumer parses itself; it can be large.
 // caller_key is the key of the innermost function that holds the object, as
 // its call sites carry it, or the module's `<module>` key at module level.
+// assigned_var (1.29) is the variable the object is bound to, as a call's
+// assigned_var is: the name of the `const`, `let` or `var` declarator it
+// initializes, or the plain name an assignment writes it to; omitted for any
+// other object. assign_start_col (1.29) is then the 1-based column that name
+// starts at, and assign_line (1.29) its line, written only when it is not
+// line (a declarator whose name and object stand on different lines).
 type GraphFragmentObjectLiteral struct {
-	Line      int    `json:"line"`
-	StartCol  int    `json:"start_col"`
-	EndLine   int    `json:"end_line,omitempty"`
-	EndCol    int    `json:"end_col"`
-	Text      string `json:"text"`
-	CallerKey string `json:"caller_key"`
+	Line           int    `json:"line"`
+	StartCol       int    `json:"start_col"`
+	EndLine        int    `json:"end_line,omitempty"`
+	EndCol         int    `json:"end_col"`
+	Text           string `json:"text"`
+	CallerKey      string `json:"caller_key"`
+	AssignedVar    string `json:"assigned_var,omitempty"`
+	AssignStartCol int    `json:"assign_start_col,omitempty"`
+	AssignLine     int    `json:"assign_line,omitempty"`
 }
 
 // GraphFragmentPropertyRead is one member expression of a Node file whose

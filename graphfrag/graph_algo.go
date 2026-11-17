@@ -207,6 +207,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // receiver or a fluent chain link) no longer leaves its site under the
 // caller-local key it shared with other calls of the method name, where an
 // export listed it again with another call's raw, columns and variables.
+// An object literal carries the variable a declarator or an assignment binds
+// it to (AssignedVar, AssignStartCol, AssignLine).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
