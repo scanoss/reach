@@ -215,7 +215,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // data var's references go to the file's <varinit>.
 // graph-algo-go-6: fragments list the var declarations of an imported type
 // (`declarations`, type written `<import path>.<name>`, with `*`, `[]`).
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "6"
+// graph-algo-go-7: fragments carry the call data (call anchors, rebind
+// lines) a source-free annotate rebuilds Go calls from, as Java and Python.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "7"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
