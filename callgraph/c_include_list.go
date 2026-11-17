@@ -17,6 +17,8 @@ import (
 // line break; StartCol and EndCol are 1-based, EndCol one past the last
 // character, as calls carry them. Conditional is true when the directive sits
 // inside a preprocessor conditional (#if, #ifdef, #ifndef, #elif, #else).
+// InFunction is true when the directive is written inside a function body;
+// such a directive's text is listed, but it names nothing for the file.
 type CInclude struct {
 	Line        int
 	StartCol    int
@@ -25,6 +27,7 @@ type CInclude struct {
 	System      bool
 	Text        string
 	Conditional bool
+	InFunction  bool
 }
 
 // cIncludeOf reads one preproc_include node; ok is false when it names no

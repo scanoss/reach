@@ -119,6 +119,9 @@ func (p *CParser) walkFile(node *sitter.Node, src []byte, filePath, packagePath 
 		if decl := p.parseFunction(node, src, filePath, packagePath, staticFunctions); decl != nil {
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
+		if body := node.ChildByFieldName("body"); body != nil {
+			analysis.CIncludes = append(analysis.CIncludes, cBodyIncludes(body, src)...)
+		}
 		return
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -180,6 +183,8 @@ func (p *CParser) parseFunction(node *sitter.Node, src []byte, filePath, package
 	collectCHandleVars(node, src, handles)
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, handles, &decl.Calls)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions)
+	decl.Declarations = cDeclarations(body, src)
+	decl.AttributeStores = cFieldStores(body, src)
 	return decl
 }
 
