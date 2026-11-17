@@ -237,6 +237,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 		analysis.Functions = append(analysis.Functions, *decl)
 	}
 	analysis.EntryRefs = nodeEntryRefs(root, src, filePath, modulePath, bindings)
+	analysis.NodeObjectLiterals = collectNodeObjectLiterals(root, src, analysis.Functions, modulePath)
 	return analysis, nil
 }
 

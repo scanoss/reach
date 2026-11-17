@@ -702,6 +702,9 @@ type FileAnalysis struct {
 	// NodeImports lists the imports, requires, dynamic imports and
 	// re-exports of the file, in source order (Node only).
 	NodeImports []NodeImport
+	// NodeObjectLiterals lists the outermost object expressions of the file,
+	// in source order (Node only).
+	NodeObjectLiterals []NodeObjectLiteral
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -788,6 +791,10 @@ type CallGraph struct {
 	// re-exports of each project source file, by file path (Node only), with
 	// module specifiers as written.
 	NodeImports map[string][]NodeImport
+	// NodeObjectLiterals holds the outermost object expressions of each
+	// project source file, by file path (Node only), for a rule whose pattern
+	// is a bare object literal.
+	NodeObjectLiterals map[string][]NodeObjectLiteral
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",
