@@ -18,3 +18,6 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	golang.org/x/sys v0.12.0 // indirect
 )
+
+// v0.1.2 was tagged out of order: it contains v0.2.0. Use v0.3.0 or later.
+retract v0.1.2
