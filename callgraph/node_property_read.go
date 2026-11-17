@@ -43,6 +43,9 @@ type NodePropertyRead struct {
 	EndCol      int
 	ReceiverVar string
 	AssignedVar string
+	// CandidateModules are the modules a read on a merged module object may
+	// read the member from, as a call's (FunctionCall.CandidateModules).
+	CandidateModules []string
 }
 
 // nodePropertyReadSite is a read while the graph is built: the call the read
@@ -254,6 +257,8 @@ func finishNodePropertyReads(graph *CallGraph, kb *contracts.KnowledgeBase) {
 			EndCol:      call.EndCol,
 			ReceiverVar: call.ReceiverVar,
 			AssignedVar: call.AssignedVar,
+
+			CandidateModules: call.CandidateModules,
 		}
 		if call.EndLine != call.Line {
 			read.EndLine = call.EndLine

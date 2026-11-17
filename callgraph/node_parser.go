@@ -1356,6 +1356,9 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 	}
 	boundByImport := requiredObject || (object.Type() != nodeCallExpression && importedObject)
 	call.nodeUnboundMember = !boundByImport && call.Callee.Type == ""
+	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) {
+		call.CandidateModules = p.nodeMergedModules(object)
+	}
 	return call
 }
 

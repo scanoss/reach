@@ -394,6 +394,13 @@ type GoFieldType struct {
 
 // FunctionCall represents a call expression within a function body.
 type FunctionCall struct {
+	// CandidateModules lists, sorted and unique, the module specifiers a Node
+	// member call's receiver may hold the member from when the receiver is a
+	// variable bound to an object that merges several modules
+	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`). The
+	// key stays caller-local, since it cannot name one module; the candidates
+	// are the modules the receiver may hold the member from. Nil otherwise.
+	CandidateModules []string
 	// StaticReceiver reports a call qualified by a type name
 	// (TikaInputStream.get(..)), which binds at compile time and never
 	// dispatches to a subtype (Java only).

@@ -93,6 +93,7 @@ func EncodeFragment(frag Fragment) ([]byte, error) {
 			EntryCall:    fromCallSite(e.EntryCall),
 
 			ResolvedReceiverType: e.ResolvedReceiverType,
+			CandidateModules:     e.CandidateModules,
 		})
 	}
 

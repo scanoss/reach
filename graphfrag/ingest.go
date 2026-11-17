@@ -163,6 +163,7 @@ func appendExternalCalls(frag *Fragment, calls []GraphFragmentExternal, in inter
 			EndCol:                   ec.EndCol,
 			EntryCall:                toCallSite(ec.EntryCall, in),
 			ResolvedReceiverType:     in.get(ec.ResolvedReceiverType),
+			CandidateModules:         ec.CandidateModules,
 		})
 	}
 }

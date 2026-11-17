@@ -214,6 +214,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // a read through one keys as the dotted read does. A var destructuring of a
 // module binding (`var { sm2: signer } = smCrypto`, renamed or not) keys the
 // name's calls as the member's, as const and let ones did (was caller-local).
+// A call or read on a variable bound to an object merging several modules
+// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`) keeps
+// its caller-local key and lists the modules (CandidateModules).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

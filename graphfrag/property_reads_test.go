@@ -59,3 +59,40 @@ func TestGraphFragmentPropertyReadsRoundTrip(t *testing.T) {
 		t.Errorf("a fragment without property reads writes the field: %s", empty)
 	}
 }
+
+// candidate_modules is written on an external call and a property read only
+// when set, sorted as given, and read back as written.
+func TestGraphFragmentCandidateModulesRoundTrip(t *testing.T) {
+	modules := []string{"acme-h/sha256", "acme-h/sha3"}
+	export := graphfrag.GraphFragmentExport{
+		ExternalCalls: []graphfrag.GraphFragmentExternal{
+			{CallerKey: "app.<module>", TargetKey: "app.sha256", Resolution: "exact", Line: 2, CandidateModules: modules},
+			{CallerKey: "app.<module>", TargetKey: "app.other", Resolution: "exact", Line: 3},
+		},
+		PropertyReads: map[string][]graphfrag.GraphFragmentPropertyRead{
+			"a.js": {{CallerKey: "app.<module>", TargetKey: "app.sha256", MethodName: "sha256", Raw: "H.sha256", Line: 4, StartCol: 14, EndCol: 22, CandidateModules: modules}},
+		},
+	}
+	data, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if got := strings.Count(text, `"candidate_modules":["acme-h/sha256","acme-h/sha3"]`); got != 2 {
+		t.Errorf("candidate_modules written %d times, want 2 (one call, one read): %s", got, text)
+	}
+	var back graphfrag.GraphFragmentExport
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(back.ExternalCalls, export.ExternalCalls) || !reflect.DeepEqual(back.PropertyReads, export.PropertyReads) {
+		t.Errorf("read back as %+v / %+v", back.ExternalCalls, back.PropertyReads)
+	}
+	frag, err := graphfrag.DecodeFragment(graphfrag.ComponentKey{Purl: "pkg:npm/app", Version: "1.0.0"}, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frag.ExternalCalls) != 2 || !reflect.DeepEqual(frag.ExternalCalls[0].CandidateModules, modules) {
+		t.Errorf("decoded external calls = %+v, want the candidates on the first", frag.ExternalCalls)
+	}
+}

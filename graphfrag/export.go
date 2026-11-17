@@ -194,7 +194,10 @@ import (
 // 1.29 also gives an object literal the variable it is bound to
 // (assigned_var, assign_start_col, assign_line), so a detector matches a rule
 // that names the variable an object is assigned to (`$X = {...}`); a 1.28
-// object decodes with none.
+// object decodes with none. 1.29 also adds candidate_modules to an external
+// call and a property read (Node): the modules a receiver bound to an object
+// merging several modules (Object.assign of modules, or a spread of them) may
+// hold the member from, its key left caller-local.
 const SchemaVersion = "graph-fragment-1.29"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
@@ -574,6 +577,10 @@ type GraphFragmentPropertyRead struct {
 	EndCol      int    `json:"end_col"`
 	ReceiverVar string `json:"receiver_var,omitempty"`
 	AssignedVar string `json:"assigned_var,omitempty"`
+	// CandidateModules (1.29) are the module specifiers a read on a merged
+	// module object may read the member from, as an external call's
+	// candidate_modules; target_key stays caller-local.
+	CandidateModules []string `json:"candidate_modules,omitempty"`
 }
 
 // GraphFragmentItem is one item a Rust file declares (graph-fragment-1.26).
@@ -1306,6 +1313,14 @@ type GraphFragmentExternal struct {
 	// or return-type inference for this call site (1.6+). Empty when inference
 	// did not resolve a concrete type, or on fragments exported with schema < 1.6.
 	ResolvedReceiverType string `json:"resolved_receiver_type,omitempty"`
+	// CandidateModules (1.29, Node) lists, sorted and unique, the module
+	// specifiers the call's receiver may hold the member from when it is a
+	// variable bound to an object merging several modules
+	// (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`), the
+	// graph's FunctionCall.CandidateModules. target_key stays caller-local,
+	// since it cannot name one module; the candidates are the modules the
+	// receiver may hold the member from. Omitted otherwise.
+	CandidateModules []string `json:"candidate_modules,omitempty"`
 }
 
 // GraphFragmentCryptoOp is one crypto finding annotation attached to a function

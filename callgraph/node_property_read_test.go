@@ -264,7 +264,7 @@ func TestNodePropertyReadExactSpan(t *testing.T) {
 		CallerKey: moduleKeyOf("app/mod"), TargetKey: "acme-crypto.enums.hash.md5", MethodName: "md5",
 		Raw: "acme.enums.hash.md5", Line: 2, StartCol: 15, EndCol: 34,
 	}
-	if reads[0] != want {
+	if !reflect.DeepEqual(reads[0], want) {
 		t.Errorf("read:\n got  %+v\n want %+v", reads[0], want)
 	}
 	line := strings.Split(src, "\n")[1]

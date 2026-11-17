@@ -495,6 +495,11 @@ type ExternalCall struct {
 	// KB-contract/return-type inference resolved for THIS call site's receiver
 	// (1.6+). See InternalEdge.ResolvedReceiverType for the full contract.
 	ResolvedReceiverType string
+
+	// CandidateModules are the modules a call on a merged module object may
+	// reach the member in, its target caller-local (1.29, Node). See
+	// GraphFragmentExternal.CandidateModules.
+	CandidateModules []string
 }
 
 // CryptoOperation is a crypto finding attached to a function.
