@@ -280,7 +280,17 @@ func typeNodeReadsByContract(graph *CallGraph, kb *contracts.KnowledgeBase) {
 	}
 	for _, site := range graph.nodePropertyReads {
 		call := &site.call
-		if call.ReceiverVar == "" || call.Callee.Type != "" {
+		if call.Callee.Type != "" {
+			continue
+		}
+		if call.ReceiverVar == "" {
+			if call.nodeNewOf == nil {
+				continue
+			}
+			if typ, ok := nodeContractResultType(call.nodeNewOf, kb, receivers); ok {
+				pkg, name := splitQualifiedTypeName(typ)
+				call.Callee = FunctionID{Package: pkg, Type: name, Name: call.Callee.Name}
+			}
 			continue
 		}
 		fn := graph.Functions[site.callerKey]

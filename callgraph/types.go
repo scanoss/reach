@@ -492,6 +492,11 @@ type FunctionCall struct {
 	// nodeReturnOf names the project function whose result a Node call's
 	// receiver holds; the callee takes that function's declared return class.
 	nodeReturnOf FunctionID
+	// nodeNewOf is the constructor call of the `new` expression a Node member
+	// call or read is made directly on, `new m.X(p).verify()`, when nothing
+	// typed it: the KB types the instance as it types a variable the
+	// constructor call is assigned to.
+	nodeNewOf *FunctionCall
 	// nodeUnboundMember marks a Node member call `<expr>.name(..)` whose
 	// receiver is neither an import, `this` in a class, nor a typed value. The
 	// callee keeps the bare name so contracts can still match it, but it names

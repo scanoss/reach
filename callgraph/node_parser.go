@@ -1351,6 +1351,9 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 		call.ReceiverVar = objectText
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
+	if !importedObject && call.Callee.Type == "" && object.Type() == nodeNewExpression {
+		call.nodeNewOf = p.parseNodeNewCall(object, src, imports, locals)
+	}
 	if !importedObject && call.Callee.Type == "" && call.nodeReturnOf == (FunctionID{}) && p.heldModuleReceiver(call, object, name) {
 		importedObject, call.ReceiverVar = true, ""
 	}
@@ -1445,6 +1448,15 @@ func parseNodeNew(node *sitter.Node, src []byte, filePath string, imports nodeBi
 		return nil
 	}
 	return nodeConstructionCall(node, constructor, src, filePath, pkg, typeName)
+}
+
+// parseNodeNewCall is the constructor call a `new` expression records, as
+// walkNodeCalls finds it, or nil.
+func (p *NodeParser) parseNodeNewCall(node *sitter.Node, src []byte, imports nodeBindings, locals map[string]bool) *FunctionCall {
+	if call := parseNodeNew(node, src, "", imports, locals); call != nil {
+		return call
+	}
+	return p.parseHeldModuleNew(node, src, "")
 }
 
 // nodeConstructionCall is the call to typeName's constructor in pkg that a

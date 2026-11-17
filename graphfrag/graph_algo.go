@@ -218,7 +218,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // (`Object.assign({}, require('a'), require('b'))`, `{ ...a, ...b }`) keeps
 // its caller-local key and lists the modules (CandidateModules), and so does
 // every call or read on a chain the variable heads (`H.sha256.create()`,
-// `H.sha256.outputLen`).
+// `H.sha256.outputLen`). A call or read made directly on `new X(...)` of an
+// imported class whose constructor the KB contracts (`new m.X(p).verify()`,
+// `new m.X(p).fingerprint`) keys as on a variable the instance is assigned to
+// (`m.(X).verify`, was caller-local).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

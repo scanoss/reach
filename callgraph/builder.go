@@ -134,6 +134,9 @@ type Builder struct {
 	// ecosystem identifies which contract KB of the installed source to load during BuildFromDirectories.
 	// Defaults to "java" for backward compatibility with NewBuilder.
 	ecosystem string
+	// kb, when set, replaces the installed source's KB for the build's
+	// ecosystem, so a test can build with a KB of its own.
+	kb *contracts.KnowledgeBase
 	// pythonReExports accumulates every package's `__init__.py` re-exports
 	// discovered during Phase 1 source parsing (addAnalyses), keyed by the
 	// owning package's dotted path, then by symbol name -> origin module
@@ -362,7 +365,10 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	// pass is a no-op since no function will have ReturnSources set.
 	inferenceStart := time.Now()
 	kbSpan := perf.Start("callgraph.build.kb_load")
-	kb, err := contracts.ForEcosystem(b.ecosystem)
+	kb, err := b.kb, error(nil)
+	if kb == nil {
+		kb, err = contracts.ForEcosystem(b.ecosystem)
+	}
 	kbSpan.End()
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: load embedded %s KB: %w", b.ecosystem, err)
