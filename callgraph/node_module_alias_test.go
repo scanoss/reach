@@ -172,3 +172,62 @@ func TestNodeInlineRequireMemberChainKeysTheModule(t *testing.T) {
 		4: "acme-gen.create",
 	})
 }
+
+// A renamed destructuring of a module binding, `{ sm2: signer }`, keys the
+// renamed name's calls as the member's, as the unrenamed form does: const,
+// let or var, at module level or in a function body, from a default import, a
+// namespace import or a require. A shadowing parameter, a reassigned name and
+// a var read before its declaration ran stay caller-local.
+func TestNodeRenamedDestructuredModuleMemberKeysTheModule(t *testing.T) {
+	t.Parallel()
+
+	src := `import smCrypto from 'acme-sm';
+import * as ns from 'acme-ns';
+const req = require('acme-req');
+var { sm2: signer } = smCrypto;
+var { sm2 } = smCrypto;
+let { box: opener } = ns;
+const { hmac: mac } = req;
+signer.doSignature(1);
+sm2.doSignature(2);
+opener.open(3);
+mac.digest(4);
+function inBody(x) {
+  early.doSignature(x);
+  var { sm2: early } = smCrypto;
+  early.doSignature(x);
+  const { box: b } = ns;
+  b.open(x);
+  let { hmac: h } = req;
+  h.digest(x);
+  signer.doSignature(x);
+}
+function shadowed(signer) {
+  signer.doSignature(1);
+}
+function moved() {
+  var { sm2: again } = smCrypto;
+  again = other;
+  again.doSignature(1);
+}
+`
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, moduleInitMethodName), map[int]string{
+		8:  "acme-sm.sm2.doSignature",
+		9:  "acme-sm.sm2.doSignature",
+		10: "acme-ns.box.open",
+		11: "acme-req.hmac.digest",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "inBody"), map[int]string{
+		13: "app/run.doSignature",
+		15: "acme-sm.sm2.doSignature",
+		17: "acme-ns.box.open",
+		19: "acme-req.hmac.digest",
+		20: "acme-sm.sm2.doSignature",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "shadowed"), map[int]string{
+		23: "app/run.doSignature",
+	})
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "moved"), map[int]string{
+		28: "app/run.doSignature",
+	})
+}

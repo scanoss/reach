@@ -211,7 +211,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // it to (AssignedVar, AssignStartCol, AssignLine). A call through a
 // string-literal index (`hash['sha256']()`, `acme['mode'].CTR.create()`) is
 // a call site keyed as its dotted spelling is (was none, or caller-local), and
-// a read through one keys as the dotted read does.
+// a read through one keys as the dotted read does. A var destructuring of a
+// module binding (`var { sm2: signer } = smCrypto`, renamed or not) keys the
+// name's calls as the member's, as const and let ones did (was caller-local).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

@@ -104,6 +104,9 @@ func (p *NodeParser) nameModuleBinding(name *sitter.Node, depth int) (nodeHeldMo
 	case d.hasRequired:
 		return nodeHeldModule{binding: p.resolveRelativeBinding(d.required)}, true
 	case d.from != nil:
+		if d.fromVar && !x.varHoldsAt(d, name) {
+			return nodeHeldModule{}, false
+		}
 		held, ok := p.valueModuleBinding(d.from, depth+1)
 		if !ok || held.pending {
 			return nodeHeldModule{}, false
@@ -214,6 +217,17 @@ func nodeDeclaredByImport(name *sitter.Node) bool {
 		}
 	}
 	return false
+}
+
+// varHoldsAt reports whether a var a destructuring declares holds the member
+// it read at use, as holdsInitializer reports for a var's initializer: read
+// after its declaration ran in the same function, or a module-level var read
+// from inside a function.
+func (x *nodeValueIndex) varHoldsAt(d *nodeDecl, use *sitter.Node) bool {
+	if d.writes != 0 {
+		return false
+	}
+	return x.varInitializedBefore(d, use) || d.fn == nil && nodeEnclosingFunction(use) != nil
 }
 
 // holdsInitializer reports whether a variable holds its initializer at use:
