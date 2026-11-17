@@ -174,7 +174,15 @@ import (
 // `type` keyword (GraphFragmentItem). A 1.26 fragment decodes with none; a
 // 1.26 reader rejects the longer item array, which is why this is a bump and
 // not an optional field.
-const SchemaVersion = "graph-fragment-1.27"
+//
+// 1.28 adds object_literals (Node): by file path, every outermost non-empty
+// object expression of each scanned file, wherever it stands (a call
+// argument, an initializer, a return value, an array element), with its span,
+// its exact source text and the key of the function that holds it
+// (GraphFragmentObjectLiteral). A detector matches a rule whose pattern is a
+// bare object literal against the text, without the source. A 1.27 fragment
+// decodes with none: such a rule then matches nothing.
+const SchemaVersion = "graph-fragment-1.28"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -423,6 +431,10 @@ type GraphFragmentExport struct {
 	// optional with no schema bump). A rule that names an import, or reads an
 	// argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
+	// ObjectLiterals are, by file path, the outermost object expressions of
+	// each scanned file in source order (1.28, Node). The text of every object
+	// is written in full, so the field can be large on big files.
+	ObjectLiterals map[string][]GraphFragmentObjectLiteral `json:"object_literals,omitempty"`
 	// Items are, by file path, the items each scanned Rust file declares at
 	// any depth, in source order (1.26, Rust; type aliases from 1.27): the
 	// scopes a call, a use or a declaration stands in.
@@ -492,6 +504,25 @@ type GraphFragmentImport struct {
 	EndCol   int    `json:"end_col,omitempty"`
 	EndLine  int    `json:"end_line,omitempty"`
 	Text     string `json:"text,omitempty"`
+}
+
+// GraphFragmentObjectLiteral is one outermost object expression of a Node
+// file (callgraph.NodeObjectLiteral, graph-fragment-1.28). An object inside
+// another one's text, method bodies included, is not listed on its own; an
+// empty object, a destructuring pattern and a TypeScript object type are not
+// listed. The span follows the imports' convention: columns 1-based, end
+// exclusive, end_line written only for an object that spans lines (a reader
+// takes a missing end_line as line). text is the
+// object's exact source, which a consumer parses itself; it can be large.
+// caller_key is the key of the innermost function that holds the object, as
+// its call sites carry it, or the module's `<module>` key at module level.
+type GraphFragmentObjectLiteral struct {
+	Line      int    `json:"line"`
+	StartCol  int    `json:"start_col"`
+	EndLine   int    `json:"end_line,omitempty"`
+	EndCol    int    `json:"end_col"`
+	Text      string `json:"text"`
+	CallerKey string `json:"caller_key"`
 }
 
 // GraphFragmentItem is one item a Rust file declares (graph-fragment-1.26).
