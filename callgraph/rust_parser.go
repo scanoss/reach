@@ -380,6 +380,7 @@ func (p *RustParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 
 	// Extract the file's own top-level imports.
 	p.extractScopeImports(root, src, analysis)
+	p.collectRustScopeFacts(root, src, analysis)
 
 	// Extract function and method declarations with their calls. The analysis
 	// doubles as the file-level resolution scope; nested scopes get their own

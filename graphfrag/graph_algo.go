@@ -139,7 +139,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // graph stale.
 //
 // graph-algo-rs-1: the Rust graphs of graph-algo-39, under their own id.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "1"
+// graph-algo-rs-2: fragments list each file's `use` and `extern crate`
+// bindings as written, one per leaf of a grouped use, with the declaration's
+// span and use tree (`imports`), and its inline modules, functions, impl
+// blocks, traits, consts, statics, structs and `extern crate` items with
+// their spans (`items`, graph-fragment-1.26).
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "2"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

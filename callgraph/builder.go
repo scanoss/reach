@@ -929,6 +929,9 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 	if b.ecosystem == ecosystemPython && projectLocal && len(analysis.PythonReExports) > 0 {
 		b.recordPythonReExports(analysis.PackagePath, analysis.PythonReExports)
 	}
+	if b.ecosystem == ecosystemRust {
+		recordRustScopeFacts(graph, analysis)
+	}
 	if b.ecosystem == ecosystemPython {
 		b.recordPythonModule(analysis, projectLocal)
 		if projectLocal {
