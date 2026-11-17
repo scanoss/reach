@@ -34,9 +34,9 @@ type RustImport struct {
 }
 
 // RustItem is one item a Rust file declares, at any depth: an inline module,
-// a function, an impl block, a trait, a const, a static, a struct or an
-// `extern crate`. A reader places a call, a use or a let in the items that
-// enclose it from their spans.
+// a function, an impl block, a trait, a const, a static, a struct, an
+// `extern crate` or a type alias. A reader places a call, a use or a let in
+// the items that enclose it from their spans.
 type RustItem struct {
 	// Kind is one of the RustItem* kinds.
 	Kind string
@@ -47,6 +47,13 @@ type RustItem struct {
 	// brace or semicolon, attributes left out (columns 1-based, end
 	// exclusive); EndLine is set only when it spans lines.
 	Line, StartCol, EndCol, EndLine int
+	// Type is a type alias's aliased type, the source text after `=` as
+	// written, whitespace kept (`ctr::Ctr128BE<aes::Aes128>`); KeywordCol is
+	// the 1-based column of its `type` keyword, which follows any visibility
+	// (0 when the keyword is not on Line). Both are set only for a
+	// RustItemType.
+	Type       string
+	KeywordCol int
 }
 
 // Kinds of a Rust item (RustItem.Kind).
@@ -59,6 +66,12 @@ const (
 	RustItemStatic      = "static"
 	RustItemStruct      = "struct"
 	RustItemExternCrate = "extern_crate"
+	// RustItemType is a type alias, `[pub] type A<T> = X;`, in a module, a
+	// function body or an impl block: an impl's associated type definition
+	// (`type Output = X;`) is one too, so consumers see both. A trait's
+	// associated type declaration (`type Output;`, `type Output: Bound;`) is
+	// none.
+	RustItemType = "type"
 )
 
 const (
@@ -104,6 +117,8 @@ func (p *RustParser) collectRustScopeFacts(root *sitter.Node, src []byte, analys
 			recordRustItem(node, src, analysis, RustItemStatic, nodeFieldText(node, "name", src))
 		case rustNodeStructItem:
 			recordRustItem(node, src, analysis, RustItemStruct, nodeFieldText(node, "name", src))
+		case rustNodeTypeItem:
+			recordRustTypeAlias(node, src, analysis)
 		}
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			walk(node.NamedChild(i), local)
@@ -125,6 +140,26 @@ func rustSpan(node *sitter.Node) (line, startCol, endCol, endLine int) {
 func recordRustItem(node *sitter.Node, src []byte, analysis *FileAnalysis, kind, name string) {
 	item := RustItem{Kind: kind, Name: name}
 	item.Line, item.StartCol, item.EndCol, item.EndLine = rustSpan(node)
+	analysis.RustItems = append(analysis.RustItems, item)
+}
+
+// recordRustTypeAlias records a `type A = X;` item with its aliased type as
+// written and the column of its `type` keyword.
+func recordRustTypeAlias(node *sitter.Node, src []byte, analysis *FileAnalysis) {
+	aliased := node.ChildByFieldName("type")
+	if aliased == nil {
+		return
+	}
+	item := RustItem{Kind: RustItemType, Name: nodeFieldText(node, "name", src), Type: aliased.Content(src)}
+	item.Line, item.StartCol, item.EndCol, item.EndLine = rustSpan(node)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if kw := node.Child(i); kw.Type() == "type" && !kw.IsNamed() {
+			if int(kw.StartPoint().Row)+1 == item.Line {
+				item.KeywordCol = int(kw.StartPoint().Column) + 1
+			}
+			break
+		}
+	}
 	analysis.RustItems = append(analysis.RustItems, item)
 }
 
