@@ -107,6 +107,9 @@ type RustParser struct {
 	// letIndex holds, per function of the file being parsed, the values its
 	// let bindings give each name (rustLetValue).
 	letIndex map[[2]uint32]map[string][]rustLetBinding
+	// rustConsts indexes the const and static items of the file being parsed
+	// (collectRustConstItems), so an argument naming one reads its value.
+	rustConsts map[string]*rustConstItem
 }
 
 // NewRustParser creates a new Rust source parser backed by tree-sitter.
@@ -392,6 +395,8 @@ func (p *RustParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 	// copy of the name tables.
 	p.entryRefs, p.letIndex = nil, nil
 	p.itemInit, p.itemInitCalls = rustBodyFacts{}, nil
+	p.rustConsts = p.collectRustConstItems(root, src, packagePath)
+	defer func() { p.rustConsts = nil }()
 	p.extractDeclarations(root, src, filePath, packagePath, analysis, analysis)
 	analysis.EntryRefs, p.entryRefs, p.letIndex = p.entryRefs, nil, nil
 	p.appendRustVarinit(root, filePath, packagePath, analysis)
@@ -1421,6 +1426,13 @@ func rustBoxedSelfType(node *sitter.Node, src []byte) string {
 // references and let declarations into facts when it is not nil.
 func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string, facts *rustBodyFacts) []FunctionCall {
 	var calls []FunctionCall
+	// The call walk also traces argument values: a scope of its own under
+	// the declaration's root holds the parameters' positions, so the types
+	// the other walks resolve are unchanged.
+	values := p.newRustValueTracker(body, ctx.src, filePath)
+	ctx = ctx.withBindings(ctx.bindings.child())
+	ctx.values = values
+	values.bindParameters(ctx)
 	ctx.walkRustScoped(body, func(node *sitter.Node, nodeCtx *rustTypeCtx) bool {
 		if facts != nil && !facts.visit(node, nodeCtx.src) {
 			return false
@@ -1431,6 +1443,8 @@ func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath 
 		p.recordRustRegistration(node, nodeCtx, filePath)
 		if call := p.parseCallExpr(node, nodeCtx, filePath); call != nil {
 			p.anchors.set(call, node)
+			values.noteCall(node, call.Callee)
+			call.ArgumentSources = values.argumentSources(nodeCtx, node, call)
 			// Chain identity is a property of the syntax, not of how the callee
 			// resolved, so it is stamped here for every shape parseCallExpr
 			// returns rather than in each of its seventeen constructors.

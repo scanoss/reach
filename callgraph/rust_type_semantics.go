@@ -1173,6 +1173,10 @@ type rustTypeCtx struct {
 	// parameter becomes no identity at all. Emitting `C` itself, as the parser
 	// used to, invents a type that exists nowhere.
 	generics map[string]string
+	// values, set only for the call walk, traces argument values
+	// (rust_value_sources.go). The other walks leave it nil and bind types
+	// alone.
+	values *rustValueTracker
 }
 
 // rustBindings is one lexical scope's bindings, chained to the scope that
@@ -1187,6 +1191,11 @@ type rustBindings struct {
 	// resolver can type it, and shadowing is what a bare call has to check
 	// before it resolves the name as an import.
 	declared map[string]bool
+	// values records what the value walk knows of a name this scope binds
+	// (rust_value_sources.go): a let's initializer, a parameter's position,
+	// a block's const item, or nil for a binding it cannot follow. Nil
+	// outside the value walk.
+	values map[string]*rustValue
 }
 
 func newRustBindings(parent *rustBindings) *rustBindings {
@@ -2951,6 +2960,21 @@ func (c *rustTypeCtx) walkRustScoped(node *sitter.Node, visit rustVisitor) {
 				inner = &next
 			}
 		}
+		if inner.values != nil {
+			inner.values.bindBlockItems(inner, node)
+		}
+		inner.walkRustChildren(node, visit)
+		return
+	}
+	if symbol == rustSyms.functionItem && c.values != nil {
+		// A function declared inside a body sees none of the enclosing
+		// function's locals, and its parameters are not the enclosing
+		// function's: the value walk follows neither through it.
+		if !visit(node, c) {
+			return
+		}
+		inner := c.withBindings(c.bindings.child())
+		inner.values.bindOpaque(inner, node.ChildByFieldName("parameters"))
 		inner.walkRustChildren(node, visit)
 		return
 	}
@@ -3140,6 +3164,11 @@ func (c *rustTypeCtx) walkRustClosure(node *sitter.Node, elementType *string, vi
 		paramsNamedChildren := int(params.NamedChildCount())
 		for i := 0; i < paramsNamedChildren; i++ {
 			param := params.NamedChild(i)
+			if inner.values != nil {
+				// An untyped closure parameter binds no type, but it still
+				// shadows an enclosing local of its name.
+				inner.values.bindOpaque(inner, param)
+			}
 			switch {
 			case param.Type() == "parameter":
 				inner.bindPattern(param.ChildByFieldName("pattern"), nodeFieldText(param, "type", c.src), 0)
@@ -3233,6 +3262,12 @@ func (c *rustTypeCtx) bindLet(node *sitter.Node) {
 	if pattern == nil {
 		return
 	}
+	if c.values != nil {
+		// The initializer reads the bindings in effect before the pattern
+		// binds: `let k = k.trim();` reads the outer k.
+		init := c.values.letSources(c, node)
+		defer c.values.bindLet(c, node, init)
+	}
 	if annotated := nodeFieldText(node, "type", c.src); annotated != "" {
 		c.bindPattern(pattern, annotated, 0)
 		return
@@ -3261,6 +3296,11 @@ func rustNodeHasError(node *sitter.Node) bool {
 func (c *rustTypeCtx) bindPattern(pattern *sitter.Node, typeText string, depth int) {
 	if pattern == nil || depth > rustMaxTypeDepth {
 		return
+	}
+	if depth == 0 && c.values != nil {
+		// Whatever the pattern binds shadows an enclosing local for the value
+		// walk; bindLet and bindParameters then record what they can follow.
+		c.values.bindOpaque(c, pattern)
 	}
 	switch pattern.Type() {
 	case goNodeIdentifier:

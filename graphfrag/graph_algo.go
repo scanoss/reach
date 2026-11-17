@@ -153,7 +153,15 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // `<pkg>.<value>`, `(f)(x)` calls f, and the initializers of const and static
 // items outside function bodies make their calls and references in the
 // file's synthetic `<varinit:<file>>`, as Go's package variables do.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "4"
+// graph-algo-rs-5: call arguments carry their value sources (`source_nodes`)
+// within the calling function, as Java's and Python's do: a literal (VALUE),
+// a const or non-mut static item of the file, by bare name, `use`-shortened
+// or by path (FIELD over its literal), a `let` traced to its initializer
+// (VARIABLE; a let assigned again holds MayValues), a parameter (PARAMETER
+// with its position among the call's arguments, `self` left out), a call
+// (CALL_RESULT over the values of its receiver and arguments), and an
+// operation or expression macro (EXPRESSION over its operands).
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "5"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
