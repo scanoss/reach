@@ -56,6 +56,10 @@ type NodeParser struct {
 	// values indexes the bindings of the file being parsed, for argument
 	// provenance; see node_value_index.go.
 	values *nodeValueIndex
+	// readScope names the function whose body is being walked for calls, and
+	// reads collects the property reads found there (node_property_read.go).
+	readScope *nodeReadScope
+	reads     []nodePropertyReadSite
 }
 
 // NewNodeParser creates a parser for JavaScript, TypeScript, and TSX source files.
@@ -198,6 +202,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	defer p.anchors.reset()
 	p.names = newNodeScopeNames()
 	defer func() { p.names = nil }()
+	p.reads = nil
 
 	analysis := &FileAnalysis{
 		FilePath:    filePath,
@@ -238,6 +243,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	}
 	analysis.EntryRefs = nodeEntryRefs(root, src, filePath, modulePath, bindings)
 	analysis.NodeObjectLiterals = collectNodeObjectLiterals(root, src, analysis.Functions, modulePath)
+	analysis.nodePropertyReads = p.takeNodePropertyReads()
 	return analysis, nil
 }
 
@@ -656,7 +662,11 @@ func nodeAssignmentTarget(left *sitter.Node, src []byte) (name, owner string) {
 // parser also emits. A module that makes no such call gets none.
 func (p *NodeParser) moduleInitDecl(root *sitter.Node, src []byte, filePath, packagePath, modulePath string, bindings nodeBindings) *FunctionDecl {
 	locals := bindings.withModuleVariables(nil)
-	calls := p.extractCalls(root, src, filePath, modulePath, "", bindings, locals)
+	var calls []FunctionCall
+	moduleKey := FunctionID{Package: modulePath, Name: moduleInitMethodName}.String()
+	p.withReadScope(moduleKey, nil, func() {
+		calls = p.extractCalls(root, src, filePath, modulePath, "", bindings, locals)
+	})
 	implicit := nodeImplicitCalls(root, src, filePath, modulePath, bindings, locals)
 	implicit = append(implicit, nodeCallbackReferences(root, src, filePath, modulePath, "", bindings, locals, nil)...)
 	implicit = append(implicit, nodeModuleImportReferences(root, src, filePath, packagePath, modulePath)...)
@@ -832,9 +842,11 @@ func (p *NodeParser) appendClassInit(body *sitter.Node, inits []*sitter.Node, sr
 		p.scope = &nodeScope{own: own, shadowed: make(map[string]bool), enclosing: p.enclosingFunctionNames(body, src)}
 		defer func() { p.scope = previous }()
 	}
-	for _, init := range inits {
-		decl.Calls = append(decl.Calls, p.extractCalls(init, src, filePath, packagePath, owner, bindings, locals)...)
-	}
+	p.withReadScope(decl.ID.String(), own, func() {
+		for _, init := range inits {
+			decl.Calls = append(decl.Calls, p.extractCalls(init, src, filePath, packagePath, owner, bindings, locals)...)
+		}
+	})
 	decl.ModuleVars = bindings.moduleReceivers(decl.Calls, own)
 	analysis.Functions = append(analysis.Functions, *decl)
 }
@@ -874,7 +886,9 @@ func (p *NodeParser) parseNodeFunction(node *sitter.Node, src []byte, filePath, 
 	previousScope := p.scope
 	p.scope = p.scopeFor(params, body, own, src)
 	defer func() { p.scope = previousScope }()
-	decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+	p.withReadScope(decl.ID.String(), own, func() {
+		decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+	})
 	decl.ImplicitCalls = nodeImplicitCalls(body, src, filePath, packagePath, imports, locals)
 	decl.ImplicitCalls = append(decl.ImplicitCalls, nodeCallbackReferences(body, src, filePath, packagePath, owner, imports, locals, p.nodeBoundNames(node, own, src))...)
 	decl.ModuleVars = imports.moduleReceivers(decl.Calls, own)
@@ -1222,6 +1236,7 @@ func (p *NodeParser) walkNodeCalls(node *sitter.Node, src []byte, filePath, pack
 		p.anchors.set(call, node)
 		*calls = append(*calls, *call)
 	}
+	p.recordNodePropertyRead(node, src, filePath, packagePath, owner, imports, locals)
 	for i := 0; i < int(node.ChildCount()); i++ {
 		p.walkNodeCalls(node.Child(i), src, filePath, packagePath, owner, imports, locals, calls)
 	}
@@ -1295,7 +1310,13 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 	if object == nil || property == nil {
 		return nil
 	}
-	name := property.Content(src)
+	return p.resolveNodeMember(call, object, property.Content(src), src, packagePath, owner, imports, locals)
+}
+
+// resolveNodeMember keys call, the use of `<object>.<name>`, as
+// parseNodeMemberCall describes. A property read goes through it too, so a
+// read is keyed exactly as a call of the property would be.
+func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, name string, src []byte, packagePath, owner string, imports nodeBindings, locals map[string]bool) *FunctionCall {
 	objectText := object.Content(src)
 	call.Callee = FunctionID{Package: packagePath, Name: name}
 	if iface, ok := nodeWebCryptoCallInterface(object, src, name, imports.webCryptoScope(locals)); ok {

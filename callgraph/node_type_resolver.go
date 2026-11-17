@@ -147,19 +147,26 @@ func resolveNodeAssignedVarCalleesInFunction(graph *CallGraph, callerKey string,
 			recordCallEdgeResolution(graph, callerKey, call.Callee.String(), EdgeKindExact, "", call)
 			resolved++
 		}
-		if call.AssignedVar == "" {
-			continue
-		}
-		fqn, arity := splitMethodArity(&call.Callee)
-		if arity < 0 {
-			arity = len(call.Arguments)
-		}
-		if ret := unconditionalContractReturn(kb.ContractsFor(fqn, arity)); receivers[ret] {
-			varTypes[call.AssignedVar] = ret
-		} else {
-			delete(varTypes, call.AssignedVar)
-		}
+		bindNodeAssignedVarType(varTypes, call, kb, receivers)
 	}
 	reconcileRewrittenCallers(graph, callerKey, fn, oldKeys)
 	return resolved, varTypes
+}
+
+// bindNodeAssignedVarType records the type a call's result gives the variable
+// it is assigned to: the contract's unconditional return when the KB declares
+// methods on it, else none, which drops what was known about the variable.
+func bindNodeAssignedVarType(varTypes map[string]string, call *FunctionCall, kb *contracts.KnowledgeBase, receivers map[string]bool) {
+	if call.AssignedVar == "" {
+		return
+	}
+	fqn, arity := splitMethodArity(&call.Callee)
+	if arity < 0 {
+		arity = len(call.Arguments)
+	}
+	if ret := unconditionalContractReturn(kb.ContractsFor(fqn, arity)); receivers[ret] {
+		varTypes[call.AssignedVar] = ret
+	} else {
+		delete(varTypes, call.AssignedVar)
+	}
 }

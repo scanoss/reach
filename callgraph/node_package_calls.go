@@ -112,6 +112,11 @@ func (b *Builder) linkNodePackageCalls(graph *CallGraph) {
 			}
 		}
 	}
+	for _, read := range graph.nodePropertyReads {
+		if target, ok := r.resolve(&read.call); ok {
+			read.call.Callee = target
+		}
+	}
 }
 
 func (r *nodePackageCalls) resolve(call *FunctionCall) (FunctionID, bool) {

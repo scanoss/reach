@@ -396,6 +396,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	// after inference so both declared and KB-inferred return types are
 	// available. See resolveParameterPassthroughDispatch for the full contract.
 	perf.Time("callgraph.build.passthrough_dispatch", func() { resolveParameterPassthroughDispatch(graph) })
+	finishNodePropertyReads(graph, kb)
 	inferenceDuration := time.Since(inferenceStart)
 
 	log.Info().
@@ -955,6 +956,11 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			graph.NodeObjectLiterals = make(map[string][]NodeObjectLiteral)
 		}
 		graph.NodeObjectLiterals[analysis.FilePath] = analysis.NodeObjectLiterals
+	}
+	if b.ecosystem == ecosystemNode && projectLocal {
+		for i := range analysis.nodePropertyReads {
+			graph.nodePropertyReads = append(graph.nodePropertyReads, &analysis.nodePropertyReads[i])
+		}
 	}
 }
 

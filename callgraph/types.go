@@ -705,6 +705,9 @@ type FileAnalysis struct {
 	// NodeObjectLiterals lists the outermost object expressions of the file,
 	// in source order (Node only).
 	NodeObjectLiterals []NodeObjectLiteral
+	// nodePropertyReads lists the property reads of the file's functions, in
+	// source order, as the parser keyed them (Node only).
+	nodePropertyReads []nodePropertyReadSite
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -795,6 +798,12 @@ type CallGraph struct {
 	// project source file, by file path (Node only), for a rule whose pattern
 	// is a bare object literal.
 	NodeObjectLiterals map[string][]NodeObjectLiteral
+	// NodePropertyReads holds the property reads of each project source file,
+	// by file path, in source order (Node only), each keyed as a call of the
+	// expression would be, for a rule whose pattern is a bare member
+	// expression. nodePropertyReads holds them while the graph is built.
+	NodePropertyReads map[string][]NodePropertyRead
+	nodePropertyReads []*nodePropertyReadSite
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",
