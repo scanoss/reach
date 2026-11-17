@@ -392,6 +392,7 @@ func (p *GoParser) extractFunctions(root *sitter.Node, src []byte, filePath, pac
 	}
 	p.extractGoPackageInitCalls(root, src, filePath, packagePath, analysis)
 	collectGoConstantRefs(root, src, filePath, packagePath, analysis)
+	collectGoDeclarations(root, src, filePath, packagePath, analysis)
 }
 
 // extractGoPackageInitCalls collects the calls made by package-level variable

@@ -213,7 +213,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // outside a call (`constant_refs`, text `<import path>.<name>`) with their
 // position kind and, in a comparison or case, the operand; a package-level
 // data var's references go to the file's <varinit>.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "5"
+// graph-algo-go-6: fragments list the var declarations of an imported type
+// (`declarations`, type written `<import path>.<name>`, with `*`, `[]`).
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "6"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
