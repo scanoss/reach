@@ -208,7 +208,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // caller-local key it shared with other calls of the method name, where an
 // export listed it again with another call's raw, columns and variables.
 // An object literal carries the variable a declarator or an assignment binds
-// it to (AssignedVar, AssignStartCol, AssignLine).
+// it to (AssignedVar, AssignStartCol, AssignLine). A call through a
+// string-literal index (`hash['sha256']()`, `acme['mode'].CTR.create()`) is
+// a call site keyed as its dotted spelling is (was none, or caller-local), and
+// a read through one keys as the dotted read does.
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

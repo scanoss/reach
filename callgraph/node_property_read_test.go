@@ -192,9 +192,9 @@ func TestNodePropertyReadInArgumentsAndObjectValues(t *testing.T) {
 	reads := nodePropertyReadsOf(t, map[string]string{"mod.js": src}, "mod.js")
 	assertNodeReadRaws(t, reads, "acme.mode.GCM", "acme.enums.hash.sha256", "acme.version", "acme['mode']['CTR']")
 	for _, r := range reads {
-		if r.Raw == "acme['mode']['CTR']" && (r.TargetKey != "app/mod.CTR" || r.MethodName != "CTR") {
-			// The object `acme['mode']` resolves no import, as for a call.
-			t.Errorf("subscript read = %+v, want caller-local CTR", r)
+		if r.Raw == "acme['mode']['CTR']" && (r.TargetKey != "acme-crypto.mode.CTR" || r.MethodName != "CTR") {
+			// The object `acme['mode']` resolves as `acme.mode`, as for a call.
+			t.Errorf("subscript read = %+v, want acme-crypto.mode.CTR", r)
 		}
 		if r.Raw == "acme.enums.hash.sha256" && r.TargetKey != "acme-crypto.enums.hash.sha256" {
 			t.Errorf("object value read = %+v", r)
