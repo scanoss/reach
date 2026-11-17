@@ -95,6 +95,7 @@ Four identifiers ship in stored and served JSON. They are independent.
 | Callgraph schema | `graphfrag.CallgraphSchemaVersion` (inlined frames), `CallgraphInternedSchemaVersion` (interned frames) | The rendered callgraph contract changes | Consumers of `ToCallgraphExport` |
 | Graph algorithm, Java and default | `graphfrag.GraphAlgoVersion` (`graph-algo-N`) | Graph construction changes the structural graph of Java (or of an ecosystem without its own id) | Fragment caches |
 | Graph algorithm, Python | `graphfrag.GraphAlgoVersionPython` (`graph-algo-py-N`) | Graph construction changes the structural graph of Python | Fragment caches |
+| Graph algorithm, Rust | `graphfrag.GraphAlgoVersionRust` (`graph-algo-rs-N`) | Graph construction changes the structural graph of Rust | Fragment caches |
 
 `graphfrag.GraphAlgoVersionFor(ecosystem)` returns the id for an ecosystem.
 A fragment carries its id in `scan_metadata.graph_algo_version`.
