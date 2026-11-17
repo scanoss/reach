@@ -201,7 +201,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // graph-algo-node-5: fragments list each file's outermost object literals
 // (`object_literals`, the graph's NodeObjectLiterals, graph-fragment-1.28):
 // a stored node-4 graph has none.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "5"
+// graph-algo-node-6: fragments list each file's property reads
+// (`property_reads`, the graph's NodePropertyReads, graph-fragment-1.29):
+// a stored node-5 graph has none.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
