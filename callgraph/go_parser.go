@@ -391,6 +391,7 @@ func (p *GoParser) extractFunctions(root *sitter.Node, src []byte, filePath, pac
 		flattenGoEmbeddedInterfaces(analysis, embeds, packagePath)
 	}
 	p.extractGoPackageInitCalls(root, src, filePath, packagePath, analysis)
+	collectGoConstantRefs(root, src, filePath, packagePath, analysis)
 }
 
 // extractGoPackageInitCalls collects the calls made by package-level variable
@@ -412,23 +413,37 @@ func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, file
 	if len(calls) == 0 {
 		return
 	}
-	// One synthetic decl per FILE, discriminated in the name: several files of
-	// one package would otherwise collide on the same map key in the graph and
-	// silently drop each other's initializer calls.
+	fn := goVarinitDecl(analysis, filePath, packagePath, int(root.EndPoint().Row)+1)
+	fn.Calls = calls
+}
+
+// goVarinitPrefix starts the name of a file's synthetic package-level
+// declaration.
+const goVarinitPrefix = "<varinit:"
+
+// goVarinitDecl is the file's synthetic <varinit> declaration, created on
+// first use. One per FILE, discriminated in the name: several files of one
+// package would otherwise collide on the same map key in the graph.
+func goVarinitDecl(analysis *FileAnalysis, filePath, packagePath string, endLine int) *FunctionDecl {
 	base := filePath
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
-	base = strings.TrimSuffix(base, ".go")
+	name := goVarinitPrefix + strings.TrimSuffix(base, ".go") + ">"
+	for i := range analysis.Functions {
+		if fn := &analysis.Functions[i]; fn.ID.Package == packagePath && fn.ID.Name == name {
+			return fn
+		}
+	}
 	analysis.Functions = append(analysis.Functions, FunctionDecl{
-		ID:           FunctionID{Package: packagePath, Name: "<varinit:" + base + ">"},
+		ID:           FunctionID{Package: packagePath, Name: name},
 		FilePath:     filePath,
 		StartLine:    1,
-		EndLine:      int(root.EndPoint().Row) + 1,
+		EndLine:      endLine,
 		OwnerType:    "package",
 		FunctionType: "function",
-		Calls:        calls,
 	})
+	return &analysis.Functions[len(analysis.Functions)-1]
 }
 
 // extractInterfaceMethods registers each method of an interface declaration as

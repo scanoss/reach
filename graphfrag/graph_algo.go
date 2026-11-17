@@ -209,7 +209,11 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // call's result, a call of a func value) is exported name_only, not exact.
 // graph-algo-go-4: a method called on a value the expression constructs
 // (`T{}`, `&T{}`, `new(T)`) links to the type's method.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "4"
+// graph-algo-go-5: fragments list the values Go code reads through an import
+// outside a call (`constant_refs`, text `<import path>.<name>`) with their
+// position kind and, in a comparison or case, the operand; a package-level
+// data var's references go to the file's <varinit>.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "5"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
