@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1249,9 +1250,51 @@ func (b *Builder) mergeAnalysisFunctions(graph *CallGraph, analysis *FileAnalysi
 			if b.mergePythonRedefinition(graph, key, existing, fn) {
 				continue
 			}
+			if b.rekeyCRedefinition(graph, existing, fn) {
+				continue
+			}
 		}
 		graph.Functions[key] = fn
 	}
+}
+
+// rekeyCRedefinition keeps a C or C++ declaration whose key another
+// declaration already holds under a key of its own, scoped to its file as a
+// static function's is (`<pkg>/<file>.<name>`), and further by its line when a
+// declaration of the same file holds that key too (`<pkg>/<file>@<line>.<name>`).
+//
+// A C package defines one external name more than once when the variants are
+// chosen by the build: a library's alternative backends in one directory
+// (libjwt's jwt-openssl.c and jwt-gnutls.c both define jwt_sign_sha_hmac), or
+// #if/#else bodies of one file. Last-write-wins dropped every call of the
+// earlier bodies. Unioning the calls as Go does is not an option: an exported
+// call names no file of its own, it is read in its caller's file, so a body
+// has to stay a declaration of its own file. Calls to the name still resolve
+// to the declaration that holds the package key, the first one read.
+func (b *Builder) rekeyCRedefinition(graph *CallGraph, existing, candidate *FunctionDecl) bool {
+	if b.ecosystem != ecosystemC && b.ecosystem != ecosystemCPP {
+		return false
+	}
+	if existing == candidate || candidate.FilePath == "" {
+		return false
+	}
+	id := candidate.ID
+	base := filepath.Base(candidate.FilePath)
+	switch {
+	case id.Package == "":
+		id.Package = base
+	case id.Package != base && !strings.HasSuffix(id.Package, "/"+base):
+		id.Package += "/" + base
+	}
+	if _, taken := graph.Functions[id.String()]; taken {
+		id.Package += "@" + strconv.Itoa(candidate.StartLine)
+	}
+	if _, taken := graph.Functions[id.String()]; taken {
+		return false
+	}
+	candidate.ID = id
+	graph.Functions[id.String()] = candidate
+	return true
 }
 
 // mergeRustTypedMethodCollision unions the calls of two declarations that share
