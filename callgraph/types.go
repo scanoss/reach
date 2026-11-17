@@ -730,6 +730,9 @@ type FileAnalysis struct {
 	// nodePropertyReads lists the property reads of the file's functions, in
 	// source order, as the parser keyed them (Node only).
 	nodePropertyReads []nodePropertyReadSite
+	// CIncludes lists the #include directives of the file, in source order
+	// (C and C++ only).
+	CIncludes []CInclude
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -836,6 +839,9 @@ type CallGraph struct {
 	// expression. nodePropertyReads holds them while the graph is built.
 	NodePropertyReads map[string][]NodePropertyRead
 	nodePropertyReads []*nodePropertyReadSite
+	// CIncludes holds the #include directives of each project source file, by
+	// file path (C and C++ only), with headers as written.
+	CIncludes map[string][]CInclude
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

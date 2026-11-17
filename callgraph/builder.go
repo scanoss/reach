@@ -42,6 +42,8 @@ const (
 	ecosystemRust = "rust"
 	// ecosystemNode is the ecosystem the Node KBs declare.
 	ecosystemNode = "node"
+	// ecosystemC is the ecosystem identifier for C callgraphs.
+	ecosystemC = "c"
 )
 
 // Parser extracts function declarations, calls, and imports from source files
@@ -963,6 +965,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			graph.GoImports = make(map[string][]GoImport)
 		}
 		graph.GoImports[analysis.FilePath] = analysis.GoImports
+	}
+	if (b.ecosystem == ecosystemC || b.ecosystem == ecosystemCPP) && projectLocal && len(analysis.CIncludes) > 0 {
+		if graph.CIncludes == nil {
+			graph.CIncludes = make(map[string][]CInclude)
+		}
+		graph.CIncludes[analysis.FilePath] = analysis.CIncludes
 	}
 	if b.ecosystem == ecosystemNode && projectLocal && len(analysis.NodeImports) > 0 {
 		if graph.NodeImports == nil {

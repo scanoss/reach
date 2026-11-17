@@ -98,6 +98,8 @@ Five identifiers ship in stored and served JSON. They are independent.
 | Graph algorithm, Rust | `graphfrag.GraphAlgoVersionRust` (`graph-algo-rs-N`) | Graph construction changes the structural graph of Rust | Fragment caches |
 | Graph algorithm, Node | `graphfrag.GraphAlgoVersionNode` (`graph-algo-node-N`) | Graph construction changes the structural graph of JavaScript or TypeScript | Fragment caches |
 | Graph algorithm, Go | `graphfrag.GraphAlgoVersionGo` (`graph-algo-go-N`) | Graph construction changes the structural graph of Go | Fragment caches |
+| Graph algorithm, C | `graphfrag.GraphAlgoVersionC` (`graph-algo-c-N`) | Graph construction changes the structural graph of C | Fragment caches |
+| Graph algorithm, C++ | `graphfrag.GraphAlgoVersionCPP` (`graph-algo-cpp-N`) | Graph construction changes the structural graph of C++ | Fragment caches |
 
 `graphfrag.GraphAlgoVersionFor(ecosystem)` returns the id for an ecosystem.
 A fragment carries its id in `scan_metadata.graph_algo_version`.

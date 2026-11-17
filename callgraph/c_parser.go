@@ -150,6 +150,9 @@ func (p *CParser) extractInclude(node *sitter.Node, src []byte, analysis *FileAn
 	if header != "" {
 		analysis.Imports[header] = header
 	}
+	if include, ok := cIncludeOf(node, src); ok {
+		analysis.CIncludes = append(analysis.CIncludes, include)
+	}
 }
 
 func (p *CParser) parseFunction(node *sitter.Node, src []byte, filePath, packagePath string, staticFunctions map[string]bool) *FunctionDecl {

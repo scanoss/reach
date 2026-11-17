@@ -23,11 +23,20 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 	if graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersion || graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersionPython || graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersionRust {
 		t.Fatalf("Node shares a graph algorithm id: %q", graphfrag.GraphAlgoVersionNode)
 	}
-	if graphfrag.GraphAlgoVersionGo == graphfrag.GraphAlgoVersion {
-		t.Fatalf("Go shares the Java graph algorithm id %q", graphfrag.GraphAlgoVersion)
+	ids := map[string]string{}
+	for ecosystem, id := range map[string]string{
+		"java": graphfrag.GraphAlgoVersion, "python": graphfrag.GraphAlgoVersionPython, "rust": graphfrag.GraphAlgoVersionRust,
+		"node": graphfrag.GraphAlgoVersionNode, "go": graphfrag.GraphAlgoVersionGo, "c": graphfrag.GraphAlgoVersionC, "cpp": graphfrag.GraphAlgoVersionCPP,
+	} {
+		if other, ok := ids[id]; ok {
+			t.Fatalf("%s and %s share the graph algorithm id %q", ecosystem, other, id)
+		}
+		ids[id] = ecosystem
 	}
 	for _, c := range []struct{ ecosystem, want string }{
 		{"java", graphfrag.GraphAlgoVersion},
+		{"c", graphfrag.GraphAlgoVersionC},
+		{"cpp", graphfrag.GraphAlgoVersionCPP},
 		{"", graphfrag.GraphAlgoVersion},
 		{"go", graphfrag.GraphAlgoVersionGo},
 		{"python", graphfrag.GraphAlgoVersionPython},
@@ -65,7 +74,9 @@ func TestGraphEcosystem(t *testing.T) {
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionRust}, "rust"},
 		{graphfrag.GraphFragmentScanMetadata{Ecosystem: "node", GraphAlgoVersion: graphfrag.GraphAlgoVersionNode}, "node"},
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionNode}, "node"},
-		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionGo}, "go"},
+		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionC}, "c"},
+		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionCPP}, "cpp"},
+		{graphfrag.GraphFragmentScanMetadata{Ecosystem: "c", GraphAlgoVersion: graphfrag.GraphAlgoVersionC}, "c"},
 		{graphfrag.GraphFragmentScanMetadata{Ecosystem: "java", GraphAlgoVersion: graphfrag.GraphAlgoVersion}, "java"},
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersion}, ""},
 		{graphfrag.GraphFragmentScanMetadata{}, ""},
