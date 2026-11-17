@@ -134,16 +134,56 @@ const GraphAlgoVersionPython = pythonGraphAlgoPrefix + "40"
 // stamped with one is a Python graph.
 const pythonGraphAlgoPrefix = "graph-algo-py-"
 
+// GraphAlgoVersionRust identifies the callgraph-construction algorithm of
+// Rust graphs, so a change to Rust graph construction never marks a Java
+// graph stale.
+//
+// graph-algo-rs-1: the Rust graphs of graph-algo-39, under their own id.
+// graph-algo-rs-2: fragments list each file's `use` and `extern crate`
+// bindings as written, one per leaf of a grouped use, with the declaration's
+// span and use tree (`imports`), and its inline modules, functions, impl
+// blocks, traits, consts, statics, structs and `extern crate` items with
+// their spans (`items`, graph-fragment-1.26).
+// graph-algo-rs-3: fragments list the paths of two or more segments a body
+// reads outside a callee (`constant_refs`, text as written, with the position
+// kind: compare, case for a match arm pattern, return, assign, init, array,
+// arg, other) and one declaration per name a `let` binds (`declarations`).
+// graph-algo-rs-4: every call is a call of the graph, resolved or not: a call
+// of a value the parser cannot name (`fs[0](x)`, `make()(x)`) is keyed
+// `<pkg>.<value>`, `(f)(x)` calls f, and the initializers of const and static
+// items outside function bodies make their calls and references in the
+// file's synthetic `<varinit:<file>>`, as Go's package variables do.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "4"
+
+// rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
+// stamped with one is a Rust graph.
+const rustGraphAlgoPrefix = "graph-algo-rs-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
 // of its own get GraphAlgoVersion; so does "", the ecosystem of a fragment
 // written before scan_metadata named one.
 func GraphAlgoVersionFor(ecosystem string) string {
-	if ecosystem == "python" {
+	switch ecosystem {
+	case "python":
 		return GraphAlgoVersionPython
+	case "rust":
+		return GraphAlgoVersionRust
 	}
 	return GraphAlgoVersion
+}
+
+// ecosystemOfGraphAlgo is the ecosystem an ecosystem's own graph algorithm id
+// names, or "" for the shared id.
+func ecosystemOfGraphAlgo(id string) string {
+	switch {
+	case strings.HasPrefix(id, pythonGraphAlgoPrefix):
+		return "python"
+	case strings.HasPrefix(id, rustGraphAlgoPrefix):
+		return "rust"
+	}
+	return ""
 }
 
 // GraphAlgoVersionForPurl is GraphAlgoVersionFor of the purl's ecosystem.
@@ -170,24 +210,21 @@ func EcosystemForPurl(purl string) string {
 
 // GraphEcosystem is the ecosystem of the graph the export carries: the one its
 // scan metadata names, else the one its graph algorithm id names when that id
-// is an ecosystem's own (Python), else "" (a graph written before scan
+// is an ecosystem's own (Python, Rust), else "" (a graph written before scan
 // metadata named an ecosystem: Java's).
 func (e *GraphFragmentExport) GraphEcosystem() string {
 	if e.ScanMetadata.Ecosystem != "" {
 		return e.ScanMetadata.Ecosystem
 	}
-	if strings.HasPrefix(e.ScanMetadata.GraphAlgoVersion, pythonGraphAlgoPrefix) {
-		return "python"
-	}
-	return ""
+	return ecosystemOfGraphAlgo(e.ScanMetadata.GraphAlgoVersion)
 }
 
 // fragmentEcosystem is the ecosystem of the graph a fragment carries: the one
-// its graph algorithm id names when that id is an ecosystem's own (Python),
-// else its component's purl's.
+// its graph algorithm id names when that id is an ecosystem's own (Python,
+// Rust), else its component's purl's.
 func fragmentEcosystem(fragment Fragment) string {
-	if strings.HasPrefix(fragment.GraphAlgoVersion, pythonGraphAlgoPrefix) {
-		return "python"
+	if ecosystem := ecosystemOfGraphAlgo(fragment.GraphAlgoVersion); ecosystem != "" {
+		return ecosystem
 	}
 	return EcosystemForPurl(fragment.Component.Purl)
 }

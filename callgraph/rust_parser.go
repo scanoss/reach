@@ -54,6 +54,11 @@ type RustParser struct {
 	parser       *sitter.Parser
 	includeTests bool
 	anchors      callAnchors
+	// itemInit collects, while a file is parsed, the calls and facts of the
+	// initializers of its const and static items outside any function body,
+	// for the file's <varinit> declaration.
+	itemInit      rustBodyFacts
+	itemInitCalls []FunctionCall
 	// crateAliasCache memoizes each crate root's `extern crate X as Y`
 	// renames, keyed by the root source file. Those aliases are crate-scoped
 	// but the import model is per file, so every file has to be able to see
@@ -380,13 +385,16 @@ func (p *RustParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 
 	// Extract the file's own top-level imports.
 	p.extractScopeImports(root, src, analysis)
+	p.collectRustScopeFacts(root, src, analysis)
 
 	// Extract function and method declarations with their calls. The analysis
 	// doubles as the file-level resolution scope; nested scopes get their own
 	// copy of the name tables.
 	p.entryRefs, p.letIndex = nil, nil
+	p.itemInit, p.itemInitCalls = rustBodyFacts{}, nil
 	p.extractDeclarations(root, src, filePath, packagePath, analysis, analysis)
 	analysis.EntryRefs, p.entryRefs, p.letIndex = p.entryRefs, nil, nil
+	p.appendRustVarinit(root, filePath, packagePath, analysis)
 
 	return analysis, nil
 }
@@ -809,6 +817,8 @@ func (p *RustParser) extractDeclarations(root *sitter.Node, src []byte, filePath
 			}
 		case rustNodeImplItem:
 			p.processImplBlock(child, src, filePath, packagePath, analysis, scope)
+		case rustNodeConstItem, rustNodeStaticItem:
+			p.collectRustItemInit(child, src, filePath, scope, "", nil)
 		case rustNodeModItem:
 			// An inline `mod x { ... }` is a module of its own, and everything
 			// in it was invisible: the loop only ever looked at the file's
@@ -948,6 +958,10 @@ func (p *RustParser) processRustTraitDefaults(body *sitter.Node, src []byte, fil
 	bodyNamedChildren := int(body.NamedChildCount())
 	for i := 0; i < bodyNamedChildren; i++ {
 		child := body.NamedChild(i)
+		if child.Type() == rustNodeConstItem {
+			p.collectRustItemInit(child, src, filePath, scope, traitName, nil)
+			continue
+		}
 		if child.Type() != rustNodeFunctionItem {
 			continue
 		}
@@ -1029,7 +1043,9 @@ func (p *RustParser) parseFunctionItemWithGenerics(node *sitter.Node, src []byte
 
 	if body != nil {
 		ctx := p.newRustTypeCtx(node, paramsNode, src, analysis, selfType, outerGenerics)
-		decl.Calls = p.extractCalls(body, ctx, filePath)
+		var facts rustBodyFacts
+		decl.Calls = p.extractCalls(body, ctx, filePath, &facts)
+		decl.ConstantRefs, decl.Declarations = facts.sorted()
 		decl.ReturnSources = p.extractReturnSources(body, ctx, filePath)
 		decl.constructed = rustReturnedObjects(body, ctx)
 		decl.localBindings = countLocalBindings(body, ctx.src, rustLocalBinders)
@@ -1256,6 +1272,9 @@ func (p *RustParser) processImplBlock(node *sitter.Node, src []byte, filePath, p
 	bodyChildren := int(body.ChildCount())
 	for i := 0; i < bodyChildren; i++ {
 		child := body.Child(i)
+		if child.Type() == rustNodeConstItem {
+			p.collectRustItemInit(child, src, filePath, implScope, selfType, implGenerics)
+		}
 		if child.Type() == rustNodeFunctionItem {
 			fnScope := p.rustChildImportScope(child.ChildByFieldName("body"), src, implScope, packagePath)
 			decl := p.parseFunctionItemWithGenerics(child, src, filePath, declPackage, typeName, fnScope, implGenerics, selfType)
@@ -1398,9 +1417,14 @@ func rustBoxedSelfType(node *sitter.Node, src []byte) string {
 }
 
 // extractCalls walks a function body to find all call expressions.
-func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string) []FunctionCall {
+// extractCalls walks a body for its calls, and records its constant
+// references and let declarations into facts when it is not nil.
+func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string, facts *rustBodyFacts) []FunctionCall {
 	var calls []FunctionCall
 	ctx.walkRustScoped(body, func(node *sitter.Node, nodeCtx *rustTypeCtx) bool {
+		if facts != nil && !facts.visit(node, nodeCtx.src) {
+			return false
+		}
 		if node.Type() != rustNodeCallExpression {
 			return true
 		}
@@ -1524,6 +1548,10 @@ func (p *RustParser) parseCallExpr(node *sitter.Node, ctx *rustTypeCtx, filePath
 	if funcNode.Type() == rustNodeGenericFunction && funcNode.ChildCount() > 0 {
 		funcNode = funcNode.Child(0)
 	}
+	// `(f)(x)` calls f.
+	for funcNode.Type() == rustNodeParenthesizedExpression && funcNode.NamedChildCount() == 1 {
+		funcNode = funcNode.NamedChild(0)
+	}
 
 	var call *FunctionCall
 	switch funcNode.Type() {
@@ -1586,13 +1614,28 @@ func (p *RustParser) parseCallExpr(node *sitter.Node, ctx *rustTypeCtx, filePath
 		// Method call like `self.encrypt(...)` or `obj.method(...)`
 		call = p.parseFieldCall(funcNode, ctx, filePath, line, args)
 	}
-	if call != nil {
-		call.StartCol = int(node.StartPoint().Column) + 1
-		call.EndCol = int(node.EndPoint().Column) + 1
-		call.EndLine = int(node.EndPoint().Row) + 1
+	if call == nil {
+		// Every call is a site, also one whose callee the parser cannot name
+		// (`fs[0](x)`, `make()(x)`, a closure called in place): a detector
+		// reads the call as written, and a call missing from the graph is a
+		// finding it can never report.
+		call = &FunctionCall{
+			Callee:    FunctionID{Package: analysis.PackagePath, Name: rustUnnamedCallee},
+			Raw:       raw,
+			FilePath:  filePath,
+			Line:      line,
+			Arguments: args,
+		}
 	}
+	call.StartCol = int(node.StartPoint().Column) + 1
+	call.EndCol = int(node.EndPoint().Column) + 1
+	call.EndLine = int(node.EndPoint().Row) + 1
 	return call
 }
+
+// rustUnnamedCallee is the callee name of a call of a value the parser
+// cannot name; no declaration has it.
+const rustUnnamedCallee = "<value>"
 
 // rustSelfConstructorCallee turns `Self(..)` into the tuple-struct constructor
 // of the impl's own type, which is keyed by the type's name exactly as any other

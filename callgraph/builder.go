@@ -929,6 +929,9 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 	if b.ecosystem == ecosystemPython && projectLocal && len(analysis.PythonReExports) > 0 {
 		b.recordPythonReExports(analysis.PackagePath, analysis.PythonReExports)
 	}
+	if b.ecosystem == ecosystemRust {
+		recordRustScopeFacts(graph, analysis)
+	}
 	if b.ecosystem == ecosystemPython {
 		b.recordPythonModule(analysis, projectLocal)
 		if projectLocal {
@@ -1241,6 +1244,14 @@ func (b *Builder) mergeRustTypedMethodCollision(graph *CallGraph, key string, ex
 	merged.Calls = appendUnseenCalls(existing.Calls, candidate.Calls)
 	if len(merged.ReturnSources) == 0 {
 		merged.ReturnSources = candidate.ReturnSources
+	}
+	// References and declarations carry no file of their own: they are read
+	// in the declaration's file, so only a body of the same file adds its own.
+	if candidate.FilePath == existing.FilePath {
+		merged.ConstantRefs = appendUnseenAt(existing.ConstantRefs, candidate.ConstantRefs,
+			func(r *ConstantRef) [2]int { return [2]int{r.Line, r.StartCol} })
+		merged.Declarations = appendUnseenAt(existing.Declarations, candidate.Declarations,
+			func(d *VarDecl) [2]int { return [2]int{d.Line, d.StartCol} })
 	}
 	graph.Functions[key] = &merged
 	return true

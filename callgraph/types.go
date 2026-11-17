@@ -689,6 +689,11 @@ type FileAnalysis struct {
 	// PythonImports lists the bindings of the file's import statements, in
 	// source order (Python only).
 	PythonImports []PythonImport
+	// RustImports lists the bindings of the file's `use` and `extern crate`
+	// declarations, and RustItems the items it declares, at any depth, in
+	// source order (Rust only).
+	RustImports []RustImport
+	RustItems   []RustItem
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -766,6 +771,11 @@ type CallGraph struct {
 	// by file path (Python only), the project's own modules requalified as
 	// its calls are.
 	PythonImports map[string][]PythonImport
+	// RustImports and RustItems hold, by file path, the `use` and `extern
+	// crate` bindings and the items of each Rust source file whose functions
+	// the graph holds, as written (Rust only).
+	RustImports map[string][]RustImport
+	RustItems   map[string][]RustItem
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

@@ -154,7 +154,20 @@ import (
 // service type (Java only). The stitch dispatches a call on a service type's
 // method to the registered implementations present in the closure, a
 // dispatch no call graph edge records. A 1.24 fragment decodes with none.
-const SchemaVersion = "graph-fragment-1.25"
+//
+// 1.26 gives a Rust fragment its scope facts, as written: imports lists the
+// bindings of each file's `use` and `extern crate` declarations (one per leaf
+// of a grouped use), each with the declaration's span (start_col, end_col,
+// end_line) and use tree (text), and items lists each file's inline modules,
+// functions, impl blocks, traits, consts, statics, structs and `extern crate`
+// items with their spans (GraphFragmentItem). A detector reads which `use`
+// precedes a call in its scope, and which item encloses it, without the
+// source. A 1.25 fragment decodes with neither: a Rust detector then cannot
+// tell a call's scope. A Rust fragment also fills constant_refs (every path of
+// two or more segments a body reads outside a callee, `acme::Mode::Cbc`) and
+// declarations (one per name a `let` binds, any type, the statement's span),
+// in their 1.17 and 1.18 forms.
+const SchemaVersion = "graph-fragment-1.26"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -166,9 +179,9 @@ const SchemaVersion = "graph-fragment-1.25"
 // bump (see docs/ARCHITECTURE.md, Schema Versioning).
 //
 // It is the id of Java graphs and of every ecosystem without an id of its own
-// (GraphAlgoVersionFor); Python graphs carry GraphAlgoVersionPython. Bump the
-// id of the ecosystem whose graphs changed, never this one for another
-// ecosystem's change: every stored Java graph under an old id is mined again.
+// (GraphAlgoVersionFor); Python graphs carry GraphAlgoVersionPython and Rust
+// graphs GraphAlgoVersionRust. Bump the id of the ecosystem whose graphs
+// changed, never this one for another ecosystem's change: every stored Java graph under an old id is mined again.
 //
 // graph-algo-6: Go dependencies contribute only their imported packages, on
 // top of the Go, Node and Python call resolution and Go interface dispatch
@@ -396,10 +409,15 @@ type GraphFragmentExport struct {
 	// name.
 	RebindLines []GraphFragmentRebind `json:"rebind_lines,omitempty"`
 	// Imports are, by file path, the bindings of each scanned file's import
-	// statements in source order (Python; optional, no schema bump). A rule
-	// that names an import, or reads an argument through an import alias,
-	// needs them without the source.
+	// statements in source order (Python, optional with no schema bump; Rust
+	// `use` and `extern crate` from 1.26). A rule that names an import, or
+	// reads an argument through an import alias, needs them without the
+	// source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
+	// Items are, by file path, the items each scanned Rust file declares at
+	// any depth, in source order (1.26, Rust): the scopes a call, a use or a
+	// declaration stands in.
+	Items map[string][]GraphFragmentItem `json:"items,omitempty"`
 	// Exports maps each public dotted name of the component (Python; optional,
 	// no schema bump) that names a declaration made elsewhere in it to that
 	// declaration: a function key, or a class as `pkg.(Type)`. Re-exports
@@ -433,12 +451,56 @@ type GraphFragmentExport struct {
 // (module, name, alias), `from m import *` (name "*"). A relative module is
 // resolved against the file's package. local marks an import inside a
 // function or class body.
+//
+// A Rust binding (1.26) is written as the source writes it, paths unresolved:
+// `use a::b::C as D` (module a::b, name C, alias D), `use a::b::*` (name "*"),
+// a leaf of a grouped use `use a::{b::{self, C}}` (module a, name b; module
+// a::b, name C), `extern crate a as z` (module a, alias z, no name). Each
+// binding carries its declaration's span, visibility to semicolon (start_col,
+// end_col 1-based and exclusive, end_line only when it spans lines), and its
+// use tree as written (text: `a::{b::{self, C}}`, or `a as z`); local marks a
+// declaration inside a function body.
 type GraphFragmentImport struct {
-	Line   int    `json:"line"`
-	Module string `json:"module"`
-	Name   string `json:"name,omitempty"`
-	Alias  string `json:"alias,omitempty"`
-	Local  bool   `json:"local,omitempty"`
+	Line     int    `json:"line"`
+	Module   string `json:"module"`
+	Name     string `json:"name,omitempty"`
+	Alias    string `json:"alias,omitempty"`
+	Local    bool   `json:"local,omitempty"`
+	StartCol int    `json:"start_col,omitempty"`
+	EndCol   int    `json:"end_col,omitempty"`
+	EndLine  int    `json:"end_line,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+// GraphFragmentItem is one item a Rust file declares (graph-fragment-1.26).
+// JSON is a positional array: [line, start_col, end_col, kind, name, end_line].
+//
+// kind is mod (an inline module with a body), fn (a function with a body),
+// impl, trait, const, static, struct or extern_crate; name is the item's name
+// as written, an impl block's self type without whitespace (`Kdf<H>`), an
+// `extern crate`'s crate. The span is the item without its attributes,
+// visibility to closing brace or semicolon, columns 1-based, end exclusive.
+// end_line is written only for an item that spans lines.
+type GraphFragmentItem struct {
+	Line, StartCol, EndCol, EndLine int
+	Kind, Name                      string
+}
+
+// MarshalJSON encodes the item as a positional JSON array.
+func (it GraphFragmentItem) MarshalJSON() ([]byte, error) {
+	return AppendItemJSON(nil, it), nil
+}
+
+// AppendItemJSON appends the positional encoding of it to dst.
+func AppendItemJSON(dst []byte, it GraphFragmentItem) []byte {
+	dst = appendPositionalInts(append(dst, '['), it.Line, it.StartCol, it.EndCol)
+	dst = appendPositionalStrings(dst, it.Kind, it.Name)
+	return appendPositionalEnd(dst, it.EndLine)
+}
+
+// UnmarshalJSON decodes the positional item array.
+func (it *GraphFragmentItem) UnmarshalJSON(data []byte) error {
+	return decodePositional("item", data, 5, &it.Line, &it.StartCol, &it.EndCol, &it.Kind, &it.Name, &it.EndLine)
 }
 
 // GraphFragmentExternalSignature is one signature of a method outside the
