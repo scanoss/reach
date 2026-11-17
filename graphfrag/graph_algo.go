@@ -221,7 +221,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // `H.sha256.outputLen`). A call or read made directly on `new X(...)` of an
 // imported class whose constructor the KB contracts (`new m.X(p).verify()`,
 // `new m.X(p).fingerprint`) keys as on a variable the instance is assigned to
-// (`m.(X).verify`, was caller-local).
+// (`m.(X).verify`, was caller-local). Rollup's `_interopDefaultLegacy` (and
+// its `$N` copies) passes a module through as the other interop helpers do, so
+// `x['default'].init()` and `x.default.CURVE` on its result key as
+// `require('m').default.init()` and its read do (were caller-local).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

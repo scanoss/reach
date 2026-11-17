@@ -3,7 +3,10 @@
 
 package callgraph
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // A promise of a dynamic import, awaited or not and with a rejection handler
 // or not, holds the module: a member call on it names the module's export.
@@ -152,6 +155,48 @@ function run(x) {
 		21: "app/run.verify",
 		22: "app/run.verify",
 	})
+}
+
+// Rollup's _interopDefaultLegacy, `$N` copies included, passes a module
+// binding through as the other helpers do, so `x['default']` or `x.default`
+// on its result is the module's default export: the call and the read key as
+// `require('m').default.init()` and `require('m').default.CURVE` do, at
+// module level and in a function.
+func TestNodeInteropDefaultLegacyKeysTheModuleDefault(t *testing.T) {
+	t.Parallel()
+
+	graph := buildNodeGraph(t, `var bls = require('acme-bls');
+var bls__default = /*#__PURE__*/_interopDefaultLegacy(bls);
+var dup = _interopDefaultLegacy$1(bls);
+const a = bls__default['default'].init(bls__default['default'].CURVE);
+const b = bls__default.default.init(bls__default.default.CURVE);
+const c = dup['default'].init(dup['default'].CURVE);
+const d = require('acme-bls').default.init(require('acme-bls').default.CURVE);
+function run() {
+  return bls__default['default'].init(bls__default['default'].CURVE);
+}
+`)
+	got := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, call := range fn.Calls {
+			if call.Callee.Name == "init" {
+				got[fmt.Sprintf("%d call", call.Line)] = call.Callee.String()
+			}
+		}
+	}
+	for _, reads := range graph.NodePropertyReads {
+		for _, read := range reads {
+			got[fmt.Sprintf("%d read", read.Line)] = read.TargetKey
+		}
+	}
+	want := map[string]string{}
+	for _, line := range []int{4, 5, 6, 7, 9} {
+		want[fmt.Sprintf("%d call", line)] = "acme-bls.init"
+		want[fmt.Sprintf("%d read", line)] = "acme-bls.CURVE"
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("keys:\n got %v\nwant %v", got, want)
+	}
 }
 
 // A member chain on an inline require names the module's export at any depth,

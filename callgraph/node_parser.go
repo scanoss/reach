@@ -552,7 +552,7 @@ func isNodeImportInteropHelperName(name string) bool {
 		name = name[:dollar]
 	}
 	switch name {
-	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault":
+	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault", "_interopDefaultLegacy":
 		return true
 	}
 	return false
