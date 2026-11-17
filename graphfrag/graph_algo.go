@@ -172,7 +172,11 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // m.(X).<init>). `new (require('m'))()` and `new (require('m').K)()` are
 // calls (they were none), and TypeScript's `import x = require('m')` binds x
 // as `const x = require('m')` does.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "2"
+// graph-algo-node-3: fragments list each file's imports (`imports`, the
+// graph's NodeImports): import declarations, TypeScript `import x =
+// require()`, require() at any level, import() and `export ... from`, with
+// the module specifier as written and the import's kind.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "3"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

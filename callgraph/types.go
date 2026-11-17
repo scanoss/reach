@@ -695,6 +695,9 @@ type FileAnalysis struct {
 	// source order (Rust only).
 	RustImports []RustImport
 	RustItems   []RustItem
+	// NodeImports lists the imports, requires, dynamic imports and
+	// re-exports of the file, in source order (Node only).
+	NodeImports []NodeImport
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -777,6 +780,10 @@ type CallGraph struct {
 	// the graph holds, as written (Rust only).
 	RustImports map[string][]RustImport
 	RustItems   map[string][]RustItem
+	// NodeImports holds the imports, requires, dynamic imports and
+	// re-exports of each project source file, by file path (Node only), with
+	// module specifiers as written.
+	NodeImports map[string][]NodeImport
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

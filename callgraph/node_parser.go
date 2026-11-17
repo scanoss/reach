@@ -208,6 +208,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	root := tree.RootNode()
 	bindings := make(nodeBindings)
 	extractNodeImports(root, src, bindings)
+	analysis.NodeImports = collectNodeImports(root, src)
 	projectImports := nodeProjectImports(bindings, filePath, packagePath)
 	resolveNodeRelativeImports(bindings, filePath, packagePath)
 	for name, binding := range bindings {

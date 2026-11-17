@@ -412,9 +412,9 @@ type GraphFragmentExport struct {
 	RebindLines []GraphFragmentRebind `json:"rebind_lines,omitempty"`
 	// Imports are, by file path, the bindings of each scanned file's import
 	// statements in source order (Python, optional with no schema bump; Rust
-	// `use` and `extern crate` from 1.26). A rule that names an import, or
-	// reads an argument through an import alias, needs them without the
-	// source.
+	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
+	// optional with no schema bump). A rule that names an import, or reads an
+	// argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// Items are, by file path, the items each scanned Rust file declares at
 	// any depth, in source order (1.26, Rust): the scopes a call, a use or a
@@ -462,11 +462,24 @@ type GraphFragmentExport struct {
 // end_col 1-based and exclusive, end_line only when it spans lines), and its
 // use tree as written (text: `a::{b::{self, C}}`, or `a as z`); local marks a
 // declaration inside a function body.
+//
+// A Node binding (callgraph.NodeImport, graph-algo-node-3) carries the module
+// specifier as written ('node:crypto', './util'); name the export imported
+// ("default" for a default import, "*" for a namespace import or star
+// re-export, a dotted path for `require('m').a.b`), empty when the module
+// itself is bound or nothing is; alias the local name when it differs from
+// name; local an import inside a function or class body. kind (Node only,
+// optional, no schema bump) is "" for an import declaration, "type" for a
+// TypeScript type-only one, "require" for require() and `import x =
+// require('m')`, "dynamic" for import() and "export" for `export ... from
+// 'm'`. `import d from 'm'` is {name: default, alias: d}; `const x =
+// require('m')` is {alias: x, kind: require}.
 type GraphFragmentImport struct {
 	Line     int    `json:"line"`
 	Module   string `json:"module"`
 	Name     string `json:"name,omitempty"`
 	Alias    string `json:"alias,omitempty"`
+	Kind     string `json:"kind,omitempty"`
 	Local    bool   `json:"local,omitempty"`
 	StartCol int    `json:"start_col,omitempty"`
 	EndCol   int    `json:"end_col,omitempty"`
