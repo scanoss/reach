@@ -144,7 +144,11 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // span and use tree (`imports`), and its inline modules, functions, impl
 // blocks, traits, consts, statics, structs and `extern crate` items with
 // their spans (`items`, graph-fragment-1.26).
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "2"
+// graph-algo-rs-3: fragments list the paths of two or more segments a body
+// reads outside a callee (`constant_refs`, text as written, with the position
+// kind: compare, case for a match arm pattern, return, assign, init, array,
+// arg, other) and one declaration per name a `let` binds (`declarations`).
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "3"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

@@ -1030,7 +1030,9 @@ func (p *RustParser) parseFunctionItemWithGenerics(node *sitter.Node, src []byte
 
 	if body != nil {
 		ctx := p.newRustTypeCtx(node, paramsNode, src, analysis, selfType, outerGenerics)
-		decl.Calls = p.extractCalls(body, ctx, filePath)
+		var facts rustBodyFacts
+		decl.Calls = p.extractCalls(body, ctx, filePath, &facts)
+		decl.ConstantRefs, decl.Declarations = facts.sorted()
 		decl.ReturnSources = p.extractReturnSources(body, ctx, filePath)
 		decl.constructed = rustReturnedObjects(body, ctx)
 		decl.localBindings = countLocalBindings(body, ctx.src, rustLocalBinders)
@@ -1399,9 +1401,14 @@ func rustBoxedSelfType(node *sitter.Node, src []byte) string {
 }
 
 // extractCalls walks a function body to find all call expressions.
-func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string) []FunctionCall {
+// extractCalls walks a body for its calls, and records its constant
+// references and let declarations into facts when it is not nil.
+func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string, facts *rustBodyFacts) []FunctionCall {
 	var calls []FunctionCall
 	ctx.walkRustScoped(body, func(node *sitter.Node, nodeCtx *rustTypeCtx) bool {
+		if facts != nil && !facts.visit(node, nodeCtx.src) {
+			return false
+		}
 		if node.Type() != rustNodeCallExpression {
 			return true
 		}

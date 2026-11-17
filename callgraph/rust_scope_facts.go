@@ -230,7 +230,25 @@ func rustCompactText(node *sitter.Node, src []byte) string {
 	if node == nil {
 		return ""
 	}
-	return strings.TrimPrefix(strings.Join(strings.Fields(node.Content(src)), ""), "::")
+	return strings.TrimPrefix(rustTokenText(node.Content(src)), "::")
+}
+
+// rustTokenText is text without whitespace, but for one space between two
+// words (`<A as B>::X`, `dyn Signer`).
+func rustTokenText(text string) string {
+	fields := strings.Fields(text)
+	var b strings.Builder
+	for i, f := range fields {
+		if i > 0 && rustWordByte(fields[i-1][len(fields[i-1])-1]) && rustWordByte(f[0]) {
+			b.WriteByte(' ')
+		}
+		b.WriteString(f)
+	}
+	return b.String()
+}
+
+func rustWordByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
 }
 
 // recordRustScopeFacts files a parsed file's imports and items under its path.

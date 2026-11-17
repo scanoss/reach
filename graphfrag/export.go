@@ -163,7 +163,10 @@ import (
 // items with their spans (GraphFragmentItem). A detector reads which `use`
 // precedes a call in its scope, and which item encloses it, without the
 // source. A 1.25 fragment decodes with neither: a Rust detector then cannot
-// tell a call's scope.
+// tell a call's scope. A Rust fragment also fills constant_refs (every path of
+// two or more segments a body reads outside a callee, `acme::Mode::Cbc`) and
+// declarations (one per name a `let` binds, any type, the statement's span),
+// in their 1.17 and 1.18 forms.
 const SchemaVersion = "graph-fragment-1.26"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
