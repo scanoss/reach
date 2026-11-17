@@ -243,33 +243,43 @@ func (p *GoParser) extractPackageName(root *sitter.Node, src []byte) string {
 }
 
 func (p *GoParser) extractImports(root *sitter.Node, src []byte, analysis *FileAnalysis) {
+	versionNames := map[string]string{}
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "import_declaration" {
 			continue
 		}
-		p.walkImportNode(child, src, analysis)
+		p.walkImportNode(child, src, analysis, versionNames)
+	}
+	for name, path := range versionNames {
+		if _, taken := analysis.Imports[name]; !taken && path != "" {
+			analysis.Imports[name] = path
+		}
 	}
 }
 
-func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileAnalysis) {
+func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		switch child.Type() {
 		case "import_spec":
-			p.processImportSpec(child, src, analysis)
+			p.processImportSpec(child, src, analysis, versionNames)
 		case "import_spec_list":
 			for j := 0; j < int(child.ChildCount()); j++ {
 				spec := child.Child(j)
 				if spec.Type() == "import_spec" {
-					p.processImportSpec(spec, src, analysis)
+					p.processImportSpec(spec, src, analysis, versionNames)
 				}
 			}
 		}
 	}
 }
 
-func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis) {
+// processImportSpec binds the spec's name. An unaliased /vN import (N >= 2)
+// also offers vN in versionNames: some modules declare `package vN` there.
+// That name binds only when no import claims it and no other /vN path offers
+// it, as two such paths leave it ambiguous ("").
+func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
 	var alias, path string
 
 	for i := 0; i < int(spec.ChildCount()); i++ {
@@ -289,6 +299,15 @@ func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *Fi
 
 	if alias == "" {
 		alias = GoImplicitImportName(path)
+		if last := path[strings.LastIndex(path, "/")+1:]; last != alias && !strings.HasPrefix(path, "gopkg.in/") {
+			if n, ok := goMajorVersion(last); ok && n >= 2 {
+				if other, seen := versionNames[last]; seen && other != path {
+					versionNames[last] = ""
+				} else if !seen {
+					versionNames[last] = path
+				}
+			}
+		}
 	}
 
 	analysis.Imports[alias] = path

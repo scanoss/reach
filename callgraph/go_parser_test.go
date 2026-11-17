@@ -280,3 +280,56 @@ func TestGoParser_CallColumnsAreOneBasedExclusive(t *testing.T) {
 	}
 	t.Fatal("helper() call not found")
 }
+
+// TestGoParser_VersionDirectoryImportName: an unaliased /vN import binds the
+// module-rule name and also vN, for modules that declare `package vN`; an
+// import claiming vN keeps it, and two /vN paths offering it leave it unbound.
+func TestGoParser_VersionDirectoryImportName(t *testing.T) {
+	cases := []struct {
+		name, imports string
+		want          map[string]string // call text -> callee package ("" unresolved)
+	}{
+		{
+			name:    "package named vN",
+			imports: `import "example.com/lib/sub/v2"`,
+			want:    map[string]string{"v2.Open": "example.com/lib/sub/v2", "sub.Close": "example.com/lib/sub/v2"},
+		},
+		{
+			name:    "explicit alias keeps vN",
+			imports: "import (\n\t\"example.com/lib/sub/v2\"\n\tv2 \"example.com/other\"\n)",
+			want:    map[string]string{"v2.Open": "example.com/other", "sub.Close": "example.com/lib/sub/v2"},
+		},
+		{
+			name:    "two vN paths are ambiguous",
+			imports: "import (\n\t\"example.com/a/v2\"\n\t\"example.com/sub/v2\"\n)",
+			want:    map[string]string{"v2.Open": "", "sub.Close": "example.com/sub/v2"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := "package p\n" + c.imports + "\nfunc run() {\n\tv2.Open()\n\tsub.Close()\n}\n"
+			path := filepath.Join(dir, "main.go")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			got := map[string]string{}
+			for _, fn := range analysis.Functions {
+				for _, call := range fn.Calls {
+					got[call.Raw] = call.Callee.Package
+				}
+			}
+			for raw, want := range c.want {
+				if pkg, ok := got[raw]; !ok {
+					t.Errorf("call %s not found (calls: %v)", raw, got)
+				} else if pkg != want {
+					t.Errorf("call %s resolves to %q, want %q", raw, pkg, want)
+				}
+			}
+		})
+	}
+}

@@ -203,7 +203,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // graphs, so a change to Go graph construction never marks a Java graph stale.
 //
 // graph-algo-go-1: the Go graphs of graph-algo-39, under their own id.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "1"
+// graph-algo-go-2: an unaliased /vN import (N >= 2) also binds vN, so calls
+// through a module that declares `package vN` resolve to its path.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "2"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
