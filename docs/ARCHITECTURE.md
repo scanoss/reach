@@ -87,7 +87,7 @@ hard-codes a particular library; that knowledge arrives through the KB.
 
 ## Schema versioning
 
-Four identifiers ship in stored and served JSON. They are independent.
+Five identifiers ship in stored and served JSON. They are independent.
 
 | Identifier | Constant | Bumps when | Who reads it |
 |---|---|---|---|
@@ -96,6 +96,7 @@ Four identifiers ship in stored and served JSON. They are independent.
 | Graph algorithm, Java and default | `graphfrag.GraphAlgoVersion` (`graph-algo-N`) | Graph construction changes the structural graph of Java (or of an ecosystem without its own id) | Fragment caches |
 | Graph algorithm, Python | `graphfrag.GraphAlgoVersionPython` (`graph-algo-py-N`) | Graph construction changes the structural graph of Python | Fragment caches |
 | Graph algorithm, Rust | `graphfrag.GraphAlgoVersionRust` (`graph-algo-rs-N`) | Graph construction changes the structural graph of Rust | Fragment caches |
+| Graph algorithm, Node | `graphfrag.GraphAlgoVersionNode` (`graph-algo-node-N`) | Graph construction changes the structural graph of JavaScript or TypeScript | Fragment caches |
 
 `graphfrag.GraphAlgoVersionFor(ecosystem)` returns the id for an ecosystem.
 A fragment carries its id in `scan_metadata.graph_algo_version`.

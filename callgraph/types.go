@@ -506,9 +506,10 @@ type FunctionCall struct {
 	// moves the call's edge from this key to the new one.
 	pythonUntyped string
 	// nodeModuleValue marks a Node call of an imported module value itself:
-	// a default import, or `const f = require('m')` with `f(..)`. The callee
-	// name is then the local binding, and the call reaches the module's
-	// default export (module.exports for CommonJS).
+	// a default or namespace import, `const f = require('m')` with `f(..)`, or
+	// `require('m')(..)`. The callee is then m.default whatever the local
+	// binding is called (nodeBinding.qualifyValue), and the call reaches the
+	// module's default export (module.exports for CommonJS).
 	nodeModuleValue bool
 	// nodeUntyped is the callee before a receiver type that the builder still
 	// checks was applied: a default-imported class, or an unannotated field.
@@ -694,6 +695,9 @@ type FileAnalysis struct {
 	// source order (Rust only).
 	RustImports []RustImport
 	RustItems   []RustItem
+	// NodeImports lists the imports, requires, dynamic imports and
+	// re-exports of the file, in source order (Node only).
+	NodeImports []NodeImport
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -776,6 +780,10 @@ type CallGraph struct {
 	// the graph holds, as written (Rust only).
 	RustImports map[string][]RustImport
 	RustItems   map[string][]RustItem
+	// NodeImports holds the imports, requires, dynamic imports and
+	// re-exports of each project source file, by file path (Node only), with
+	// module specifiers as written.
+	NodeImports map[string][]NodeImport
 	// PythonExports maps each public name of the project's Python modules
 	// that names a declaration of the project made elsewhere to it
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",

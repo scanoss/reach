@@ -944,6 +944,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			graph.PythonImports[analysis.FilePath] = analysis.PythonImports
 		}
 	}
+	if b.ecosystem == ecosystemNode && projectLocal && len(analysis.NodeImports) > 0 {
+		if graph.NodeImports == nil {
+			graph.NodeImports = make(map[string][]NodeImport)
+		}
+		graph.NodeImports[analysis.FilePath] = analysis.NodeImports
+	}
 }
 
 func (b *Builder) recordPythonModule(analysis *FileAnalysis, projectLocal bool) {
