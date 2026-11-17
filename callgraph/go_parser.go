@@ -2092,12 +2092,21 @@ func goQualifyReturnType(raw string, analysis *FileAnalysis) string {
 	return prefix + path + core[dot:]
 }
 
+// extractCallArguments lists a call's arguments from its syntax tree, one per
+// argument node: splitting the text read `1<<15` as an open bracket.
 func (p *GoParser) extractCallArguments(node *sitter.Node, src []byte) []string {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
-		if child.Type() == javaNodeArgumentList {
-			return parseArgumentsFromDelimitedContent(child.Content(src))
+		if child.Type() != javaNodeArgumentList {
+			continue
 		}
+		var args []string
+		for j := 0; j < int(child.NamedChildCount()); j++ {
+			if arg := child.NamedChild(j); arg.Type() != "comment" {
+				args = append(args, strings.TrimSpace(arg.Content(src)))
+			}
+		}
+		return args
 	}
 	return nil
 }

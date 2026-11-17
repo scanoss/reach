@@ -1914,6 +1914,20 @@ func recordEdgeResolution(graph *CallGraph, callerKey, calleeKey string, kind Ed
 	graph.EdgeResolutions[key] = resolution
 }
 
+// dropCallEdgeResolution forgets the exact resolution a call recorded under
+// oldKey, the callee it had before a pass retyped it, so the edge keeps no
+// site for a call that no longer targets it.
+func dropCallEdgeResolution(graph *CallGraph, callerKey, oldKey string, call *FunctionCall) {
+	method, arity := "", 0
+	if calleeID, err := ParseFunctionID(oldKey); err == nil {
+		method = BaseFunctionName(calleeID.Name)
+		arity = functionArity(calleeID.Name)
+	}
+	delete(graph.EdgeResolutions, EdgeResolutionKey(callerKey, oldKey, EdgeResolution{
+		MethodName: method, Arity: arity, CallSite: call.Line, StartCol: call.StartCol, EndCol: call.EndCol,
+	}))
+}
+
 func indexMethodsByName(graph *CallGraph) map[string][]*FunctionDecl {
 	index := make(map[string][]*FunctionDecl)
 	for _, fn := range graph.Functions {
@@ -3066,6 +3080,7 @@ func resolveGoAssignedVarCalleesInFunction(graph *CallGraph, callerKey string, f
 			continue
 		}
 		oldKeys[call.Callee.String()] = true
+		dropCallEdgeResolution(graph, callerKey, call.Callee.String(), call)
 		rewritten := FunctionID{Package: pkg, Type: ptr + typ, Name: call.Callee.Name}
 		if _, ok := graph.Functions[rewritten.String()]; !ok {
 			// Go keys a pointer-receiver method under (*Type) and a value one
@@ -3197,7 +3212,9 @@ func pruneGoPredeclaredCalls(graph *CallGraph, ecosystem string) {
 		kept := fn.Calls[:0]
 		for i := range fn.Calls {
 			call := &fn.Calls[i]
-			if call.Callee.Type == "" && call.Callee.Package != "" && goPredeclaredIdentifiers[BaseFunctionName(call.Callee.Name)] {
+			// A package with no import path (a directory outside any module)
+			// keys its calls with an empty package: pruned the same way.
+			if call.Callee.Type == "" && call.ReceiverVar == "" && !call.StaticReceiver && goPredeclaredIdentifiers[BaseFunctionName(call.Callee.Name)] {
 				if _, declared := graph.Functions[call.Callee.String()]; !declared {
 					pruned++
 					continue

@@ -62,6 +62,7 @@ func (r *GoSourceTypeResolver) ResolveTypes(graph *CallGraph, packages []Package
 				continue
 			}
 			oldKeys[call.Callee.String()] = true
+			dropCallEdgeResolution(graph, callerKey, call.Callee.String(), call)
 			call.Callee = goMethodOn(graph, typ, call.Callee.Name)
 			addCaller(graph.Callers, call.Callee.String(), callerKey)
 			recordCallEdgeResolution(graph, callerKey, call.Callee.String(), EdgeKindExact, "", call)

@@ -6,6 +6,7 @@ package callgraph
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -366,6 +367,53 @@ func TestGoParser_ConstructedReceiverTyped(t *testing.T) {
 			t.Errorf("call %s not found (calls: %v)", raw, got)
 		} else if g != w {
 			t.Errorf("call %s callee %+v, want %+v", raw, g, w)
+		}
+	}
+}
+
+// TestGoParser_ArgumentsFromTheSyntaxTree: a shift or a comparison inside an
+// argument does not split or merge arguments.
+func TestGoParser_ArgumentsFromTheSyntaxTree(t *testing.T) {
+	dir := t.TempDir()
+	const source = "package p\nimport \"example.com/kdf\"\nfunc run(p, s []byte, n int) {\n\tkdf.Key(p, s, 1<<15, 8, n > 1, 32)\n\tkdf.Key(p, s /* salt */, []int{1, 2}...)\n}\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	var got [][]string
+	for _, fn := range analysis.Functions {
+		for _, c := range fn.Calls {
+			got = append(got, c.Arguments)
+		}
+	}
+	want := [][]string{{"p", "s", "1<<15", "8", "n > 1", "32"}, {"p", "s", "[]int{1, 2}..."}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("arguments %q, want %q", got, want)
+	}
+}
+
+// TestGoBuilder_PrunesBuiltinsWithoutAnImportPath: a builtin call is pruned
+// whether the package has an import path or not, unless the package declares
+// a function of that name.
+func TestGoBuilder_PrunesBuiltinsWithoutAnImportPath(t *testing.T) {
+	for _, importPath := range []string{"example.com/p", ""} {
+		dir := t.TempDir()
+		const source = "package p\nfunc run(n int) []byte {\n\tb := make([]byte, n)\n\t_ = len(b)\n\treturn append(b, 1)\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: importPath}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, fn := range graph.Functions {
+			for _, c := range fn.Calls {
+				t.Errorf("import path %q: %s keeps builtin call %s", importPath, key, c.Raw)
+			}
 		}
 	}
 }

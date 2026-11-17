@@ -222,7 +222,10 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // that package's declarations.
 // graph-algo-go-9: a call on an interface value of a read package outside the
 // graph (`aead.Seal` on a crypto/cipher.AEAD) is exported name_only.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "9"
+// graph-algo-go-10: a call's arguments are its argument nodes (`1<<15` no
+// longer splits them); builtin calls are pruned in a package without an import
+// path too; a call a pass retypes leaves no site under its former callee.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "10"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
