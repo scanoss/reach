@@ -15,8 +15,9 @@ var nodePromiseMethods = map[string]bool{"then": true, "catch": true, "finally":
 
 // nodeHeldModule is a module binding that a name holds through the file's own
 // declarations rather than an import of its own: an alias (`const s =
-// sodium`), a destructuring (`const { sm2 } = smCrypto`), or a require or
-// import() inside a function. pending marks a promise of the module, an import() not awaited.
+// sodium`), a destructuring (`const { sm2 } = smCrypto`), a require or
+// import() inside a function, or an interop helper applied to a module
+// binding. pending marks a promise of the module, an import() not awaited.
 type nodeHeldModule struct {
 	binding nodeBinding
 	pending bool
@@ -102,8 +103,8 @@ func (p *NodeParser) nameModuleBinding(name *sitter.Node, depth int) (nodeHeldMo
 }
 
 // valueModuleBinding reads an initializer as a module binding: a require
-// (nodeRequireBinding), a name or member chain that holds one, or import() of
-// a module,
+// (nodeRequireBinding), a name or member chain that holds one, an interop
+// helper called with one argument that is one, or import() of a module,
 // awaited or not, with or without one `.catch(handler)`.
 func (p *NodeParser) valueModuleBinding(value *sitter.Node, depth int) (nodeHeldModule, bool) {
 	value = unwrapNodeValue(value)
@@ -135,6 +136,16 @@ func (p *NodeParser) valueModuleBinding(value *sitter.Node, depth int) (nodeHeld
 			return nodeHeldModule{}, false
 		}
 		return held.member(rest...), true
+	case nodeCallExpression:
+		function, args := value.ChildByFieldName("function"), nodeArgumentNodes(value)
+		if function == nil || len(args) != 1 || !isNodeImportInteropHelper(function, src) {
+			return nodeHeldModule{}, false
+		}
+		held, ok := p.valueModuleBinding(args[0], depth+1)
+		if !ok || held.pending {
+			return nodeHeldModule{}, false
+		}
+		return held, true
 	}
 	return nodeHeldModule{}, false
 }

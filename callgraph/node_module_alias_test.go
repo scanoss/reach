@@ -111,6 +111,49 @@ function connect() {
 	})
 }
 
+// The interop helpers compiled output defines locally pass a module binding
+// through. A helper counts only when its one argument is a module binding.
+func TestNodeLocalInteropHelpersKeyTheModule(t *testing.T) {
+	t.Parallel()
+
+	src := `var raw = require('acme-zk');
+var a = _interopNamespaceDefault(raw);
+var b = _interopNamespace(raw);
+var c = _interopRequireWildcard(raw);
+var d = _interopRequireDefault(raw);
+var e = __importStar(raw);
+var f = __importDefault(raw);
+var g = _interopNamespaceDefault$1(raw);
+var h = _interopNamespaceDefault$1(require('acme-zk2'));
+var i = _interopNamespaceDefault(raw, 1);
+var j = _interopNamespaceDefault(other);
+function run(x) {
+  a.plonk.verify(x);
+  b.plonk.verify(x);
+  c.plonk.verify(x);
+  d.default.verify(x);
+  e.plonk.verify(x);
+  f.default.verify(x);
+  g.plonk.verify(x);
+  h.plonk.verify(x);
+  i.plonk.verify(x);
+  j.plonk.verify(x);
+}
+`
+	assertNodeCallees(t, nodeCalleesOf(t, "run.js", src, "run"), map[int]string{
+		13: "acme-zk.plonk.verify",
+		14: "acme-zk.plonk.verify",
+		15: "acme-zk.plonk.verify",
+		16: "acme-zk.verify",
+		17: "acme-zk.plonk.verify",
+		18: "acme-zk.verify",
+		19: "acme-zk.plonk.verify",
+		20: "acme-zk2.plonk.verify",
+		21: "app/run.verify",
+		22: "app/run.verify",
+	})
+}
+
 // A member chain on an inline require names the module's export at any depth,
 // awaited or not.
 func TestNodeInlineRequireMemberChainKeysTheModule(t *testing.T) {

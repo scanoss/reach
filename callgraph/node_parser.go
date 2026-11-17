@@ -534,8 +534,18 @@ func isNodeImportInteropHelper(function *sitter.Node, src []byte) bool {
 	if name == nil {
 		return false
 	}
-	switch name.Content(src) {
-	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault":
+	return isNodeImportInteropHelperName(name.Content(src))
+}
+
+// isNodeImportInteropHelperName reports the name of an interop helper a
+// compiler or bundler emits, tsc's and Babel's and the ones Rollup defines
+// locally, with the `$1` suffix a bundler adds to a second copy.
+func isNodeImportInteropHelperName(name string) bool {
+	if dollar := strings.LastIndexByte(name, '$'); dollar > 0 && dollar < len(name)-1 && strings.Trim(name[dollar+1:], "0123456789") == "" {
+		name = name[:dollar]
+	}
+	switch name {
+	case "__importStar", "__importDefault", "_interopRequireWildcard", "_interopRequireDefault", "_interopNamespace", "_interopNamespaceDefault":
 		return true
 	}
 	return false
