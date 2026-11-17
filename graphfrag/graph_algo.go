@@ -205,7 +205,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // graph-algo-go-1: the Go graphs of graph-algo-39, under their own id.
 // graph-algo-go-2: an unaliased /vN import (N >= 2) also binds vN, so calls
 // through a module that declares `package vN` resolve to its path.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "2"
+// graph-algo-go-3: a call nothing typed (a method on an untyped local or on a
+// call's result, a call of a func value) is exported name_only, not exact.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "3"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
