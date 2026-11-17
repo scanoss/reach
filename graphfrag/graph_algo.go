@@ -166,7 +166,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // whose associated type definitions are type aliases too), with the aliased
 // type as written and the column of the `type` keyword
 // (graph-fragment-1.27).
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "6"
+// graph-algo-rs-7: fragments list each file's binary expressions in function
+// bodies (`binary_exprs`, the graph's RustBinaryExprs: operator, operands as
+// written and their spans, the enclosing function's key), and each fn item
+// carries its parameters as written (pattern, type, span, self receiver)
+// (graph-fragment-1.30): a stored rs-6 graph has neither.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "7"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

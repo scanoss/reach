@@ -712,6 +712,9 @@ type FileAnalysis struct {
 	// source order (Rust only).
 	RustImports []RustImport
 	RustItems   []RustItem
+	// RustBinaryExprs lists the binary expressions of the file's function
+	// bodies, in source order (Rust only).
+	RustBinaryExprs []RustBinaryExpr
 	// NodeImports lists the imports, requires, dynamic imports and
 	// re-exports of the file, in source order (Node only).
 	NodeImports []NodeImport
@@ -803,6 +806,10 @@ type CallGraph struct {
 	// the graph holds, as written (Rust only).
 	RustImports map[string][]RustImport
 	RustItems   map[string][]RustItem
+	// RustBinaryExprs holds, by file path, the binary expressions of the
+	// function bodies of each Rust source file whose functions the graph
+	// holds, as written (Rust only).
+	RustBinaryExprs map[string][]RustBinaryExpr
 	// NodeImports holds the imports, requires, dynamic imports and
 	// re-exports of each project source file, by file path (Node only), with
 	// module specifiers as written.

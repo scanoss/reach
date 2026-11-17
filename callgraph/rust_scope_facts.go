@@ -54,6 +54,32 @@ type RustItem struct {
 	// RustItemType.
 	Type       string
 	KeywordCol int
+	// Params are a function's parameters in order, self receiver included;
+	// set only for a RustItemFn.
+	Params []RustParam
+}
+
+// RustParam is one parameter of a Rust function, as written.
+//
+//	fn f(&self, mut key: &acme::Key, (a, b): (u8, u8), _: u8)
+//
+// gives Pattern `&self` (Self, no Type), Pattern `mut key` with Type
+// `&acme::Key`, Pattern `(a, b)` with Type `(u8, u8)` and Pattern `_` with
+// Type `u8`.
+type RustParam struct {
+	// Pattern is the text before the `:` as written (`key`, `mut key`, `(a,
+	// b)`, `_`), or the whole receiver for a shorthand self (`self`, `mut
+	// self`, `&self`, `&'a mut self`).
+	Pattern string
+	// Type is the text after the `:` as written, whitespace kept; "" for a
+	// shorthand self.
+	Type string
+	// Self marks a receiver: a shorthand self or a typed `self: Box<Self>`.
+	Self bool
+	// Line, StartCol and EndCol locate the parameter, attributes left out
+	// (columns 1-based, end exclusive); EndLine is set only when it spans
+	// lines.
+	Line, StartCol, EndCol, EndLine int
 }
 
 // Kinds of a Rust item (RustItem.Kind).
@@ -80,6 +106,8 @@ const (
 	rustNodeStructItem = "struct_item"
 	rustNodeUseList    = "use_list"
 	rustNodeScopedUse  = "scoped_use_list"
+	rustNodeParam      = "parameter"
+	rustNodeSelfParam  = "self_parameter"
 )
 
 // collectRustScopeFacts records the imports and items of a whole file in
@@ -105,7 +133,7 @@ func (p *RustParser) collectRustScopeFacts(root *sitter.Node, src []byte, analys
 			}
 			recordRustItem(node, src, analysis, RustItemMod, nodeFieldText(node, "name", src))
 		case rustNodeFunctionItem:
-			recordRustItem(node, src, analysis, RustItemFn, nodeFieldText(node, "name", src))
+			recordRustFn(node, src, analysis)
 			local = true
 		case rustNodeImplItem:
 			recordRustItem(node, src, analysis, RustItemImpl, rustCompactText(node.ChildByFieldName("type"), src))
@@ -141,6 +169,51 @@ func recordRustItem(node *sitter.Node, src []byte, analysis *FileAnalysis, kind,
 	item := RustItem{Kind: kind, Name: name}
 	item.Line, item.StartCol, item.EndCol, item.EndLine = rustSpan(node)
 	analysis.RustItems = append(analysis.RustItems, item)
+}
+
+// recordRustFn records a function item with its parameters.
+func recordRustFn(node *sitter.Node, src []byte, analysis *FileAnalysis) {
+	item := RustItem{Kind: RustItemFn, Name: nodeFieldText(node, "name", src), Params: rustParams(node.ChildByFieldName("parameters"), src)}
+	item.Line, item.StartCol, item.EndCol, item.EndLine = rustSpan(node)
+	analysis.RustItems = append(analysis.RustItems, item)
+}
+
+// rustParams lists the parameters of a parameter list as written; an
+// attribute on a parameter is left out.
+func rustParams(list *sitter.Node, src []byte) []RustParam {
+	if list == nil {
+		return nil
+	}
+	var params []RustParam
+	for i := 0; i < int(list.NamedChildCount()); i++ {
+		node := list.NamedChild(i)
+		var param RustParam
+		switch node.Type() {
+		case rustNodeSelfParam:
+			param = RustParam{Pattern: node.Content(src), Self: true}
+		case rustNodeParam:
+			typ := node.ChildByFieldName("type")
+			if typ == nil {
+				continue
+			}
+			param.Type = typ.Content(src)
+			end := typ.StartByte()
+			for j := 0; j < int(node.ChildCount()); j++ {
+				if c := node.Child(j); c.Type() == ":" && !c.IsNamed() {
+					end = c.StartByte()
+					break
+				}
+			}
+			param.Pattern = strings.TrimSpace(string(src[node.StartByte():end]))
+			pattern := node.ChildByFieldName("pattern")
+			param.Self = pattern != nil && pattern.Type() == rustNodeSelf
+		default:
+			continue
+		}
+		param.Line, param.StartCol, param.EndCol, param.EndLine = rustSpan(node)
+		params = append(params, param)
+	}
+	return params
 }
 
 // recordRustTypeAlias records a `type A = X;` item with its aliased type as
@@ -286,8 +359,15 @@ func rustWordByte(c byte) bool {
 	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
 }
 
-// recordRustScopeFacts files a parsed file's imports and items under its path.
+// recordRustScopeFacts files a parsed file's imports, items and binary
+// expressions under its path.
 func recordRustScopeFacts(graph *CallGraph, analysis *FileAnalysis) {
+	if len(analysis.RustBinaryExprs) > 0 {
+		if graph.RustBinaryExprs == nil {
+			graph.RustBinaryExprs = make(map[string][]RustBinaryExpr)
+		}
+		graph.RustBinaryExprs[analysis.FilePath] = analysis.RustBinaryExprs
+	}
 	if len(analysis.RustImports) > 0 {
 		if graph.RustImports == nil {
 			graph.RustImports = make(map[string][]RustImport)

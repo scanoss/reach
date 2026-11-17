@@ -101,7 +101,7 @@ mod tests {
 		{Kind: RustItemStruct, Name: "Key", Line: 7, StartCol: 1, EndCol: 12},
 		{Kind: RustItemTrait, Name: "Signer", Line: 8, StartCol: 1, EndCol: 33},
 		{Kind: RustItemImpl, Name: "acme_kdf::Kdf<H>", Line: 9, StartCol: 1, EndCol: 2, EndLine: 13},
-		{Kind: RustItemFn, Name: "sign", Line: 10, StartCol: 5, EndCol: 6, EndLine: 12},
+		{Kind: RustItemFn, Name: "sign", Line: 10, StartCol: 5, EndCol: 6, EndLine: 12, Params: []RustParam{{Pattern: "&self", Self: true, Line: 10, StartCol: 13, EndCol: 18}}},
 		{Kind: RustItemConst, Name: "LOCAL", Line: 11, StartCol: 9, EndCol: 29},
 	}
 	if !reflect.DeepEqual(items, want) {
@@ -167,5 +167,52 @@ fn run() {
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Errorf("items:\n got %+v\nwant %+v", items, want)
+	}
+}
+
+// TestRustFnParams: a fn item carries its parameters in order, each with the
+// pattern before the `:` and the type after it as written, and its span
+// without attributes; a shorthand self is a receiver with no type, a typed
+// `self: Box<Self>` a receiver with its type. A trait's bodiless method is no
+// item.
+func TestRustFnParams(t *testing.T) {
+	src := `trait Signer { fn sign(&self, m: &[u8]); }
+impl Signer {
+    fn sign(&self, key: &acme::SigningKey, #[allow(unused)] mut m: Path<G>) {}
+    fn boxed(self: Box<Self>, (a, b): (u8, u8), _: u8) {}
+    fn owned(&'a mut self,
+        data: Vec<
+            u8>) {}
+}
+fn bare() {}
+`
+	_, items := parseRustScopeFacts(t, src)
+	want := map[string][]RustParam{
+		"sign": {
+			{Pattern: "&self", Self: true, Line: 3, StartCol: 13, EndCol: 18},
+			{Pattern: "key", Type: "&acme::SigningKey", Line: 3, StartCol: 20, EndCol: 42},
+			{Pattern: "mut m", Type: "Path<G>", Line: 3, StartCol: 61, EndCol: 75},
+		},
+		"boxed": {
+			{Pattern: "self", Type: "Box<Self>", Self: true, Line: 4, StartCol: 14, EndCol: 29},
+			{Pattern: "(a, b)", Type: "(u8, u8)", Line: 4, StartCol: 31, EndCol: 47},
+			{Pattern: "_", Type: "u8", Line: 4, StartCol: 49, EndCol: 54},
+		},
+		"owned": {
+			{Pattern: "&'a mut self", Self: true, Line: 5, StartCol: 14, EndCol: 26},
+			{Pattern: "data", Type: "Vec<\n            u8>", Line: 6, StartCol: 9, EndCol: 16, EndLine: 7},
+		},
+		"bare": nil,
+	}
+	got := map[string][]RustParam{}
+	for _, it := range items {
+		if it.Kind == RustItemFn {
+			got[it.Name] = it.Params
+		} else if it.Params != nil {
+			t.Errorf("%s %s has params %+v", it.Kind, it.Name, it.Params)
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("params:\n got %+v\nwant %+v", got, want)
 	}
 }
