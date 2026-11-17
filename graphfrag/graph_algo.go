@@ -199,6 +199,16 @@ const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "4"
 // stamped with one is a Node graph.
 const nodeGraphAlgoPrefix = "graph-algo-node-"
 
+// GraphAlgoVersionGo identifies the callgraph-construction algorithm of Go
+// graphs, so a change to Go graph construction never marks a Java graph stale.
+//
+// graph-algo-go-1: the Go graphs of graph-algo-39, under their own id.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "1"
+
+// goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
+// with one is a Go graph.
+const goGraphAlgoPrefix = "graph-algo-go-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
@@ -212,6 +222,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionRust
 	case "node":
 		return GraphAlgoVersionNode
+	case "go":
+		return GraphAlgoVersionGo
 	}
 	return GraphAlgoVersion
 }
@@ -226,6 +238,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "rust"
 	case strings.HasPrefix(id, nodeGraphAlgoPrefix):
 		return "node"
+	case strings.HasPrefix(id, goGraphAlgoPrefix):
+		return "go"
 	}
 	return ""
 }
@@ -256,8 +270,8 @@ func EcosystemForPurl(purl string) string {
 
 // GraphEcosystem is the ecosystem of the graph the export carries: the one its
 // scan metadata names, else the one its graph algorithm id names when that id
-// is an ecosystem's own (Python, Rust, Node), else "" (a graph written before
-// scan metadata named an ecosystem: Java's).
+// is an ecosystem's own (Python, Rust, Node, Go), else "" (a graph written
+// before scan metadata named an ecosystem: Java's).
 func (e *GraphFragmentExport) GraphEcosystem() string {
 	if e.ScanMetadata.Ecosystem != "" {
 		return e.ScanMetadata.Ecosystem
@@ -267,7 +281,7 @@ func (e *GraphFragmentExport) GraphEcosystem() string {
 
 // fragmentEcosystem is the ecosystem of the graph a fragment carries: the one
 // its graph algorithm id names when that id is an ecosystem's own (Python,
-// Rust, Node), else its component's purl's.
+// Rust, Node, Go), else its component's purl's.
 func fragmentEcosystem(fragment Fragment) string {
 	if ecosystem := ecosystemOfGraphAlgo(fragment.GraphAlgoVersion); ecosystem != "" {
 		return ecosystem

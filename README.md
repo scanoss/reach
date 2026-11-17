@@ -110,7 +110,7 @@ crypto-finder runs them against its KB with `make test-reach`.
 | Go API | `v0.x`: may change between minor releases |
 | Graph-fragment JSON | Versioned by `graphfrag.SchemaVersion` |
 | Callgraph JSON | Versioned by `graphfrag.CallgraphSchemaVersion` and `CallgraphInternedSchemaVersion` |
-| Graph construction | Versioned per ecosystem by `graphfrag.GraphAlgoVersion`, `GraphAlgoVersionPython`, `GraphAlgoVersionRust` and `GraphAlgoVersionNode` |
+| Graph construction | Versioned per ecosystem by `graphfrag.GraphAlgoVersion`, `GraphAlgoVersionPython`, `GraphAlgoVersionRust`, `GraphAlgoVersionNode` and `GraphAlgoVersionGo` |
 
 Why the stored formats must stay stable, and when each id bumps:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#schema-versioning).

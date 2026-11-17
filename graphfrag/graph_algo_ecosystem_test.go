@@ -10,7 +10,7 @@ import (
 )
 
 // TestGraphAlgoVersionFor pins which id each ecosystem's graphs carry:
-// Python, Rust and Node their own, Java and the rest the shared one, and a
+// Python, Rust, Node and Go their own, Java and the rest the shared one, and a
 // fragment that names no ecosystem (written before scan_metadata.ecosystem) the shared one, so a
 // stored Java graph reads as current exactly when it did before.
 func TestGraphAlgoVersionFor(t *testing.T) {
@@ -23,10 +23,13 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 	if graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersion || graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersionPython || graphfrag.GraphAlgoVersionNode == graphfrag.GraphAlgoVersionRust {
 		t.Fatalf("Node shares a graph algorithm id: %q", graphfrag.GraphAlgoVersionNode)
 	}
+	if graphfrag.GraphAlgoVersionGo == graphfrag.GraphAlgoVersion {
+		t.Fatalf("Go shares the Java graph algorithm id %q", graphfrag.GraphAlgoVersion)
+	}
 	for _, c := range []struct{ ecosystem, want string }{
 		{"java", graphfrag.GraphAlgoVersion},
 		{"", graphfrag.GraphAlgoVersion},
-		{"go", graphfrag.GraphAlgoVersion},
+		{"go", graphfrag.GraphAlgoVersionGo},
 		{"python", graphfrag.GraphAlgoVersionPython},
 		{"rust", graphfrag.GraphAlgoVersionRust},
 		{"node", graphfrag.GraphAlgoVersionNode},
@@ -40,6 +43,7 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 		{"pkg:pypi/pyjwt", graphfrag.GraphAlgoVersionPython},
 		{"pkg:npm/jose", graphfrag.GraphAlgoVersionNode},
 		{"pkg:cargo/acme_kdf", graphfrag.GraphAlgoVersionRust},
+		{"pkg:golang/filippo.io/age", graphfrag.GraphAlgoVersionGo},
 	} {
 		if got := graphfrag.GraphAlgoVersionForPurl(c.purl); got != c.want {
 			t.Errorf("GraphAlgoVersionForPurl(%q) = %q, want %q", c.purl, got, c.want)
@@ -48,7 +52,7 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 }
 
 // TestGraphEcosystem: a stored graph names its ecosystem in its scan
-// metadata; a Python, Rust or Node graph whose metadata names none still
+// metadata; a Python, Rust, Node or Go graph whose metadata names none still
 // reads as its ecosystem by its graph algorithm id, and a graph that names
 // neither reads as "" (a Java graph written before scan_metadata.ecosystem).
 func TestGraphEcosystem(t *testing.T) {
@@ -61,6 +65,7 @@ func TestGraphEcosystem(t *testing.T) {
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionRust}, "rust"},
 		{graphfrag.GraphFragmentScanMetadata{Ecosystem: "node", GraphAlgoVersion: graphfrag.GraphAlgoVersionNode}, "node"},
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionNode}, "node"},
+		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersionGo}, "go"},
 		{graphfrag.GraphFragmentScanMetadata{Ecosystem: "java", GraphAlgoVersion: graphfrag.GraphAlgoVersion}, "java"},
 		{graphfrag.GraphFragmentScanMetadata{GraphAlgoVersion: graphfrag.GraphAlgoVersion}, ""},
 		{graphfrag.GraphFragmentScanMetadata{}, ""},
