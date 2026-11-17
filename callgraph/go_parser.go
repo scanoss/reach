@@ -243,33 +243,43 @@ func (p *GoParser) extractPackageName(root *sitter.Node, src []byte) string {
 }
 
 func (p *GoParser) extractImports(root *sitter.Node, src []byte, analysis *FileAnalysis) {
+	versionNames := map[string]string{}
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "import_declaration" {
 			continue
 		}
-		p.walkImportNode(child, src, analysis)
+		p.walkImportNode(child, src, analysis, versionNames)
+	}
+	for name, path := range versionNames {
+		if _, taken := analysis.Imports[name]; !taken && path != "" {
+			analysis.Imports[name] = path
+		}
 	}
 }
 
-func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileAnalysis) {
+func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		switch child.Type() {
 		case "import_spec":
-			p.processImportSpec(child, src, analysis)
+			p.processImportSpec(child, src, analysis, versionNames)
 		case "import_spec_list":
 			for j := 0; j < int(child.ChildCount()); j++ {
 				spec := child.Child(j)
 				if spec.Type() == "import_spec" {
-					p.processImportSpec(spec, src, analysis)
+					p.processImportSpec(spec, src, analysis, versionNames)
 				}
 			}
 		}
 	}
 }
 
-func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis) {
+// processImportSpec binds the spec's name. An unaliased /vN import (N >= 2)
+// also offers vN in versionNames: some modules declare `package vN` there.
+// That name binds only when no import claims it and no other /vN path offers
+// it, as two such paths leave it ambiguous ("").
+func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
 	var alias, path string
 
 	for i := 0; i < int(spec.ChildCount()); i++ {
@@ -289,6 +299,15 @@ func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *Fi
 
 	if alias == "" {
 		alias = GoImplicitImportName(path)
+		if last := path[strings.LastIndex(path, "/")+1:]; last != alias && !strings.HasPrefix(path, "gopkg.in/") {
+			if n, ok := goMajorVersion(last); ok && n >= 2 {
+				if other, seen := versionNames[last]; seen && other != path {
+					versionNames[last] = ""
+				} else if !seen {
+					versionNames[last] = path
+				}
+			}
+		}
 	}
 
 	analysis.Imports[alias] = path
@@ -372,6 +391,8 @@ func (p *GoParser) extractFunctions(root *sitter.Node, src []byte, filePath, pac
 		flattenGoEmbeddedInterfaces(analysis, embeds, packagePath)
 	}
 	p.extractGoPackageInitCalls(root, src, filePath, packagePath, analysis)
+	collectGoConstantRefs(root, src, filePath, packagePath, analysis)
+	collectGoDeclarations(root, src, filePath, packagePath, analysis)
 }
 
 // extractGoPackageInitCalls collects the calls made by package-level variable
@@ -393,23 +414,37 @@ func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, file
 	if len(calls) == 0 {
 		return
 	}
-	// One synthetic decl per FILE, discriminated in the name: several files of
-	// one package would otherwise collide on the same map key in the graph and
-	// silently drop each other's initializer calls.
+	fn := goVarinitDecl(analysis, filePath, packagePath, int(root.EndPoint().Row)+1)
+	fn.Calls = calls
+}
+
+// goVarinitPrefix starts the name of a file's synthetic package-level
+// declaration.
+const goVarinitPrefix = "<varinit:"
+
+// goVarinitDecl is the file's synthetic <varinit> declaration, created on
+// first use. One per FILE, discriminated in the name: several files of one
+// package would otherwise collide on the same map key in the graph.
+func goVarinitDecl(analysis *FileAnalysis, filePath, packagePath string, endLine int) *FunctionDecl {
 	base := filePath
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
-	base = strings.TrimSuffix(base, ".go")
+	name := goVarinitPrefix + strings.TrimSuffix(base, ".go") + ">"
+	for i := range analysis.Functions {
+		if fn := &analysis.Functions[i]; fn.ID.Package == packagePath && fn.ID.Name == name {
+			return fn
+		}
+	}
 	analysis.Functions = append(analysis.Functions, FunctionDecl{
-		ID:           FunctionID{Package: packagePath, Name: "<varinit:" + base + ">"},
+		ID:           FunctionID{Package: packagePath, Name: name},
 		FilePath:     filePath,
 		StartLine:    1,
-		EndLine:      int(root.EndPoint().Row) + 1,
+		EndLine:      endLine,
 		OwnerType:    "package",
 		FunctionType: "function",
-		Calls:        calls,
 	})
+	return &analysis.Functions[len(analysis.Functions)-1]
 }
 
 // extractInterfaceMethods registers each method of an interface declaration as
@@ -945,6 +980,46 @@ func goConstructedType(expr *sitter.Node, src []byte, pkg string, analysis *File
 	return goNamedType(typeNode, src, pkg, analysis)
 }
 
+// goPackageValueOperand is `<import path>.<Name>` for a receiver that reads
+// a value of an imported package (`base64.StdEncoding`), or "".
+func goPackageValueOperand(operand *sitter.Node, src []byte, analysis *FileAnalysis, currentReceiverVar string, varTypes map[string]string) string {
+	if operand.Type() != goNodeSelectorExpression {
+		return ""
+	}
+	root, field := operand.ChildByFieldName(goFieldOperand), operand.ChildByFieldName(goFieldField)
+	if root == nil || field == nil || root.Type() != goNodeIdentifier {
+		return ""
+	}
+	alias := root.Content(src)
+	if _, local := varTypes[alias]; local || alias == currentReceiverVar {
+		return ""
+	}
+	path, ok := analysis.Imports[alias]
+	if !ok {
+		return ""
+	}
+	return path + "." + field.Content(src)
+}
+
+// goConstructedReceiverType is goConstructedType of a call's receiver, with
+// the pointer `&T{}` and `new(T)` build spelled as a typed local's is (`*T`).
+func goConstructedReceiverType(expr *sitter.Node, src []byte, analysis *FileAnalysis) (string, string) {
+	for expr != nil && expr.Type() == goNodeParenExpr && expr.NamedChildCount() == 1 {
+		expr = expr.NamedChild(0)
+	}
+	if expr == nil || analysis == nil {
+		return "", ""
+	}
+	typePkg, typ := goConstructedType(expr, src, analysis.PackagePath, analysis)
+	if typ == "" {
+		return "", ""
+	}
+	if expr.Type() != goNodeCompositeLiteral {
+		typ = "*" + typ
+	}
+	return typePkg, typ
+}
+
 // goNamedType names the package and type a type node spells: a type of pkg,
 // or one an import qualifies. Type arguments are erased.
 func goNamedType(typeNode *sitter.Node, src []byte, pkg string, analysis *FileAnalysis) (string, string) {
@@ -1454,6 +1529,18 @@ func (p *GoParser) parseSelectorCall(
 		return nil
 	}
 
+	// A receiver the expression constructs (`T{}`, `&T{}`, `new(T)`) names
+	// its own type, so the call links to the method like one on a typed local.
+	if typePkg, typ := goConstructedReceiverType(operandNode, src, analysis); typ != "" {
+		return &FunctionCall{
+			Callee:    FunctionID{Package: typePkg, Type: typ, Name: field},
+			Raw:       node.Content(src),
+			FilePath:  filePath,
+			Line:      line,
+			Arguments: args,
+		}
+	}
+
 	// A selector whose operand is itself a call — `sha256.New().Sum(data)` —
 	// is a fluent-chain link. Its receiver type is the inner call's return
 	// type, which this per-file pass does not know, so the link is emitted
@@ -1482,6 +1569,16 @@ func (p *GoParser) parseSelectorCall(
 	}
 
 	if operandNode.Type() != goNodeIdentifier {
+		if value := goPackageValueOperand(operandNode, src, analysis, currentReceiverVar, varTypes); value != "" {
+			return &FunctionCall{
+				Callee:         FunctionID{Name: field},
+				GoPackageValue: value,
+				Raw:            node.Content(src),
+				FilePath:       filePath,
+				Line:           line,
+				Arguments:      args,
+			}
+		}
 		// Any other receiver shape — a field chain (`s.c.XORKeyStream(...)`),
 		// an index expression (`hs[i].Sum(...)`), a composite literal — is a
 		// real call whose receiver this pass cannot type. Dropping it removed
@@ -1995,12 +2092,21 @@ func goQualifyReturnType(raw string, analysis *FileAnalysis) string {
 	return prefix + path + core[dot:]
 }
 
+// extractCallArguments lists a call's arguments from its syntax tree, one per
+// argument node: splitting the text read `1<<15` as an open bracket.
 func (p *GoParser) extractCallArguments(node *sitter.Node, src []byte) []string {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
-		if child.Type() == javaNodeArgumentList {
-			return parseArgumentsFromDelimitedContent(child.Content(src))
+		if child.Type() != javaNodeArgumentList {
+			continue
 		}
+		var args []string
+		for j := 0; j < int(child.NamedChildCount()); j++ {
+			if arg := child.NamedChild(j); arg.Type() != "comment" {
+				args = append(args, strings.TrimSpace(arg.Content(src)))
+			}
+		}
+		return args
 	}
 	return nil
 }

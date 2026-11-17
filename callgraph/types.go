@@ -405,6 +405,10 @@ type FunctionCall struct {
 	// pointer-spelled type) and Name the field. Callee stays untyped until the
 	// builder reads the field's declared type from the graph-wide struct table.
 	FieldReceiver *GoFieldReceiver
+	// GoPackageValue is set for a Go call on an imported package value,
+	// `base64.StdEncoding.Strict()`: the value as `<import path>.<Name>`.
+	// Callee stays untyped until a GoSourceTypeResolver reads its type.
+	GoPackageValue string
 	// ResolvedReceiverType is the concrete type inferred for a field receiver
 	// when its declaring class has one unambiguous constructor assignment.
 	// Empty means the receiver type is declared, unknown, or ambiguous.
@@ -804,6 +808,9 @@ type CallGraph struct {
 	// `package.Struct`; a field two declarations disagree on (build-tag
 	// variants) is stored with an empty Type and never resolves.
 	goStructFields map[string]map[string]GoFieldType
+	// goSourceTypes is the GoSourceTypeResolver's declaration index, for the
+	// passes that type a receiver from its producer's result type.
+	goSourceTypes *goSourceIndex
 	// nodeInstances indexes the instances Node modules export, by
 	// `module.name`, while files are merged; resolveNodeImportedInstances
 	// consumes it.

@@ -1914,6 +1914,20 @@ func recordEdgeResolution(graph *CallGraph, callerKey, calleeKey string, kind Ed
 	graph.EdgeResolutions[key] = resolution
 }
 
+// dropCallEdgeResolution forgets the exact resolution a call recorded under
+// oldKey, the callee it had before a pass retyped it, so the edge keeps no
+// site for a call that no longer targets it.
+func dropCallEdgeResolution(graph *CallGraph, callerKey, oldKey string, call *FunctionCall) {
+	method, arity := "", 0
+	if calleeID, err := ParseFunctionID(oldKey); err == nil {
+		method = BaseFunctionName(calleeID.Name)
+		arity = functionArity(calleeID.Name)
+	}
+	delete(graph.EdgeResolutions, EdgeResolutionKey(callerKey, oldKey, EdgeResolution{
+		MethodName: method, Arity: arity, CallSite: call.Line, StartCol: call.StartCol, EndCol: call.EndCol,
+	}))
+}
+
 func indexMethodsByName(graph *CallGraph) map[string][]*FunctionDecl {
 	index := make(map[string][]*FunctionDecl)
 	for _, fn := range graph.Functions {
@@ -3066,6 +3080,7 @@ func resolveGoAssignedVarCalleesInFunction(graph *CallGraph, callerKey string, f
 			continue
 		}
 		oldKeys[call.Callee.String()] = true
+		dropCallEdgeResolution(graph, callerKey, call.Callee.String(), call)
 		rewritten := FunctionID{Package: pkg, Type: ptr + typ, Name: call.Callee.Name}
 		if _, ok := graph.Functions[rewritten.String()]; !ok {
 			// Go keys a pointer-receiver method under (*Type) and a value one
@@ -3134,6 +3149,10 @@ func goAssignedVarContractTypes(graph *CallGraph, fn *FunctionDecl, kb *contract
 			}
 		}
 		if ret == "" {
+			// A producer in a package the resolver reads: its declared result.
+			ret = goReceiverTypeOf(graph.goSourceTypes.resultType(call.Callee))
+		}
+		if ret == "" {
 			continue
 		}
 		if prev, seen := types[call.AssignedVar]; seen && prev != ret {
@@ -3193,7 +3212,10 @@ func pruneGoPredeclaredCalls(graph *CallGraph, ecosystem string) {
 		kept := fn.Calls[:0]
 		for i := range fn.Calls {
 			call := &fn.Calls[i]
-			if call.Callee.Type == "" && call.Callee.Package != "" && goPredeclaredIdentifiers[BaseFunctionName(call.Callee.Name)] {
+			// Only a bare call (`len(x)`, raw text equal to its name) can be a
+			// builtin; a package with no import path keys it with an empty package.
+			if call.Callee.Type == "" && call.Raw == call.Callee.Name && call.ReceiverVar == "" && !call.StaticReceiver &&
+				call.FieldReceiver == nil && goPredeclaredIdentifiers[call.Callee.Name] {
 				if _, declared := graph.Functions[call.Callee.String()]; !declared {
 					pruned++
 					continue

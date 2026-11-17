@@ -180,9 +180,9 @@ const SchemaVersion = "graph-fragment-1.26"
 //
 // It is the id of Java graphs and of every ecosystem without an id of its own
 // (GraphAlgoVersionFor); Python graphs carry GraphAlgoVersionPython, Rust
-// graphs GraphAlgoVersionRust and Node graphs GraphAlgoVersionNode (from
-// graph-algo-39 on). Bump the id of the ecosystem whose graphs changed, never
-// this one for another ecosystem's change: every stored Java graph under an
+// graphs GraphAlgoVersionRust, Node graphs GraphAlgoVersionNode and Go graphs
+// GraphAlgoVersionGo (from graph-algo-39 on). Bump the id of the ecosystem
+// whose graphs changed, never this one for another ecosystem's change: every stored Java graph under an
 // old id is mined again.
 //
 // graph-algo-6: Go dependencies contribute only their imported packages, on

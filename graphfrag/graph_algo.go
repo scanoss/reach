@@ -199,6 +199,42 @@ const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "4"
 // stamped with one is a Node graph.
 const nodeGraphAlgoPrefix = "graph-algo-node-"
 
+// GraphAlgoVersionGo identifies the callgraph-construction algorithm of Go
+// graphs, so a change to Go graph construction never marks a Java graph stale.
+//
+// graph-algo-go-1: the Go graphs of graph-algo-39, under their own id.
+// graph-algo-go-2: an unaliased /vN import (N >= 2) also binds vN, so calls
+// through a module that declares `package vN` resolve to its path.
+// graph-algo-go-3: a call nothing typed (a method on an untyped local or on a
+// call's result, a call of a func value) is exported name_only, not exact.
+// graph-algo-go-4: a method called on a value the expression constructs
+// (`T{}`, `&T{}`, `new(T)`) links to the type's method.
+// graph-algo-go-5: fragments list the values Go code reads through an import
+// outside a call (`constant_refs`, text `<import path>.<name>`) with their
+// position kind and, in a comparison or case, the operand; a package-level
+// data var's references go to the file's <varinit>.
+// graph-algo-go-6: fragments list the var declarations of an imported type
+// (`declarations`, type written `<import path>.<name>`, with `*`, `[]`).
+// graph-algo-go-7: fragments carry the call data (call anchors, rebind
+// lines) a source-free annotate rebuilds Go calls from, as Java and Python.
+// graph-algo-go-8: with a GoSourceTypeResolver, a call on an imported package
+// value or on a local bound from a call into a read package is typed from
+// that package's declarations.
+// graph-algo-go-9: a call on an interface value of a read package outside the
+// graph (`aead.Seal` on a crypto/cipher.AEAD) is exported name_only.
+// graph-algo-go-10: a call's arguments are its argument nodes (`1<<15` no
+// longer splits them); builtin calls are pruned in a package without an import
+// path too; a call a pass retypes leaves no site under its former callee.
+// graph-algo-go-11: a method named like a builtin (`s.c.close()`) is no longer
+// pruned; a type parameter types no call; a `package main` file beside a read
+// package lends it nothing; GoUnreadTypeCall tells calls on a type of an
+// unread package.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "11"
+
+// goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
+// with one is a Go graph.
+const goGraphAlgoPrefix = "graph-algo-go-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
@@ -212,6 +248,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionRust
 	case "node":
 		return GraphAlgoVersionNode
+	case "go":
+		return GraphAlgoVersionGo
 	}
 	return GraphAlgoVersion
 }
@@ -226,6 +264,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "rust"
 	case strings.HasPrefix(id, nodeGraphAlgoPrefix):
 		return "node"
+	case strings.HasPrefix(id, goGraphAlgoPrefix):
+		return "go"
 	}
 	return ""
 }
@@ -256,8 +296,8 @@ func EcosystemForPurl(purl string) string {
 
 // GraphEcosystem is the ecosystem of the graph the export carries: the one its
 // scan metadata names, else the one its graph algorithm id names when that id
-// is an ecosystem's own (Python, Rust, Node), else "" (a graph written before
-// scan metadata named an ecosystem: Java's).
+// is an ecosystem's own (Python, Rust, Node, Go), else "" (a graph written
+// before scan metadata named an ecosystem: Java's).
 func (e *GraphFragmentExport) GraphEcosystem() string {
 	if e.ScanMetadata.Ecosystem != "" {
 		return e.ScanMetadata.Ecosystem
@@ -267,7 +307,7 @@ func (e *GraphFragmentExport) GraphEcosystem() string {
 
 // fragmentEcosystem is the ecosystem of the graph a fragment carries: the one
 // its graph algorithm id names when that id is an ecosystem's own (Python,
-// Rust, Node), else its component's purl's.
+// Rust, Node, Go), else its component's purl's.
 func fragmentEcosystem(fragment Fragment) string {
 	if ecosystem := ecosystemOfGraphAlgo(fragment.GraphAlgoVersion); ecosystem != "" {
 		return ecosystem

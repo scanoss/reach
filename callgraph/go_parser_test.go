@@ -6,6 +6,8 @@ package callgraph
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -279,4 +281,180 @@ func TestGoParser_CallColumnsAreOneBasedExclusive(t *testing.T) {
 		}
 	}
 	t.Fatal("helper() call not found")
+}
+
+// TestGoParser_VersionDirectoryImportName: an unaliased /vN import binds the
+// module-rule name and also vN, for modules that declare `package vN`; an
+// import claiming vN keeps it, and two /vN paths offering it leave it unbound.
+func TestGoParser_VersionDirectoryImportName(t *testing.T) {
+	cases := []struct {
+		name, imports string
+		want          map[string]string // call text -> callee package ("" unresolved)
+	}{
+		{
+			name:    "package named vN",
+			imports: `import "example.com/lib/sub/v2"`,
+			want:    map[string]string{"v2.Open": "example.com/lib/sub/v2", "sub.Close": "example.com/lib/sub/v2"},
+		},
+		{
+			name:    "explicit alias keeps vN",
+			imports: "import (\n\t\"example.com/lib/sub/v2\"\n\tv2 \"example.com/other\"\n)",
+			want:    map[string]string{"v2.Open": "example.com/other", "sub.Close": "example.com/lib/sub/v2"},
+		},
+		{
+			name:    "two vN paths are ambiguous",
+			imports: "import (\n\t\"example.com/a/v2\"\n\t\"example.com/sub/v2\"\n)",
+			want:    map[string]string{"v2.Open": "", "sub.Close": "example.com/sub/v2"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := "package p\n" + c.imports + "\nfunc run() {\n\tv2.Open()\n\tsub.Close()\n}\n"
+			path := filepath.Join(dir, "main.go")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			got := map[string]string{}
+			for _, fn := range analysis.Functions {
+				for _, call := range fn.Calls {
+					got[call.Raw] = call.Callee.Package
+				}
+			}
+			for raw, want := range c.want {
+				if pkg, ok := got[raw]; !ok {
+					t.Errorf("call %s not found (calls: %v)", raw, got)
+				} else if pkg != want {
+					t.Errorf("call %s resolves to %q, want %q", raw, pkg, want)
+				}
+			}
+		})
+	}
+}
+
+// TestGoParser_ConstructedReceiverTyped: a method called on a value the
+// expression constructs is typed with that type, as on a typed local.
+func TestGoParser_ConstructedReceiverTyped(t *testing.T) {
+	dir := t.TempDir()
+	const source = "package p\nimport \"example.com/dep\"\ntype T struct{}\nfunc (T) M() {}\n" +
+		"func run() {\n\tT{}.M()\n\t(&T{}).M()\n\tnew(T).M()\n\tdep.C{}.N()\n\tf().M()\n}\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	want := map[string]FunctionID{
+		"T{}.M":     {Package: "example.com/p", Type: "T", Name: "M"},
+		"(&T{}).M":  {Package: "example.com/p", Type: "*T", Name: "M"},
+		"new(T).M":  {Package: "example.com/p", Type: "*T", Name: "M"},
+		"dep.C{}.N": {Package: "example.com/dep", Type: "C", Name: "N"},
+		"f().M":     {Name: "M"},
+	}
+	got := map[string]FunctionID{}
+	for _, fn := range analysis.Functions {
+		for _, call := range fn.Calls {
+			got[call.Raw] = call.Callee
+		}
+	}
+	for raw, w := range want {
+		if g, ok := got[raw]; !ok {
+			t.Errorf("call %s not found (calls: %v)", raw, got)
+		} else if g != w {
+			t.Errorf("call %s callee %+v, want %+v", raw, g, w)
+		}
+	}
+}
+
+// TestGoParser_ArgumentsFromTheSyntaxTree: a shift or a comparison inside an
+// argument does not split or merge arguments.
+func TestGoParser_ArgumentsFromTheSyntaxTree(t *testing.T) {
+	dir := t.TempDir()
+	const source = "package p\nimport \"example.com/kdf\"\nfunc run(p, s []byte, n int) {\n\tkdf.Key(p, s, 1<<15, 8, n > 1, 32)\n\tkdf.Key(p, s /* salt */, []int{1, 2}...)\n}\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	var got [][]string
+	for _, fn := range analysis.Functions {
+		for _, c := range fn.Calls {
+			got = append(got, c.Arguments)
+		}
+	}
+	want := [][]string{{"p", "s", "1<<15", "8", "n > 1", "32"}, {"p", "s", "[]int{1, 2}..."}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("arguments %q, want %q", got, want)
+	}
+}
+
+// TestGoBuilder_PrunesBuiltinsWithoutAnImportPath: a builtin call is pruned
+// whether the package has an import path or not, unless the package declares
+// a function of that name.
+func TestGoBuilder_PrunesBuiltinsWithoutAnImportPath(t *testing.T) {
+	for _, importPath := range []string{"example.com/p", ""} {
+		dir := t.TempDir()
+		const source = "package p\nfunc run(n int) []byte {\n\tb := make([]byte, n)\n\t_ = len(b)\n\treturn append(b, 1)\n}\n"
+		if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: importPath}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, fn := range graph.Functions {
+			for _, c := range fn.Calls {
+				t.Errorf("import path %q: %s keeps builtin call %s", importPath, key, c.Raw)
+			}
+		}
+	}
+}
+
+// TestGoBuilder_KeepsMethodsNamedLikeBuiltins: only a bare call is pruned; a
+// method named like a builtin, called through a field, a chain or an index,
+// stays a call.
+func TestGoBuilder_KeepsMethodsNamedLikeBuiltins(t *testing.T) {
+	for _, importPath := range []string{"example.com/p", ""} {
+		dir := t.TempDir()
+		const source = `package p
+type conn struct{}
+func (c *conn) close() {}
+func (c *conn) len() int { return 0 }
+func mk() *conn { return &conn{} }
+type S struct{ c *conn; cs []*conn }
+func (s *S) Run() {
+	s.c.close()
+	mk().close()
+	_ = s.cs[0].len()
+	_ = len(s.cs)
+}
+`
+		if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: importPath}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var raws []string
+		for key, fn := range graph.Functions {
+			if strings.HasSuffix(key, "Run") {
+				for _, c := range fn.Calls {
+					raws = append(raws, c.Raw)
+				}
+			}
+		}
+		if len(raws) != 4 {
+			t.Errorf("import path %q: Run keeps %q, want mk and the three method calls, not len", importPath, raws)
+		}
+	}
 }
