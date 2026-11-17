@@ -207,7 +207,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // through a module that declares `package vN` resolve to its path.
 // graph-algo-go-3: a call nothing typed (a method on an untyped local or on a
 // call's result, a call of a func value) is exported name_only, not exact.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "3"
+// graph-algo-go-4: a method called on a value the expression constructs
+// (`T{}`, `&T{}`, `new(T)`) links to the type's method.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "4"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.

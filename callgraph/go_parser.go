@@ -964,6 +964,25 @@ func goConstructedType(expr *sitter.Node, src []byte, pkg string, analysis *File
 	return goNamedType(typeNode, src, pkg, analysis)
 }
 
+// goConstructedReceiverType is goConstructedType of a call's receiver, with
+// the pointer `&T{}` and `new(T)` build spelled as a typed local's is (`*T`).
+func goConstructedReceiverType(expr *sitter.Node, src []byte, analysis *FileAnalysis) (string, string) {
+	for expr != nil && expr.Type() == goNodeParenExpr && expr.NamedChildCount() == 1 {
+		expr = expr.NamedChild(0)
+	}
+	if expr == nil || analysis == nil {
+		return "", ""
+	}
+	typePkg, typ := goConstructedType(expr, src, analysis.PackagePath, analysis)
+	if typ == "" {
+		return "", ""
+	}
+	if expr.Type() != goNodeCompositeLiteral {
+		typ = "*" + typ
+	}
+	return typePkg, typ
+}
+
 // goNamedType names the package and type a type node spells: a type of pkg,
 // or one an import qualifies. Type arguments are erased.
 func goNamedType(typeNode *sitter.Node, src []byte, pkg string, analysis *FileAnalysis) (string, string) {
@@ -1471,6 +1490,18 @@ func (p *GoParser) parseSelectorCall(
 	field := fieldNode.Content(src)
 	if field == "" {
 		return nil
+	}
+
+	// A receiver the expression constructs (`T{}`, `&T{}`, `new(T)`) names
+	// its own type, so the call links to the method like one on a typed local.
+	if typePkg, typ := goConstructedReceiverType(operandNode, src, analysis); typ != "" {
+		return &FunctionCall{
+			Callee:    FunctionID{Package: typePkg, Type: typ, Name: field},
+			Raw:       node.Content(src),
+			FilePath:  filePath,
+			Line:      line,
+			Arguments: args,
+		}
 	}
 
 	// A selector whose operand is itself a call — `sha256.New().Sum(data)` —

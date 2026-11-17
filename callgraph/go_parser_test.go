@@ -333,3 +333,39 @@ func TestGoParser_VersionDirectoryImportName(t *testing.T) {
 		})
 	}
 }
+
+// TestGoParser_ConstructedReceiverTyped: a method called on a value the
+// expression constructs is typed with that type, as on a typed local.
+func TestGoParser_ConstructedReceiverTyped(t *testing.T) {
+	dir := t.TempDir()
+	const source = "package p\nimport \"example.com/dep\"\ntype T struct{}\nfunc (T) M() {}\n" +
+		"func run() {\n\tT{}.M()\n\t(&T{}).M()\n\tnew(T).M()\n\tdep.C{}.N()\n\tf().M()\n}\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	want := map[string]FunctionID{
+		"T{}.M":     {Package: "example.com/p", Type: "T", Name: "M"},
+		"(&T{}).M":  {Package: "example.com/p", Type: "*T", Name: "M"},
+		"new(T).M":  {Package: "example.com/p", Type: "*T", Name: "M"},
+		"dep.C{}.N": {Package: "example.com/dep", Type: "C", Name: "N"},
+		"f().M":     {Name: "M"},
+	}
+	got := map[string]FunctionID{}
+	for _, fn := range analysis.Functions {
+		for _, call := range fn.Calls {
+			got[call.Raw] = call.Callee
+		}
+	}
+	for raw, w := range want {
+		if g, ok := got[raw]; !ok {
+			t.Errorf("call %s not found (calls: %v)", raw, got)
+		} else if g != w {
+			t.Errorf("call %s callee %+v, want %+v", raw, g, w)
+		}
+	}
+}
