@@ -9,12 +9,17 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+// nodePromiseMethods are the methods of the promise import() returns, which a
+// promise of a module held without `await` answers itself.
+var nodePromiseMethods = map[string]bool{"then": true, "catch": true, "finally": true}
+
 // nodeHeldModule is a module binding that a name holds through the file's own
 // declarations rather than an import of its own: an alias (`const s =
-// sodium`), a destructuring (`const { sm2 } = smCrypto`) or a require inside
-// a function.
+// sodium`), a destructuring (`const { sm2 } = smCrypto`), or a require or
+// import() inside a function. pending marks a promise of the module, an import() not awaited.
 type nodeHeldModule struct {
 	binding nodeBinding
+	pending bool
 }
 
 // receiverModuleBinding reads the receiver of a member call, or the callee of
@@ -41,13 +46,15 @@ func (p *NodeParser) receiverModuleBinding(expr *sitter.Node) (nodeHeldModule, b
 	return held.member(rest...), true
 }
 
-// member is the binding of a member path read from held.
+// member is the binding of a member path read from held: a promise is no
+// longer one once a member of it is read.
 func (held nodeHeldModule) member(path ...string) nodeHeldModule {
 	if len(path) == 0 {
 		return held
 	}
 	held.binding.member = joinNodeMember(held.binding.member, strings.Join(path, "."))
 	held.binding.isDefault = false
+	held.pending = false
 	return held
 }
 
@@ -78,7 +85,7 @@ func (p *NodeParser) nameModuleBinding(name *sitter.Node, depth int) (nodeHeldMo
 		return nodeHeldModule{binding: p.resolveRelativeBinding(d.required)}, true
 	case d.from != nil:
 		held, ok := p.valueModuleBinding(d.from, depth+1)
-		if !ok {
+		if !ok || held.pending {
 			return nodeHeldModule{}, false
 		}
 		return held.member(d.fromMember), true
@@ -95,13 +102,25 @@ func (p *NodeParser) nameModuleBinding(name *sitter.Node, depth int) (nodeHeldMo
 }
 
 // valueModuleBinding reads an initializer as a module binding: a require
-// (nodeRequireBinding), or a name or member chain that holds one.
+// (nodeRequireBinding), a name or member chain that holds one, or import() of
+// a module,
+// awaited or not, with or without one `.catch(handler)`.
 func (p *NodeParser) valueModuleBinding(value *sitter.Node, depth int) (nodeHeldModule, bool) {
 	value = unwrapNodeValue(value)
 	if value == nil || depth > nodeValueMaxDepth {
 		return nodeHeldModule{}, false
 	}
 	src := p.values.src
+	awaited := false
+	if value.Type() == "await_expression" && value.NamedChildCount() == 1 {
+		value, awaited = unwrapNodeValue(value.NamedChild(0)), true
+	}
+	if module, ok := nodeDynamicImportModule(value, src); ok {
+		return nodeHeldModule{binding: p.resolveRelativeBinding(nodeBinding{module: module}), pending: !awaited}, true
+	}
+	if awaited {
+		return nodeHeldModule{}, false
+	}
 	if binding, ok := nodeRequireBinding(value, src); ok {
 		return nodeHeldModule{binding: p.resolveRelativeBinding(binding)}, true
 	}
@@ -112,12 +131,46 @@ func (p *NodeParser) valueModuleBinding(value *sitter.Node, depth int) (nodeHeld
 			return nodeHeldModule{}, false
 		}
 		held, ok := p.nameModuleBinding(root, depth)
-		if !ok {
+		if !ok || held.pending {
 			return nodeHeldModule{}, false
 		}
 		return held.member(rest...), true
 	}
 	return nodeHeldModule{}, false
+}
+
+// nodeDynamicImportModule reads `import('m')`, or `import('m').catch(h)` with
+// one handler, as the module it loads.
+func nodeDynamicImportModule(call *sitter.Node, src []byte) (string, bool) {
+	if call.Type() != nodeCallExpression {
+		return "", false
+	}
+	function, args := call.ChildByFieldName("function"), nodeArgumentNodes(call)
+	if function == nil || len(args) != 1 {
+		return "", false
+	}
+	switch function.Type() {
+	case "import":
+		if args[0].Type() != nodeStringNode {
+			return "", false
+		}
+		module := unquoteNodeString(args[0].Content(src))
+		return module, module != ""
+	case nodeMemberExpression:
+		property, object := function.ChildByFieldName("property"), function.ChildByFieldName("object")
+		if property == nil || property.Content(src) != "catch" || object == nil {
+			return "", false
+		}
+		object = unwrapNodeValue(object)
+		if object == nil || object.Type() != nodeCallExpression {
+			return "", false
+		}
+		if inner := object.ChildByFieldName("function"); inner == nil || inner.Type() != "import" {
+			return "", false
+		}
+		return nodeDynamicImportModule(object, src)
+	}
+	return "", false
 }
 
 // nodeDeclaredByImport reports a name an import statement declares.

@@ -1245,6 +1245,7 @@ func (p *NodeParser) parseNodeCall(node *sitter.Node, src []byte, filePath, pack
 		if !ok {
 			var held nodeHeldModule
 			held, ok = p.receiverModuleBinding(function)
+			ok = ok && !held.pending
 			binding = held.binding
 		}
 		if ok {
@@ -1320,10 +1321,11 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 
 // heldModuleReceiver keys a member call on a module binding the file holds
 // through its own declarations (receiverModuleBinding): `s.f()` after `const
-// s = sodium` calls the module's f.
+// s = sodium` calls the module's f. A promise of a module answers its own
+// then, catch and finally.
 func (p *NodeParser) heldModuleReceiver(call *FunctionCall, object *sitter.Node, name string) bool {
 	held, ok := p.receiverModuleBinding(object)
-	if !ok {
+	if !ok || held.pending && nodePromiseMethods[name] {
 		return false
 	}
 	call.Callee.Package, _ = held.binding.qualify("", name)
@@ -1403,7 +1405,7 @@ func (p *NodeParser) parseHeldModuleNew(node *sitter.Node, src []byte, filePath 
 		return nil
 	}
 	held, ok := p.receiverModuleBinding(unwrapNodeCallee(constructor))
-	if !ok || isNodeRelativeSpecifier(held.binding.module) {
+	if !ok || held.pending || isNodeRelativeSpecifier(held.binding.module) {
 		return nil
 	}
 	pkg, typeName := held.binding.qualifyValue()

@@ -5,6 +5,38 @@ package callgraph
 
 import "testing"
 
+// A promise of a dynamic import, awaited or not and with a rejection handler
+// or not, holds the module: a member call on it names the module's export.
+// The promise's own methods are not the module's.
+func TestNodeDynamicImportBindingKeysTheModule(t *testing.T) {
+	t.Parallel()
+
+	src := `async function run(x) {
+  const lazy = await import('acme-crypto').catch(() => null);
+  lazy.hash(x);
+  const eager = import('acme-crypto').catch(() => null);
+  eager.hash(x);
+  const plain = await import('acme-crypto');
+  plain.sub.sign(x);
+  const pending = import('acme-crypto');
+  pending.then(x);
+  const handled = await import('acme-crypto').catch(() => null, 2);
+  handled.hash(x);
+}
+`
+	got := nodeCalleesOf(t, "run.js", src, "run")
+	assertNodeCallees(t, got, map[int]string{
+		2:  "app/run.catch",
+		3:  "acme-crypto.hash",
+		4:  "app/run.catch",
+		5:  "acme-crypto.hash",
+		7:  "acme-crypto.sub.sign",
+		9:  "app/run.then",
+		10: "app/run.catch",
+		11: "app/run.hash",
+	})
+}
+
 // A name that holds a module binding, at module scope or in a function body,
 // is the module: `const s = sodium; s.f(x)` calls the module's f.
 func TestNodeAliasOfModuleBindingKeysTheModule(t *testing.T) {
