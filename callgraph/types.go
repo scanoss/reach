@@ -721,6 +721,9 @@ type FileAnalysis struct {
 	// GoValues lists the composite literals, new(T) expressions and field
 	// stores of the file, in source order (Go only).
 	GoValues []GoValue
+	// GoBlocks lists the blocks of the file's function bodies, case clauses
+	// included, in source order (Go only).
+	GoBlocks []GoBlock
 	// NodeImports lists the imports, requires, dynamic imports and
 	// re-exports of the file, in source order (Node only).
 	NodeImports []NodeImport
@@ -822,6 +825,9 @@ type CallGraph struct {
 	// GoValues holds the composite literals, new(T) expressions and field
 	// stores of each project source file, by file path (Go only).
 	GoValues map[string][]GoValue
+	// GoBlocks holds the blocks of the function bodies of each project
+	// source file, by file path (Go only).
+	GoBlocks map[string][]GoBlock
 	// NodeImports holds the imports, requires, dynamic imports and
 	// re-exports of each project source file, by file path (Node only), with
 	// module specifiers as written.

@@ -68,12 +68,19 @@ func f(tls.Config) {}
 		{Kind: GoValueComposite, Function: fn, Line: 19, StartCol: 4, EndCol: 44, TypeText: "tls.Config", Package: "crypto/tls", Type: "Config",
 			Fields: []GoValueField{{Name: "MinVersion", Value: "tls.VersionTLS12", Line: 19, StartCol: 27, EndCol: 43}}},
 	}
-	if len(analysis.GoValues) != len(want) {
-		t.Fatalf("%d values, want %d: %+v", len(analysis.GoValues), len(want), analysis.GoValues)
+	// Assignments are covered by TestGoParser_AssignValues.
+	var got []GoValue
+	for _, v := range analysis.GoValues {
+		if v.Kind != GoValueAssign {
+			got = append(got, v)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%d values, want %d: %+v", len(got), len(want), got)
 	}
 	for i := range want {
-		if !reflect.DeepEqual(analysis.GoValues[i], want[i]) {
-			t.Errorf("value %d:\n got %+v\nwant %+v", i, analysis.GoValues[i], want[i])
+		if !reflect.DeepEqual(got[i], want[i]) {
+			t.Errorf("value %d:\n got %+v\nwant %+v", i, got[i], want[i])
 		}
 	}
 }

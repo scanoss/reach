@@ -58,6 +58,7 @@ const (
 	goFieldFunction           = "function"
 	goFieldLeft               = "left"
 	goFieldRight              = "right"
+	goFieldName               = "name"
 	goNodeParenExpr           = "parenthesized_expression"
 	goNodeAssignmentStmt      = "assignment_statement"
 	goNodeTypeAssertion       = "type_assertion_expression"
@@ -451,7 +452,7 @@ func (p *GoParser) extractFunctions(root *sitter.Node, src []byte, filePath, pac
 func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, filePath, packagePath string, analysis *FileAnalysis) {
 	var calls []FunctionCall
 	varTypes := make(map[string]string)
-	from := len(analysis.GoValues)
+	from := markGoFacts(analysis)
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "var_declaration" {
@@ -465,7 +466,7 @@ func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, file
 	}
 	fn := goVarinitDecl(analysis, filePath, packagePath, int(root.EndPoint().Row)+1)
 	fn.Calls = calls
-	keyGoValues(analysis, from, fn.ID.String())
+	keyGoFacts(analysis, from, fn.ID.String())
 }
 
 // goVarinitPrefix starts the name of a file's synthetic package-level
@@ -875,9 +876,9 @@ func (p *GoParser) parseFunctionDecl(node *sitter.Node, src []byte, filePath, pa
 
 	if body != nil {
 		varTypes := p.collectGoVarTypes(params, src, node)
-		from := len(analysis.GoValues)
+		from := markGoFacts(analysis)
 		decl.Calls = p.extractCalls(body, src, filePath, analysis, "", "", varTypes)
-		keyGoValues(analysis, from, decl.ID.String())
+		keyGoFacts(analysis, from, decl.ID.String())
 		decl.ReturnSources = p.extractReturnSources(body, src, filePath, analysis, "", "", varTypes)
 		decl.constructed = goReturnedObjects(body, src, decl.ID.Package, analysis)
 		decl.localBindings = countLocalBindings(body, src, goLocalBinders)
@@ -938,9 +939,9 @@ func (p *GoParser) parseMethodDecl(node *sitter.Node, src []byte, filePath, pack
 
 	if body != nil {
 		varTypes := p.collectGoVarTypes(params, src, node)
-		from := len(analysis.GoValues)
+		from := markGoFacts(analysis)
 		decl.Calls = p.extractCalls(body, src, filePath, analysis, receiver, receiverVar, varTypes)
-		keyGoValues(analysis, from, decl.ID.String())
+		keyGoFacts(analysis, from, decl.ID.String())
 		decl.ReturnSources = p.extractReturnSources(body, src, filePath, analysis, receiver, receiverVar, varTypes)
 		decl.constructed = goReturnedObjects(body, src, decl.ID.Package, analysis)
 		decl.localBindings = countLocalBindings(body, src, goLocalBinders)
@@ -1172,9 +1173,33 @@ func (p *GoParser) goReturnSource(
 		return SourceNode{Type: "FIELD", Name: expr.Content(src), Location: location}, true
 	case "int_literal", "float_literal", "imaginary_literal", "rune_literal", "raw_string_literal", "interpreted_string_literal", javaNodeBoolLiteralTrue, javaNodeBoolLiteralFalse, "nil":
 		return SourceNode{Type: "VALUE", Value: expr.Content(src), Location: location}, true
+	case goNodeCompositeLiteral, goNodeUnaryExpression:
+		w := goValueWalk{p: p, src: src, filePath: filePath, analysis: analysis, receiverType: currentReceiverType, receiverVar: currentReceiverVar, varTypes: varTypes}
+		return w.compositeReturnSource(expr, location)
 	}
 
 	return SourceNode{}, false
+}
+
+// compositeReturnSource is the EXPRESSION a returned composite literal,
+// `T{...}` or `&T{...}`, gives: the expression as written, over the values
+// of its elements.
+func (w *goValueWalk) compositeReturnSource(expr *sitter.Node, location *SourceLocation) (SourceNode, bool) {
+	literal := expr
+	if expr.Type() == goNodeUnaryExpression {
+		if op := expr.Child(0); op == nil || op.Type() != "&" {
+			return SourceNode{}, false
+		}
+		literal = expr.ChildByFieldName(goFieldOperand)
+	}
+	if literal == nil || literal.Type() != goNodeCompositeLiteral {
+		return SourceNode{}, false
+	}
+	source := SourceNode{Type: sourceNodeExpression, Value: strings.TrimSpace(expr.Content(w.src)), Location: location}
+	if operands := w.literalSources(literal, literal.ChildByFieldName("body"), 0); len(operands) == 1 {
+		source.SourceNodes = operands[0].SourceNodes
+	}
+	return source, true
 }
 
 func (p *GoParser) extractReceiverInfo(paramList *sitter.Node, src []byte) (string, string) {
@@ -1250,6 +1275,9 @@ func (p *GoParser) walkForCalls(
 ) {
 	if v := goValueAt(node, src, analysis, varTypes); v != nil {
 		analysis.GoValues = append(analysis.GoValues, *v)
+	}
+	if b, ok := goBlockAt(node); ok {
+		analysis.GoBlocks = append(analysis.GoBlocks, b)
 	}
 	if node.Type() == "call_expression" {
 		if call := p.parseCallExpr(node, src, filePath, analysis, currentReceiverType, currentReceiverVar, varTypes); call != nil {
