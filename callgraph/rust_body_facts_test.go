@@ -111,3 +111,59 @@ func TestRustLetDeclarations(t *testing.T) {
 		t.Errorf("declarations:\n got %+v\nwant %+v", fn.Declarations, want)
 	}
 }
+
+// TestRustNameRefs: a one-segment path a body reads as a value is a reference
+// when its name starts with an upper-case letter (a constant, a unit struct or
+// a variant brought in by a use: `&X25519`, `SysRng`); a lower-case name (a
+// local), a callee, a pattern, a type and a macro's name are not. A struct
+// literal's path is a reference too, of one segment or more.
+func TestRustNameRefs(t *testing.T) {
+	src := `use acme_kdf::{Key, X25519};
+fn run(x: u32, Mode: u8) -> Key {
+    let alg = X25519;
+    let k = acme_kdf::derive(&X25519, x);
+    let rng = SysRng;
+    let y = x;
+    let none: Option<u8> = None;
+    let Z = Key::new(y);
+    let lit = Key { bits: 1 };
+    let full = acme_kdf::Key { bits: X25519 };
+    let t: Key = SysRng.key();
+    match y {
+        LIMIT => {}
+        _ => {}
+    }
+    if y == MAX { return Fallback; }
+    debug_assert!(y != MAX2);
+    Key { bits: 2 }
+}
+`
+	fn := parseRustFunction(t, src, "run")
+	type ref struct{ text, context string }
+	var got []ref
+	for _, r := range fn.ConstantRefs {
+		got = append(got, ref{r.Text, r.Context})
+	}
+	want := []ref{
+		{"X25519", ConstantRefInit},
+		{"X25519", ConstantRefOther},
+		{"SysRng", ConstantRefInit},
+		{"Key", ConstantRefStruct},
+		{"acme_kdf::Key", ConstantRefStruct},
+		{"X25519", ConstantRefOther},
+		{"SysRng", ConstantRefOther},
+		{"MAX", ConstantRefCompare},
+		{"Fallback", ConstantRefReturn},
+		{"MAX2", ConstantRefCompare},
+		{"Key", ConstantRefStruct},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("refs:\n got %v\nwant %v", got, want)
+	}
+	if r := fn.ConstantRefs[0]; r.Line != 3 || r.StartCol != 15 || r.EndCol != 21 {
+		t.Errorf("first ref span = %d:%d-%d, want 3:15-21", r.Line, r.StartCol, r.EndCol)
+	}
+	if r := fn.ConstantRefs[3]; r.Line != 9 || r.StartCol != 15 || r.EndCol != 18 {
+		t.Errorf("struct ref span = %d:%d-%d, want 8:15-18", r.Line, r.StartCol, r.EndCol)
+	}
+}

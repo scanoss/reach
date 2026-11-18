@@ -218,7 +218,16 @@ import (
 // span. A detector tells a rule's `import $P "p"`, which binds only an
 // aliased import, from `import "p"`. A 1.30 Go fragment decodes with none;
 // such a rule then cannot tell the two apart.
-const SchemaVersion = "graph-fragment-1.32"
+//
+// 1.33 widens a Rust fragment's constant_refs: a one-segment path a body
+// reads as a value whose name starts with an upper-case letter (`&X25519`
+// after `use ring::agreement::X25519`, `SysRng`; the prelude's None, Some,
+// Ok, Err and Self are left out), and the path of every struct literal, of
+// one segment or more, in the position kind struct (`acme::Key { bits: 1 }`).
+// The arrays keep their layout; a detector reads the version to know that a
+// one-segment name it does not find is not read as a value, where a 1.30
+// fragment leaves that undecided. (1.31 is reserved for Node.)
+const SchemaVersion = "graph-fragment-1.33"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema

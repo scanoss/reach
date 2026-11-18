@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -30,6 +31,14 @@ func (f *rustBodyFacts) visit(node *sitter.Node, src []byte) bool {
 		if parent := node.Parent(); parent != nil && parent.Type() != rustNodeScopedIdentifier && !rustIsCallee(node, parent) {
 			f.addRef(node, src, rustRefContext(node, parent, src))
 		}
+	case rustNodeIdentifier:
+		if parent := node.Parent(); parent != nil && rustIsValueName(node, parent, src) {
+			f.addRef(node, src, rustRefContext(node, parent, src))
+		}
+	case "struct_expression":
+		if name := node.ChildByFieldName("name"); name != nil && (name.Type() == "type_identifier" || name.Type() == "scoped_type_identifier") {
+			f.addRef(name, src, ConstantRefStruct)
+		}
 	case rustNodeLetDeclaration:
 		f.addLet(node, src)
 	case "match_block":
@@ -42,6 +51,48 @@ func (f *rustBodyFacts) visit(node *sitter.Node, src []byte) bool {
 		}
 	}
 	return true
+}
+
+// rustValueParents are the parents under which a one-segment path is read as
+// a value, with the field it must stand in ("" for any child).
+var rustValueParents = map[string]string{
+	"arguments":                     "",
+	"array_expression":              "",
+	"tuple_expression":              "",
+	rustNodeReturnExpression:        "",
+	"reference_expression":          "value",
+	"unary_expression":              "",
+	"binary_expression":             "",
+	rustNodeParenthesizedExpression: "",
+	"type_cast_expression":          "value",
+	"range_expression":              "",
+	"index_expression":              "",
+	"block":                         "",
+	rustNodeLetDeclaration:          "value",
+	rustNodeConstItem:               "value",
+	rustNodeStaticItem:              "value",
+	rustNodeAssignmentExpression:    "right",
+	"compound_assignment_expr":      "right",
+	"field_initializer":             "value",
+	"field_expression":              "value",
+}
+
+// rustPreludeValues are the prelude's values, never a reference to a crate's.
+var rustPreludeValues = map[string]bool{"None": true, "Some": true, "Ok": true, "Err": true, "Self": true}
+
+// rustIsValueName reports whether an identifier is a one-segment path read
+// as a value whose name starts with an upper-case letter: a constant, a unit
+// struct or a variant (`X25519`, `SysRng`), not a local nor a prelude value.
+func rustIsValueName(node, parent *sitter.Node, src []byte) bool {
+	name := node.Content(src)
+	if name == "" || !unicode.IsUpper([]rune(name)[0]) || rustPreludeValues[name] {
+		return false
+	}
+	field, ok := rustValueParents[parent.Type()]
+	if !ok {
+		return false
+	}
+	return field == "" || sameSyntaxNode(parent.ChildByFieldName(field), node)
 }
 
 // rustIsCallee reports whether a path is what a call calls: `a::f(..)`,
