@@ -27,7 +27,11 @@ func rubyArgumentSources(node *sitter.Node, src []byte, locals map[string]string
 	}
 	out := make([][]SourceNode, 0, args.NamedChildCount())
 	for i := 0; i < int(args.NamedChildCount()); i++ {
-		out = append(out, []SourceNode{rubyArgumentSource(args.NamedChild(i), src, locals, params)})
+		child := args.NamedChild(i)
+		if child.Type() == rubyNodeComment {
+			continue // not an argument; rubyCallArguments skips it too
+		}
+		out = append(out, []SourceNode{rubyArgumentSource(child, src, locals, params)})
 	}
 	return out
 }

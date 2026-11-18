@@ -25,6 +25,7 @@ const (
 	rubyNodeOperatorAssignment = "operator_assignment"
 	rubyNodeScopeResolution    = "scope_resolution"
 	rubyNodeConstant           = "constant"
+	rubyNodeComment            = "comment"
 	rubyNodeIdentifier         = "identifier"
 	rubyNodeInstanceVariable   = "instance_variable"
 	rubyNodeArgumentList       = "argument_list"
@@ -375,7 +376,14 @@ func rubyCallArguments(node *sitter.Node, src []byte) []string {
 	}
 	out := make([]string, 0, args.NamedChildCount())
 	for i := 0; i < int(args.NamedChildCount()); i++ {
-		out = append(out, args.NamedChild(i).Content(src))
+		child := args.NamedChild(i)
+		if child.Type() == rubyNodeComment {
+			// A comment between arguments is a named node of the grammar
+			// and not an argument: counting it gives the call an arity its
+			// source never passes, and no rule reaches it.
+			continue
+		}
+		out = append(out, child.Content(src))
 	}
 	return out
 }

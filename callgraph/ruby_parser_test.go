@@ -237,3 +237,18 @@ func rubyBareName(name string) string {
 	}
 	return name
 }
+
+// A comment between arguments is a named node of the grammar and not an
+// argument: counting it gives the call an arity its source never passes.
+func TestRubyCommentIsNotAnArgument(t *testing.T) {
+	calls := moduleCalls(t, parseOneRuby(t, "Acme::Hash.make(1, # why\n  2)\n"))
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	if got := calls[0].Callee.Name; got != "make#2" {
+		t.Errorf("callee = %q, want make#2", got)
+	}
+	if got := calls[0].Arguments; len(got) != 2 {
+		t.Errorf("arguments = %q, want two", got)
+	}
+}
