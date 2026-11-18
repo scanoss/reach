@@ -442,6 +442,7 @@ func (b *Builder) resolveCalleesByContract(graph *CallGraph, kb *contracts.Knowl
 // the fluent fallback) over them.
 func (b *Builder) indexCallers(graph *CallGraph) {
 	pruneGoPredeclaredCalls(graph, b.ecosystem)
+	resolveGoDotImportCalls(graph, b.ecosystem)
 	resolveGoFieldReceiverCalls(graph, b.ecosystem)
 	resolveNodeTypedReceivers(graph)
 	b.linkNodePackageCalls(graph)

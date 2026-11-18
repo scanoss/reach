@@ -530,3 +530,39 @@ func TestGoParser_AssumedImportName(t *testing.T) {
 		})
 	}
 }
+
+// TestGoBuilder_DotImportCalls: a bare call through a file's only dot import
+// is keyed to the imported package (go-port audit E4b); a name the package
+// declares, a builtin, or a file with two dot imports keeps the parse.
+func TestGoBuilder_DotImportCalls(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"a.go": "package p\nimport . \"example.com/acme/lib\"\nfunc run(b []byte) {\n\tSign(b)\n\thelper()\n\t_ = len(b)\n}\n",
+		"b.go": "package p\nfunc helper() {}\n",
+		"c.go": "package p\nimport (\n\t. \"example.com/acme/x\"\n\t. \"example.com/acme/y\"\n)\nfunc two() { Open() }\n",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: "example.com/p"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"Sign": "example.com/acme/lib", "helper": "example.com/p", "Open": "example.com/p"}
+	got := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, c := range fn.Calls {
+			got[c.Raw] = c.Callee.Package
+		}
+	}
+	for raw, pkg := range want {
+		if got[raw] != pkg {
+			t.Errorf("%s keyed to %q, want %q (calls %v)", raw, got[raw], pkg, got)
+		}
+	}
+	if _, kept := got["len"]; kept {
+		t.Errorf("builtin len kept: %v", got)
+	}
+}
