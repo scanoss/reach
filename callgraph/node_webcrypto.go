@@ -22,10 +22,18 @@ const (
 	// takes to WebCrypto: the global crypto object or the Node crypto module.
 	webCryptoGlobalRoute = "global"
 	webCryptoModuleRoute = "module"
+	// webCryptoGlobalObjectRoute is the global object itself (globalThis,
+	// window, self, global), which only its crypto property leads on from.
+	webCryptoGlobalObjectRoute = "globalObject"
 )
 
 // nodeGlobalObjects are the names a script reaches the global object through.
 var nodeGlobalObjects = map[string]bool{"globalThis": true, "window": true, "self": true, webCryptoGlobalRoute: true}
+
+// nodeGlobalCryptoProperties are the properties of the global object that hold
+// the Crypto object: crypto, and msCrypto, its vendor-prefixed name in old
+// Internet Explorer.
+var nodeGlobalCryptoProperties = map[string]bool{nodeCryptoGlobalName: true, "msCrypto": true}
 
 // nodeCryptoMethods are the Crypto methods. On the Node crypto module only
 // getRandomValues is the WebCrypto one: randomUUID there is the module's own.
@@ -36,6 +44,16 @@ var nodeCryptoMethods = map[string]bool{"getRandomValues": true, "randomUUID": t
 type webCryptoScope struct {
 	bound    func(name string) (nodeBinding, bool)
 	declared func(name string) bool
+	// held, when set, reads a name the code declares as the route its
+	// declaration holds at the use (`const { crypto } = globalThis`, `const
+	// c = nodeCrypto.webcrypto`); declared is false when the name has no
+	// declaration of the file's own, and bound and declared then decide.
+	held func(name *sitter.Node) (path string, ok, declared bool)
+	// heldDecides makes a declaration held does not follow to a route
+	// final; otherwise bound and declared still decide it, as they do
+	// without held (a receiver's locals do not hold an enclosing
+	// function's).
+	heldDecides bool
 }
 
 // nodeWebCryptoInterface returns the WebCrypto interface an expression
@@ -79,11 +97,74 @@ func nodeWebCryptoPath(expr *sitter.Node, src []byte, scope webCryptoScope) (str
 	}
 	switch expr.Type() {
 	case goNodeIdentifier:
+		if scope.held != nil {
+			if path, ok, declared := scope.held(expr); ok || declared && scope.heldDecides {
+				return path, ok
+			}
+		}
 		return nodeWebCryptoRoot(expr.Content(src), scope)
 	case nodeMemberExpression:
 		return nodeWebCryptoMemberPath(expr, src, scope)
 	}
 	return "", false
+}
+
+// nodeWebCryptoValuePath spells the value a declaration holds as a route:
+// the expression itself, or a conditional whose every branch is one route
+// or empty (`'crypto' in globalThis ? globalThis.crypto : undefined`,
+// `typeof window !== 'undefined' ? window : {}`), or a
+// `||` / `??` whose every operand is one route (`g.crypto || g.msCrypto`).
+func nodeWebCryptoValuePath(expr *sitter.Node, src []byte, scope webCryptoScope) (string, bool) {
+	expr = unwrapNodeValue(expr)
+	if expr == nil {
+		return "", false
+	}
+	var branches []*sitter.Node
+	switch expr.Type() {
+	case "ternary_expression":
+		branches = []*sitter.Node{expr.ChildByFieldName("consequence"), expr.ChildByFieldName("alternative")}
+	case "binary_expression":
+		switch op := expr.ChildByFieldName("operator"); {
+		case op == nil:
+			return "", false
+		case op.Type() == "||" || op.Type() == "??":
+			branches = []*sitter.Node{expr.ChildByFieldName("left"), expr.ChildByFieldName("right")}
+		default:
+			return "", false
+		}
+	default:
+		return nodeWebCryptoPath(expr, src, scope)
+	}
+	route := ""
+	for _, branch := range branches {
+		branch = unwrapNodeValue(branch)
+		if branch == nil {
+			return "", false
+		}
+		if nodeIsEmptyValue(branch, src) {
+			continue
+		}
+		path, ok := nodeWebCryptoValuePath(branch, src, scope)
+		if !ok || route != "" && path != route {
+			return "", false
+		}
+		route = path
+	}
+	return route, route != ""
+}
+
+// nodeIsEmptyValue reports a fallback that holds no route and no property:
+// null, undefined and the empty object literal.
+func nodeIsEmptyValue(expr *sitter.Node, src []byte) bool {
+	switch expr.Type() {
+	case "null", "undefined":
+		return true
+	case goNodeIdentifier:
+		return expr.Content(src) == "undefined"
+	case nodeObjectLiteral:
+		return expr.NamedChildCount() == 0
+	}
+	return false
 }
 
 // nodeWebCryptoRoot spells a bare name: an import of the Node crypto module
@@ -99,8 +180,14 @@ func nodeWebCryptoRoot(name string, scope webCryptoScope) (string, bool) {
 		}
 		return webCryptoModuleRoute + "." + binding.member, true
 	}
-	if name == nodeCryptoGlobalName && !scope.declared(name) {
+	if scope.declared(name) {
+		return "", false
+	}
+	if name == nodeCryptoGlobalName {
 		return webCryptoGlobalRoute, true
+	}
+	if nodeGlobalObjects[name] {
+		return webCryptoGlobalObjectRoute, true
 	}
 	return "", false
 }
@@ -115,15 +202,7 @@ func nodeWebCryptoMemberPath(expr *sitter.Node, src []byte, scope webCryptoScope
 		return "", false
 	}
 	name := property.Content(src)
-	switch object.Type() {
-	case goNodeIdentifier:
-		if global := object.Content(src); nodeGlobalObjects[global] && !scope.declared(global) {
-			if _, bound := scope.bound(global); bound || name != nodeCryptoGlobalName {
-				return "", false
-			}
-			return webCryptoGlobalRoute, true
-		}
-	case nodeCallExpression:
+	if object.Type() == nodeCallExpression {
 		binding, ok := nodeRequireBinding(object, src)
 		if !ok || binding.member != "" || !nodeIsCryptoModule(binding.module) {
 			return "", false
@@ -134,9 +213,119 @@ func nodeWebCryptoMemberPath(expr *sitter.Node, src []byte, scope webCryptoScope
 	if !ok {
 		return "", false
 	}
-	return base + "." + name, true
+	return nodeWebCryptoMember(base, name)
+}
+
+// nodeWebCryptoMember is the route of a property read from the route base:
+// the global object leads on only to the Crypto object.
+func nodeWebCryptoMember(base, name string) (string, bool) {
+	if base != webCryptoGlobalObjectRoute {
+		return base + "." + name, true
+	}
+	if nodeGlobalCryptoProperties[name] {
+		return webCryptoGlobalRoute, true
+	}
+	return "", false
 }
 
 func nodeIsCryptoModule(module string) bool {
 	return module == nodeCryptoGlobalName || module == "node:crypto"
+}
+
+// webCryptoScope is the scope resolveNodeMember reads a receiver in, with the
+// file's own declarations followed to the WebCrypto route they hold.
+func (p *NodeParser) webCryptoScope(imports nodeBindings, locals map[string]bool) webCryptoScope {
+	scope := imports.webCryptoScope(locals)
+	scope.held = func(name *sitter.Node) (string, bool, bool) { return p.webCryptoHeld(imports, name, 0) }
+	return scope
+}
+
+// webCryptoHeld reads a name as the WebCrypto route its declaration holds at
+// the use: a const, let or var holding its initializer (nodeWebCryptoValuePath),
+// or a name destructured from a route (`const { crypto } = globalThis`,
+// `const { webcrypto } = nodeCrypto`). declared is false for a name with no
+// declaration of the file's own, an import or a require included, which the
+// scope's bindings resolve instead.
+func (p *NodeParser) webCryptoHeld(imports nodeBindings, name *sitter.Node, depth int) (path string, ok, declared bool) {
+	x := p.values
+	if x == nil {
+		return "", false, false
+	}
+	d := x.resolve(name.Content(x.src), name)
+	if d == nil || d.hasRequired || d.kind == nodeDeclImport || nodeDeclaredByImport(d.name) {
+		return "", false, false
+	}
+	if d.writes != 0 || depth >= nodeValueMaxDepth {
+		return "", false, true
+	}
+	scope := webCryptoScope{
+		bound:    func(name string) (nodeBinding, bool) { return imports.lookup(nil, name) },
+		declared: func(string) bool { return false },
+		held: func(name *sitter.Node) (string, bool, bool) {
+			return p.webCryptoHeld(imports, name, depth+1)
+		},
+		heldDecides: true,
+	}
+	switch {
+	case d.from != nil:
+		if d.fromVar && !x.varHoldsAt(d, name) {
+			return "", false, true
+		}
+		base, ok := nodeWebCryptoValuePath(d.from, x.src, scope)
+		if !ok {
+			return "", false, true
+		}
+		path, ok = nodeWebCryptoMember(base, d.fromMember)
+		return path, ok, true
+	case x.holdsInitializer(d, name):
+		if p.callsGlobalObjectGetter(d.value) {
+			return webCryptoGlobalObjectRoute, true, true
+		}
+		path, ok = nodeWebCryptoValuePath(d.value, x.src, scope)
+		return path, ok, true
+	}
+	return "", false, true
+}
+
+// callsGlobalObjectGetter reports `getGlobal()`, a call with no arguments of a
+// function the file declares once and never reassigns, every return of which
+// is a global object name nothing declares (`return self;`, `return window;`):
+// the shim libraries write to find the global object on any platform.
+func (p *NodeParser) callsGlobalObjectGetter(value *sitter.Node) bool {
+	x := p.values
+	value = unwrapNodeValue(value)
+	if value == nil || value.Type() != nodeCallExpression || len(nodeArgumentNodes(value)) != 0 {
+		return false
+	}
+	callee := value.ChildByFieldName("function")
+	if callee == nil || callee.Type() != goNodeIdentifier {
+		return false
+	}
+	d := x.resolve(callee.Content(x.src), callee)
+	if d == nil || d.writes != 0 || d.name.Parent() == nil || d.name.Parent().Type() != nodeFunctionDeclaration {
+		return false
+	}
+	body := d.name.Parent().ChildByFieldName("body")
+	returns := 0
+	var walk func(n *sitter.Node) bool
+	walk = func(n *sitter.Node) bool {
+		if isNodeFunctionLike(n.Type()) {
+			return true
+		}
+		if n.Type() == nodeReturnStatement {
+			returns++
+			if n.NamedChildCount() != 1 {
+				return false
+			}
+			returned := unwrapNodeValue(n.NamedChild(0))
+			return returned != nil && returned.Type() == goNodeIdentifier && nodeGlobalObjects[returned.Content(x.src)] && x.resolve(returned.Content(x.src), returned) == nil
+		}
+		for i := 0; i < int(n.NamedChildCount()); i++ {
+			if !walk(n.NamedChild(i)) {
+				return false
+			}
+		}
+		return true
+	}
+	return body != nil && walk(body) && returns > 0
 }

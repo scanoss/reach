@@ -923,7 +923,8 @@ func callEdgeResolver(
 		}
 		if len(targets.nodes) == 0 {
 			// A Python call spelled with the dependency's public names
-			// (`jwt.encode`) joins the declaration its exports name. A
+			// (`jwt.encode`), or a Node call through a package specifier
+			// (`acme-sign.sign`), joins the declaration its exports name. A
 			// name_only call is never spelled so.
 			targets.nodes = public.targets(e.target, key, directDeps, functionsBySignature, hierarchy)
 		}

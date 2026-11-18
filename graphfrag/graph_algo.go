@@ -181,7 +181,16 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // condition, a closure body, a break value. It is left out only in a pattern
 // (a binding, a match arm's name, a parameter), as a segment of a longer
 // path, as a callee and as a macro's name.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "9"
+// graph-algo-rs-10: constant_refs also list each path written as a whole type
+// where OpenGrep matches a path pattern, in a new position kind type (`rng:
+// SysRng`, `-> acme::Key`, `let k: acme::Key`, `Vec<SysRng>`, `x as Key`,
+// `impl acme::Key {}`), one-segment names under the rule of rs-8 (upper-case
+// first letter, not the prelude's nor Self). A fn's signature references are
+// its own; those outside any fn (a field, an alias, an impl's self type, a
+// const's type, a trait or extern fn's signature) are the file's
+// `<varinit:<file>>`, which a file with any now has (graph-fragment-1.35): a
+// stored rs-9 graph has none.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "10"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
@@ -240,7 +249,55 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // its `$N` copies) passes a module through as the other interop helpers do, so
 // `x['default'].init()` and `x.default.CURVE` on its result key as
 // `require('m').default.init()` and its read do (were caller-local).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
+// graph-algo-node-7: two functions of one module that shared a key both stay
+// in the graph (the first one's calls were dropped). A function assigned as
+// a property of a plain identifier is keyed by that object as owner
+// (`hotp.gen = function` and `totp.gen = function` are m.(hotp).gen and
+// m.(totp).gen, were both m.gen), and a member call on the module binding
+// targets it (`hotp.gen(k)` calls m.(hotp).gen, was unbound). Of the others
+// sharing a key, the last module-level one (else the last one) keeps it and
+// each other one takes its start as a suffix (`sign@3:10`). A module without
+// such a pair keys as node-6 did. Fragments list in `exports` each key a
+// caller spells through one of the package's specifiers (`acme.sign`,
+// `acme/sub.go`, `@acme/sign.sign`, `acme.default`, `notp.hotp.gen`) that
+// names a function the package declares under another key
+// (`acme/index.sign`), from package.json `exports`, `main` or index, directory
+// indexes and re-exporting files; a stitch joins an application's call into
+// the package through it, where a node-6 fragment has no exports. A package
+// call linked in one build also follows `var o = {}; o.f = function` behind
+// `module.exports = { o }`.
+// Also in node-7: a name the file binds to the WebCrypto object keys its
+// calls on the interface, as the global spelling does: `const { crypto } =
+// globalThis`, `const c = self.crypto`, `const c = nodeCrypto.webcrypto`,
+// `const { webcrypto } = nodeCrypto`, a guarded read with a null, undefined
+// or `{}` fallback (`'crypto' in g ? g.crypto : undefined`), `g.crypto ||
+// g.msCrypto`, and the global object held through a local or returned by a
+// file function that returns only global objects (`getGlobal()`).
+// `c.randomUUID()` is (Crypto).randomUUID and `c.subtle.digest()`
+// (SubtleCrypto).digest (were caller-local, or crypto.webcrypto.subtle.digest).
+// A function nested in a class method, in a class field's value or in the
+// value of a destructuring declaration (`class T { h(xs) { return xs.map((p)
+// => m.f(p)); } }`, `const { a } = f(() => m.g())`) is a function of its own
+// with its calls, as one nested in a top-level function is (its calls were
+// in no function).
+// A call made through a module of the build that re-exports another module's
+// export is keyed as the export: `createHash()` imported from a file holding
+// `export { createHash } from 'crypto'` calls crypto.createHash, and so do
+// `export { crypto }` of `import * as crypto from 'node:crypto'`, `export *
+// as ns from`, a whole re-export (`export * from 'm'`, `module.exports =
+// require('m')`, `__exportStar`) of exactly one module for a name the file
+// does not export itself, and chains of them (were keyed under the
+// re-exporting module).
+// A call in a default parameter value (`function f(a, aux = randomBytes(32))`)
+// is a call of the function (was in no function).
+// A call whose result a function assigns to a field of this (`this._dh =
+// createECDH(c)`) carries AssignedVar `this._dh`, and a call on that field
+// (`this._dh.generateKeys()`) ReceiverVar `this._dh`, so a contract types it
+// as a call on a variable (was no AssignedVar, no ReceiverVar, caller-local).
+// A call written as the fallback operand of `||` or `??` (`const iv = p.iv ||
+// randomBytes(16)`) carries the AssignedVar the whole expression binds (was
+// none).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
@@ -288,7 +345,11 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // the enclosing function with its index, a call result over the values passed
 // to it, and an operation or composite literal over its operands, to depth 4,
 // as Rust arguments do; a const keeps its VARIABLE-over-literal shape.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "14"
+// graph-algo-go-15: the graph lists each project file's function body blocks
+// and case clauses (GoBlocks) and its assignments to plain names (GoValues of
+// kind assign, graph-fragment-1.36); a function returning a composite literal
+// (`&T{...}`, `T{}`) gets an EXPRESSION return source holding it as written.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "15"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
@@ -308,7 +369,7 @@ const goGraphAlgoPrefix = "graph-algo-go-"
 // scoped to its file (and line) instead of being dropped; and each project
 // file's string literals (`strings`, the graph's CStrings: the literal as
 // written and its span, at most 256 bytes each). The fragment facts are
-// graph-fragment-1.35.
+// graph-fragment-1.37.
 const GraphAlgoVersionC = cGraphAlgoPrefix + "1"
 
 // cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped

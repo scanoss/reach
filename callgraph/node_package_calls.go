@@ -51,6 +51,12 @@ type nodeDeclSite struct {
 	line int
 }
 
+// nodeDeclStart is where a function's node starts.
+type nodeDeclStart struct {
+	file      string
+	line, col int
+}
+
 // nodePackageCalls links a call written through a package name, such as
 // `require('liba').used()` or `import { used } from 'liba'`, to the function
 // the package's entry module exports under that name. The parser keys such a
@@ -63,8 +69,9 @@ type nodePackageCalls struct {
 	dirs   map[string]string
 	shapes *NodeShapes
 	// decls maps a declaration site to its function key, "" when two
-	// functions share it.
-	decls map[nodeDeclSite]string
+	// functions share it; starts maps the exact start of each function.
+	decls  map[nodeDeclSite]string
+	starts map[nodeDeclStart]string
 	// contracted holds the callees the KB has a contract for, which keep the
 	// name the contract is keyed by.
 	contracted map[string]bool
@@ -84,26 +91,12 @@ func (b *Builder) linkNodePackageCalls(graph *CallGraph) {
 	if err != nil {
 		return
 	}
-	r := &nodePackageCalls{
-		graph:      graph,
-		dirs:       b.nodePackageDirs,
-		shapes:     NewNodeShapes(),
-		decls:      make(map[nodeDeclSite]string),
-		contracted: make(map[string]bool, len(kb.Contracts)),
-		entries:    make(map[string]string),
-	}
+	r := newNodePackageCalls(graph, b.nodePackageDirs)
 	defer r.shapes.Close()
+	r.contracted = make(map[string]bool, len(kb.Contracts))
 	for key := range kb.Contracts {
 		method, _, _ := strings.Cut(key, "#")
 		r.contracted[method] = true
-	}
-	for key, decl := range graph.Functions {
-		site := nodeDeclSite{file: filepath.Clean(decl.FilePath), line: decl.StartLine}
-		if _, taken := r.decls[site]; taken {
-			r.decls[site] = ""
-			continue
-		}
-		r.decls[site] = key
 	}
 	for _, decl := range graph.Functions {
 		for i := range decl.Calls {
@@ -117,6 +110,35 @@ func (b *Builder) linkNodePackageCalls(graph *CallGraph) {
 			read.call.Callee = target
 		}
 	}
+}
+
+// newNodePackageCalls indexes the graph's functions by declaration site; the
+// caller closes its shapes.
+func newNodePackageCalls(graph *CallGraph, dirs map[string]string) *nodePackageCalls {
+	r := &nodePackageCalls{
+		graph:   graph,
+		dirs:    dirs,
+		shapes:  NewNodeShapes(),
+		decls:   make(map[nodeDeclSite]string),
+		starts:  make(map[nodeDeclStart]string, len(graph.Functions)),
+		entries: make(map[string]string),
+	}
+	for key, decl := range graph.Functions {
+		r.starts[nodeDeclStart{file: filepath.Clean(decl.FilePath), line: decl.StartLine, col: decl.StartCol}] = key
+		site := nodeDeclSite{file: filepath.Clean(decl.FilePath), line: decl.StartLine}
+		if _, taken := r.decls[site]; taken {
+			r.decls[site] = ""
+			continue
+		}
+		r.decls[site] = key
+	}
+	return r
+}
+
+// declaredAt is the key of the one function declared in file at line, "" for
+// none or several.
+func (r *nodePackageCalls) declaredAt(file string, line int) string {
+	return r.decls[nodeDeclSite{file: filepath.Clean(file), line: line}]
 }
 
 func (r *nodePackageCalls) resolve(call *FunctionCall) (FunctionID, bool) {
@@ -144,7 +166,7 @@ func (r *nodePackageCalls) resolve(call *FunctionCall) (FunctionID, bool) {
 	if !ok {
 		return FunctionID{}, false
 	}
-	key := r.decls[nodeDeclSite{file: filepath.Clean(defFile), line: line}]
+	key := r.declaredAt(defFile, line)
 	if key == "" {
 		return FunctionID{}, false
 	}

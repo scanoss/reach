@@ -239,7 +239,39 @@ import (
 // expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
 //
-// 1.35 gives a C or C++ fragment (graph-algo-c-1, graph-algo-cpp-1) the
+// 1.35 widens a Rust fragment's constant_refs with the paths written as a
+// whole type, in the position kind type: a struct, tuple struct, union or
+// variant field, a parameter, a return type (fn, trait or extern fn, closure,
+// fn pointer), a let annotation, a cast's target, a type alias, an impl's
+// self type, a const or static item's type, a generic argument (turbofish
+// and `Item = T` included), the referent of a reference or pointer, a tuple
+// or array element, a `dyn` or `impl` trait and a generic parameter's
+// default; text is the path as written (`SysRng`, `acme::Key`), one-segment
+// names under the rule of 1.33 (upper-case, not the prelude's types nor
+// Self). A generic type's head (`Key<u8>`), a trait bound or where predicate
+// (with its generic arguments), an impl's trait and a qualified path
+// (`<X as T>::Out`) are left out: OpenGrep matches a path pattern in none.
+// A reference in a fn's signature belongs to that fn; one outside any fn (a
+// field, an alias, an impl header, a const's type, a trait or extern fn's
+// signature) to the file's <varinit:<file>> function. The arrays keep their
+// layout; a detector reads the version to know that a type it does not find
+// is not written, where a 1.34 fragment lists no type at all.
+//
+// 1.36 adds two Go facts and a kind.
+// go_blocks lists, by file path, the extent of every block of each file's
+// function bodies (the body, if and else bodies, for bodies, bare blocks,
+// function literal bodies, and each case or default clause of a switch, type
+// switch or select, from the clause start to its end), with the key of the
+// function that holds it (GraphFragmentGoBlock); a detector tells whether a
+// call lies in the rest of the block that assigns a variable or in one nested
+// in it, rather than in a sibling case or the else. go_values gains the kind
+// "assign": an assignment of a function body to plain names (`x := e`, `x,
+// err = f()`, `var x T = e`), with its names, its operator (":=", "=" or
+// "var"), its one right-hand expression as written, and, for a var with a
+// type, type_text. A 1.35 fragment decodes with neither: such a rule then
+// cannot place a call relative to an assignment.
+//
+// 1.37 gives a C or C++ fragment (graph-algo-c-1, graph-algo-cpp-1) the
 // facts a detector matches without the source: imports, each #include
 // directive of each file with the header as module, its text and span, and
 // local when it is written in a function body; declarations, the local
@@ -247,8 +279,8 @@ import (
 // (`ctx->mode = v`); and strings, by file path, the string literals each file
 // writes (GraphFragmentString). A detector reads the version to know that a
 // header, a local or a literal it does not find is not written; a fragment
-// before 1.35 carries none of these for C or C++.
-const SchemaVersion = "graph-fragment-1.35"
+// before 1.37 carries none of these for C or C++.
+const SchemaVersion = "graph-fragment-1.37"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -495,13 +527,16 @@ type GraphFragmentExport struct {
 	// statements in source order (Python, optional with no schema bump; Rust
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
 	// optional with no schema bump; Go import specs from 1.32; C and C++
-	// #include directives from 1.35). A rule that names an import, or reads
+	// #include directives from 1.37). A rule that names an import, or reads
 	// an argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
 	// expressions and field stores of each scanned Go file in source order
 	// (1.34).
 	GoValues map[string][]GraphFragmentGoValue `json:"go_values,omitempty"`
+	// GoBlocks are, by file path, the blocks of the function bodies of each
+	// scanned Go file in source order, case clauses included (1.36).
+	GoBlocks map[string][]GraphFragmentGoBlock `json:"go_blocks,omitempty"`
 	// ObjectLiterals are, by file path, the outermost object expressions of
 	// each scanned file in source order (1.28, Node). The text of every object
 	// is written in full, so the field can be large on big files.
@@ -518,16 +553,21 @@ type GraphFragmentExport struct {
 	// Rust file's function bodies, in source order (1.30, Rust).
 	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
 	// Strings are, by file path, the string literals each scanned C or C++
-	// file writes, in source order (1.35, C and C++): a rule that matches a
+	// file writes, in source order (1.37, C and C++): a rule that matches a
 	// literal anywhere (a global table, a comparison) needs them without the
 	// source.
 	Strings map[string][]GraphFragmentString `json:"strings,omitempty"`
-	// Exports maps each public dotted name of the component (Python; optional,
-	// no schema bump) that names a declaration made elsewhere in it to that
-	// declaration: a function key, or a class as `pkg.(Type)`. Re-exports
-	// (`from .api_jwt import encode`), star imports, `__all__` and module-level
-	// aliases (`encode = _jwt_global_obj.encode`) give such names. The stitch
-	// joins a client's call of a public name (`jwt.encode`) through it.
+	// Exports maps each public dotted name of the component (Python and
+	// Node; optional, no schema bump) that names a declaration made elsewhere
+	// in it to that declaration: a function key, or a class as `pkg.(Type)`.
+	// In Python, re-exports (`from .api_jwt import encode`), star imports,
+	// `__all__` and module-level aliases (`encode = _jwt_global_obj.encode`)
+	// give such names. In Node (graph-algo-node-7), a call through a package
+	// specifier is keyed by it (`acme-sign.sign`, `acme-sign/sub.go`,
+	// `acme-sign.default`) while the package declares the function in the
+	// module that defines it (`acme-sign/index.sign`). The stitch joins a
+	// client's call of a public name (`jwt.encode`, `acme-sign.sign`) through
+	// it.
 	Exports map[string]string `json:"exports,omitempty"`
 	// PublicPaths maps each name a package's `__init__.py` imports, spelled
 	// as the package's attribute, to the module path that declares it
@@ -632,6 +672,10 @@ type GraphFragmentObjectLiteral struct {
 // receiver's declared type), package and type qualify it as method keys do;
 // receiver is a store's receiver as written; fields are a literal's elements
 // in order (name empty for a positional one) or a store's field and value.
+// Kind "assign" (1.36) is an assignment to plain names, its span the whole
+// statement: names are its left-hand names in order (`_` as written), op is
+// ":=", "=" or "var", value its right-hand expression as written when there
+// is exactly one, and type_text a var's declared type.
 // function is the key of the function that holds it, empty outside any.
 type GraphFragmentGoValue struct {
 	Kind     string                      `json:"kind"`
@@ -645,7 +689,23 @@ type GraphFragmentGoValue struct {
 	Type     string                      `json:"type,omitempty"`
 	Receiver string                      `json:"receiver,omitempty"`
 	Fields   []GraphFragmentGoValueField `json:"fields,omitempty"`
+	Names    []string                    `json:"names,omitempty"`
+	Op       string                      `json:"op,omitempty"`
+	Value    string                      `json:"value,omitempty"`
 	Function string                      `json:"function,omitempty"`
+}
+
+// GraphFragmentGoBlock is the extent of one block of a Go function body
+// (callgraph.GoBlock, graph-fragment-1.36): a `{...}` block, or a case or
+// default clause of a switch, type switch or select from the clause start to
+// its end. Columns are 1-based, end exclusive. function is the key of the
+// function that holds it.
+type GraphFragmentGoBlock struct {
+	StartLine int    `json:"start_line"`
+	StartCol  int    `json:"start_col"`
+	EndLine   int    `json:"end_line"`
+	EndCol    int    `json:"end_col"`
+	Function  string `json:"function,omitempty"`
 }
 
 // GraphFragmentGoValueField is one element of a Go composite literal, or
@@ -1090,7 +1150,8 @@ func decodePositional(what string, data []byte, required int, targets ...any) er
 // `import static`; context is the position kind: compare (operand of == or
 // !=), equals (receiver or argument of equals), case (switch label), return,
 // assign, init (initializer of a local or a field), array (array initializer
-// element), arg (call or constructor argument) or other. end_line is written
+// element), arg (call or constructor argument), other, struct (a Rust struct
+// literal's path, 1.33) or type (a path written as a Rust type, 1.35). end_line is written
 // only for a reference that spans lines.
 //
 // 1.19 appends operand, written only for a reference in a comparison whose

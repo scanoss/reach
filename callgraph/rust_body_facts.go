@@ -35,10 +35,19 @@ func (f *rustBodyFacts) visit(node *sitter.Node, src []byte) bool {
 		if parent := node.Parent(); parent != nil && rustIsValueName(node, parent, src) {
 			f.addRef(node, src, rustRefContext(node, parent, src))
 		}
+	case rustNodeTypeIdentifier, rustNodeScopedTypeIdentifier:
+		if rustIsTypeRef(node, src) {
+			f.addRef(node, src, ConstantRefType)
+		}
 	case "struct_expression":
-		if name := node.ChildByFieldName("name"); name != nil && (name.Type() == "type_identifier" || name.Type() == "scoped_type_identifier") {
+		if name := node.ChildByFieldName("name"); name != nil && (name.Type() == rustNodeTypeIdentifier || name.Type() == rustNodeScopedTypeIdentifier) {
 			f.addRef(name, src, ConstantRefStruct)
 		}
+	case rustNodeClosureExpression:
+		// The walk visits a closure's body, not its parameters' types nor
+		// its return type.
+		f.addTypeRefs(node.ChildByFieldName("parameters"), src)
+		f.addTypeRefs(node.ChildByFieldName("return_type"), src)
 	case rustNodeLetDeclaration:
 		f.addLet(node, src)
 	case "match_block":
@@ -163,6 +172,21 @@ func (f *rustBodyFacts) addCaseRefs(pattern *sitter.Node, src []byte) {
 	}
 }
 
+// addTypeRefs records the type references of a subtree the walk does not
+// visit.
+func (f *rustBodyFacts) addTypeRefs(node *sitter.Node, src []byte) {
+	if node == nil {
+		return
+	}
+	if (node.Type() == rustNodeTypeIdentifier || node.Type() == rustNodeScopedTypeIdentifier) && rustIsTypeRef(node, src) {
+		f.addRef(node, src, ConstantRefType)
+		return
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		f.addTypeRefs(node.NamedChild(i), src)
+	}
+}
+
 func (f *rustBodyFacts) addRef(node *sitter.Node, src []byte, context string) {
 	ref := ConstantRef{Text: rustTokenText(node.Content(src)), Context: context}
 	ref.Line, ref.StartCol, ref.EndCol, ref.EndLine = rustSpan(node)
@@ -220,13 +244,18 @@ func rustLetInit(value *sitter.Node) string {
 
 // sorted returns the references and declarations ordered by position.
 func (f *rustBodyFacts) sorted() ([]ConstantRef, []VarDecl) {
-	slices.SortStableFunc(f.refs, func(a, b ConstantRef) int {
-		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.StartCol, b.StartCol))
-	})
+	sortConstantRefs(f.refs)
 	slices.SortStableFunc(f.decls, func(a, b VarDecl) int {
 		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.StartCol, b.StartCol))
 	})
 	return f.refs, f.decls
+}
+
+// sortConstantRefs orders references by position.
+func sortConstantRefs(refs []ConstantRef) {
+	slices.SortStableFunc(refs, func(a, b ConstantRef) int {
+		return cmp.Or(cmp.Compare(a.Line, b.Line), cmp.Compare(a.StartCol, b.StartCol))
+	})
 }
 
 // collectRustItemInit walks the initializer of a const or static item that
