@@ -94,6 +94,8 @@ func Dependency(ecosystem, module, version string) string {
 		namespace, name = splitModule(module)
 	case "rust":
 		typ, name = packageurl.TypeCargo, module
+	case "ruby":
+		typ, name = packageurl.TypeGem, module
 	case "node":
 		typ = packageurl.TypeNPM
 		namespace, name = splitNpmModule(module)
