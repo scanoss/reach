@@ -319,6 +319,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	}
 	if b.ecosystem == ecosystemRuby {
 		resolveRubyReceiverTypes(graph)
+		resolveRubyRequires(graph)
 		resolveRubyLocalCalls(graph)
 		resolveRubyDynamicDispatch(graph)
 		graph.RubyExports = resolveRubyExports(graph)

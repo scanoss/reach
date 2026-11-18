@@ -226,3 +226,31 @@ func TestRubyInstanceVariableBoundTwiceIsUntyped(t *testing.T) {
 		}
 	}
 }
+
+// Loading a file runs every statement outside a method in it, so a require
+// is a call on the module init of the file it loads.
+func TestRubyRequireRunsTheModuleInit(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"app.rb":        "require 'signer'\nrequire_relative 'app/helper'\n",
+		"signer.rb":     "module Signer\nend\n",
+		"app/helper.rb": "module Helper\nend\n",
+	})
+	calls := callsOf(t, graph, "lib::app.<module>")
+	sort.Strings(calls)
+	want := []string{"lib.require#1", "lib.require_relative#1", "lib::app::helper.<module>", "lib::signer.<module>"}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls = %q, want %q", calls, want)
+	}
+}
+
+// A require whose path the source does not state names no file.
+func TestRubyRequireOfAnInterpolatedPathIsNotAnEdge(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"app.rb": "require \"signer/#{name}\"\n",
+	})
+	for _, c := range callsOf(t, graph, "lib::app.<module>") {
+		if c != "lib.require#1" {
+			t.Errorf("an interpolated require became the edge %q", c)
+		}
+	}
+}
