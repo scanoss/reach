@@ -180,8 +180,12 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 	if method == nil {
 		return nil
 	}
+	args := rubyCallArguments(node, src)
 	call := &FunctionCall{
-		Callee:      FunctionID{Package: packagePath, Name: method.Content(src)},
+		// The name carries the call's arity, as every other parser's does:
+		// the stored key is "pkg.(Type).method#N", and a key without the
+		// suffix is not read back as a method at all.
+		Callee:      FunctionID{Package: packagePath, Name: fmt.Sprintf("%s#%d", method.Content(src), len(args))},
 		Raw:         node.Content(src),
 		FilePath:    filePath,
 		Line:        int(node.StartPoint().Row) + 1,
@@ -190,7 +194,7 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 		EndCol:      int(node.EndPoint().Column) + 1,
 		ASTKind:     node.Type(),
 		AssignedVar: rubyAssignedVar(node, src),
-		Arguments:   rubyCallArguments(node, src),
+		Arguments:   args,
 	}
 	receiver := node.ChildByFieldName("receiver")
 	if receiver == nil {
