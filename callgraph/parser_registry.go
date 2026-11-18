@@ -53,6 +53,8 @@ func NewTypeResolverForEcosystem(ecosystem string, javaRuntime javaruntime.Confi
 		return NewNodeContractTypeResolverFromSource()
 	case "python":
 		return NewPythonTypeResolverChain()
+	case "ruby":
+		return NewRubyContractTypeResolverFromSource()
 	case "rust":
 		return NewRustContractTypeResolverFromSource()
 	default:
