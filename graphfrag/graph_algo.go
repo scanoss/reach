@@ -266,6 +266,15 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // the package through it, where a node-6 fragment has no exports. A package
 // call linked in one build also follows `var o = {}; o.f = function` behind
 // `module.exports = { o }`.
+// Also in node-7: a name the file binds to the WebCrypto object keys its
+// calls on the interface, as the global spelling does: `const { crypto } =
+// globalThis`, `const c = self.crypto`, `const c = nodeCrypto.webcrypto`,
+// `const { webcrypto } = nodeCrypto`, a guarded read with a null, undefined
+// or `{}` fallback (`'crypto' in g ? g.crypto : undefined`), `g.crypto ||
+// g.msCrypto`, and the global object held through a local or returned by a
+// file function that returns only global objects (`getGlobal()`).
+// `c.randomUUID()` is (Crypto).randomUUID and `c.subtle.digest()`
+// (SubtleCrypto).digest (were caller-local, or crypto.webcrypto.subtle.digest).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

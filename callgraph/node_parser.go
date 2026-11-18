@@ -1346,7 +1346,7 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, name string, src []byte, packagePath, owner string, imports nodeBindings, locals map[string]bool) *FunctionCall {
 	objectText := nodeDottedText(object, src)
 	call.Callee = FunctionID{Package: packagePath, Name: name}
-	if iface, ok := nodeWebCryptoCallInterface(object, src, name, imports.webCryptoScope(locals)); ok {
+	if iface, ok := nodeWebCryptoCallInterface(object, src, name, p.webCryptoScope(imports, locals)); ok {
 		// Every spelling reaches the one WebCrypto object, so the interface is
 		// the receiver identity that ties a function's calls on it together
 		// (generateKey, then encrypt), as a variable name does for `subtle.x()`.

@@ -116,3 +116,69 @@ export async function lookalikes(crypto, store) {
 		}
 	}
 }
+
+// A name the file binds to the global crypto object, or to Node's webcrypto,
+// is that object: destructured from a global object, read off one, a guarded
+// read with an empty fallback, a global-object shim, a member of the crypto
+// module. A name that may hold anything else stays the name.
+func TestNodeParser_WebCryptoLocalAliasesResolveToTheirInterface(t *testing.T) {
+	t.Parallel()
+
+	analysis := parseNodeSource(t, `const nodeCrypto = require('crypto');
+const wc = nodeCrypto.webcrypto;
+const { webcrypto: wc2 } = nodeCrypto;
+const host = typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : {};
+const guarded = typeof host === 'object' && 'crypto' in host ? host.crypto : undefined;
+function getGlobal() {
+  if (typeof self !== 'undefined') { return self; }
+  if (typeof window !== 'undefined') { return window; }
+  throw new Error('no global');
+}
+const anyGlobal = getGlobal();
+const legacy = anyGlobal.crypto || anyGlobal.msCrypto;
+let rebound = globalThis.crypto;
+rebound = makeFake();
+
+export async function aliases(data) {
+  const { crypto } = globalThis;
+  crypto.randomUUID();
+  const c = self.crypto;
+  await c.subtle.digest('SHA-256', data);
+  wc.getRandomValues(data);
+  await wc.subtle.importKey('raw', data, 'PBKDF2', false, ['deriveBits']);
+  await wc2.subtle.digest('SHA-1', data);
+  guarded.getRandomValues(data);
+  legacy.getRandomValues(data);
+}
+
+export function notAliases(store, data) {
+  const crypto = store.crypto;
+  crypto.getRandomValues(data);
+  rebound.getRandomValues(data);
+  const { crypto: other } = store;
+  other.randomUUID();
+}
+`)
+	var got []string
+	for i := range analysis.Functions {
+		fn := &analysis.Functions[i]
+		for _, call := range fn.Calls {
+			if strings.Contains(call.Callee.String(), "Crypto") {
+				got = append(got, fn.ID.Name+" "+call.Callee.String())
+			}
+		}
+	}
+	sort.Strings(got)
+	want := []string{
+		"aliases (Crypto).getRandomValues",
+		"aliases (Crypto).getRandomValues",
+		"aliases (Crypto).getRandomValues",
+		"aliases (Crypto).randomUUID",
+		"aliases (SubtleCrypto).digest",
+		"aliases (SubtleCrypto).digest",
+		"aliases (SubtleCrypto).importKey",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("WebCrypto calls:\n got %q\nwant %q", got, want)
+	}
+}
