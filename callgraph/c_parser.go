@@ -115,6 +115,9 @@ func (p *CParser) parseFile(filePath, packagePath string) (*FileAnalysis, error)
 		p.walkFile(altRoot, altSrc, filePath, packagePath, staticFunctions, false, alt)
 		analysis.Functions = cMergeFunctions(analysis.Functions, cBrokenFunctionLines(root), alt.Functions)
 	}
+	if varinit := cFileVarinit(root, src, filePath, packagePath, staticFunctions); varinit != nil {
+		analysis.Functions = append(analysis.Functions, *varinit)
+	}
 	analysis.CStrings = cStringLiterals(root, src)
 	return analysis, nil
 }
@@ -188,6 +191,7 @@ func (p *CParser) parseMacroFunction(head, body *sitter.Node, src []byte, filePa
 	handles := make(map[string]bool)
 	collectCHandleVars(body, src, handles)
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, handles, &decl.Calls)
+	decl.ImplicitCalls = cValueReferences(nil, body, src, filePath, packagePath, staticFunctions)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions)
 	decl.Declarations = cDeclarations(body, src)
 	decl.AttributeStores = cFieldStores(body, src)
@@ -258,6 +262,7 @@ func (p *CParser) parseFunction(node *sitter.Node, src []byte, filePath, package
 	handles := make(map[string]bool)
 	collectCHandleVars(node, src, handles)
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, handles, &decl.Calls)
+	decl.ImplicitCalls = cValueReferences(node, body, src, filePath, packagePath, staticFunctions)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions)
 	decl.Declarations = cDeclarations(body, src)
 	decl.AttributeStores = cFieldStores(body, src)
