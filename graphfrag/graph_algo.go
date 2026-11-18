@@ -395,6 +395,13 @@ const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "1"
 // cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped
 // with one is a C++ graph.
 const cppGraphAlgoPrefix = "graph-algo-cpp-"
+// GraphAlgoVersionRuby is the Ruby call graph algorithm id. It moves when a
+// Ruby graph changes, and re-mines Ruby graphs alone.
+const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "1"
+
+// rubyGraphAlgoPrefix starts every Ruby graph algorithm id: a fragment stamped
+// with one is a Ruby graph.
+const rubyGraphAlgoPrefix = "graph-algo-rb-"
 
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
@@ -415,6 +422,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionC
 	case "cpp":
 		return GraphAlgoVersionCPP
+	case "ruby":
+		return GraphAlgoVersionRuby
 	}
 	return GraphAlgoVersion
 }
@@ -435,6 +444,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "cpp"
 	case strings.HasPrefix(id, cGraphAlgoPrefix):
 		return "c"
+	case strings.HasPrefix(id, rubyGraphAlgoPrefix):
+		return "ruby"
 	}
 	return ""
 }
@@ -458,6 +469,8 @@ func EcosystemForPurl(purl string) string {
 		return "rust"
 	case strings.HasPrefix(purl, "pkg:npm/"):
 		return "node"
+	case strings.HasPrefix(purl, "pkg:gem/"):
+		return "ruby"
 	default:
 		return ""
 	}
