@@ -238,7 +238,21 @@ import (
 // (GraphFragmentGoValue). A detector matches a rule written as such an
 // expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
-const SchemaVersion = "graph-fragment-1.34"
+//
+// 1.36 (1.35 is claimed by two open changes) adds two Go facts and a kind.
+// go_blocks lists, by file path, the extent of every block of each file's
+// function bodies (the body, if and else bodies, for bodies, bare blocks,
+// function literal bodies, and each case or default clause of a switch, type
+// switch or select, from the clause start to its end), with the key of the
+// function that holds it (GraphFragmentGoBlock); a detector tells whether a
+// call lies in the rest of the block that assigns a variable or in one nested
+// in it, rather than in a sibling case or the else. go_values gains the kind
+// "assign": an assignment of a function body to plain names (`x := e`, `x,
+// err = f()`, `var x T = e`), with its names, its operator (":=", "=" or
+// "var"), its one right-hand expression as written, and, for a var with a
+// type, type_text. A 1.34 fragment decodes with neither: such a rule then
+// cannot place a call relative to an assignment.
+const SchemaVersion = "graph-fragment-1.36"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -491,6 +505,9 @@ type GraphFragmentExport struct {
 	// expressions and field stores of each scanned Go file in source order
 	// (1.34).
 	GoValues map[string][]GraphFragmentGoValue `json:"go_values,omitempty"`
+	// GoBlocks are, by file path, the blocks of the function bodies of each
+	// scanned Go file in source order, case clauses included (1.36).
+	GoBlocks map[string][]GraphFragmentGoBlock `json:"go_blocks,omitempty"`
 	// ObjectLiterals are, by file path, the outermost object expressions of
 	// each scanned file in source order (1.28, Node). The text of every object
 	// is written in full, so the field can be large on big files.
@@ -616,6 +633,10 @@ type GraphFragmentObjectLiteral struct {
 // receiver's declared type), package and type qualify it as method keys do;
 // receiver is a store's receiver as written; fields are a literal's elements
 // in order (name empty for a positional one) or a store's field and value.
+// Kind "assign" (1.36) is an assignment to plain names, its span the whole
+// statement: names are its left-hand names in order (`_` as written), op is
+// ":=", "=" or "var", value its right-hand expression as written when there
+// is exactly one, and type_text a var's declared type.
 // function is the key of the function that holds it, empty outside any.
 type GraphFragmentGoValue struct {
 	Kind     string                      `json:"kind"`
@@ -629,7 +650,23 @@ type GraphFragmentGoValue struct {
 	Type     string                      `json:"type,omitempty"`
 	Receiver string                      `json:"receiver,omitempty"`
 	Fields   []GraphFragmentGoValueField `json:"fields,omitempty"`
+	Names    []string                    `json:"names,omitempty"`
+	Op       string                      `json:"op,omitempty"`
+	Value    string                      `json:"value,omitempty"`
 	Function string                      `json:"function,omitempty"`
+}
+
+// GraphFragmentGoBlock is the extent of one block of a Go function body
+// (callgraph.GoBlock, graph-fragment-1.36): a `{...}` block, or a case or
+// default clause of a switch, type switch or select from the clause start to
+// its end. Columns are 1-based, end exclusive. function is the key of the
+// function that holds it.
+type GraphFragmentGoBlock struct {
+	StartLine int    `json:"start_line"`
+	StartCol  int    `json:"start_col"`
+	EndLine   int    `json:"end_line"`
+	EndCol    int    `json:"end_col"`
+	Function  string `json:"function,omitempty"`
 }
 
 // GraphFragmentGoValueField is one element of a Go composite literal, or

@@ -288,7 +288,11 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // the enclosing function with its index, a call result over the values passed
 // to it, and an operation or composite literal over its operands, to depth 4,
 // as Rust arguments do; a const keeps its VARIABLE-over-literal shape.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "14"
+// graph-algo-go-15: the graph lists each project file's function body blocks
+// and case clauses (GoBlocks) and its assignments to plain names (GoValues of
+// kind assign, graph-fragment-1.36); a function returning a composite literal
+// (`&T{...}`, `T{}`) gets an EXPRESSION return source holding it as written.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "15"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
