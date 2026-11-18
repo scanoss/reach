@@ -28,6 +28,8 @@ func NewParserForEcosystem(ecosystem string, opts ...ParserOption) Parser {
 		return NewNodeParser(opts...)
 	case "python":
 		return NewPythonParser(opts...)
+	case "ruby":
+		return NewRubyParser(opts...)
 	case "rust":
 		return NewRustParser(opts...)
 	default:
@@ -51,6 +53,8 @@ func NewTypeResolverForEcosystem(ecosystem string, javaRuntime javaruntime.Confi
 		return NewNodeContractTypeResolverFromSource()
 	case "python":
 		return NewPythonTypeResolverChain()
+	case "ruby":
+		return NewRubyContractTypeResolverFromSource()
 	case "rust":
 		return NewRustContractTypeResolverFromSource()
 	default:

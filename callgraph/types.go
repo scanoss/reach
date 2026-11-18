@@ -413,6 +413,18 @@ type FunctionCall struct {
 	// (TikaInputStream.get(..)), which binds at compile time and never
 	// dispatches to a subtype (Java only).
 	StaticReceiver bool
+	// RubySelfClassReceiver marks a call whose receiver is `self.class`:
+	// the class-side method of the class the caller is declared in.
+	RubySelfClassReceiver bool
+	// RubyDispatchCandidate marks one of the declarations a Ruby call on a
+	// receiver nothing types may run (`@algorithm.sign`). Each is an edge
+	// the graph guesses, never one it resolved, so each is name-only.
+	RubyDispatchCandidate bool
+	// RubySelfCandidate marks a call Ruby spells as a bare word, which the
+	// grammar cannot tell from a local read: it becomes an edge only where
+	// the caller's own class declares the method (resolveRubyLocalCalls),
+	// and is dropped otherwise.
+	RubySelfCandidate bool
 	// Callee is the resolved target function
 	Callee FunctionID
 	// FieldReceiver is set for a Go call through a struct field of a typed
@@ -876,6 +888,14 @@ type CallGraph struct {
 	// "acme-sign.default" -> "acme-sign/index.exports". A domain writes it as
 	// a fragment's `exports`, which the stitch joins a client's call through.
 	NodePackageExports map[string]string
+	// RubyExports maps each public constant path of the component's Ruby
+	// methods to the declaration behind it (resolveRubyExports):
+	// "(JWT).encode" -> "lib.(JWT).encode#4". A Ruby constant is public where
+	// it is defined -- there is no __init__.py, no re-export and no __all__ --
+	// so the path is the module and class nesting of the `def`, and the key
+	// carries no arity: optional parameters make a count meaningless to a
+	// caller, which is the same reason Python's keys carry none.
+	RubyExports map[string]string
 	// NamedValues merges every parsed file's NamedValues.
 	NamedValues map[string]NamedValue
 	// javaMemberTypes merges every parsed file's JavaMemberTypes ("" when two
