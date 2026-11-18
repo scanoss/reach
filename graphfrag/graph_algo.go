@@ -282,7 +282,13 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // import's package; the graph lists each project file's import specs.
 // graph-algo-go-13: the graph lists each project file's composite literals,
 // new(T) expressions and field stores (GoValues, graph-fragment-1.34).
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "13"
+// graph-algo-go-14: a Go call argument carries the source nodes of its value:
+// a literal as written, a local traced to its initializer (or, when the
+// function writes it again, the string literals it may hold), a parameter of
+// the enclosing function with its index, a call result over the values passed
+// to it, and an operation or composite literal over its operands, to depth 4,
+// as Rust arguments do; a const keeps its VARIABLE-over-literal shape.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "14"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.

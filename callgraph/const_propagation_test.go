@@ -63,10 +63,12 @@ func TestGoParser_ConstArgumentSources(t *testing.T) {
 		{"hex yields nothing", "const bits = 0xC00\nfunc f() { gen(rand, bits) }", "", false},
 		{"var is not a const", "var bits = 3072\nfunc f() { gen(rand, bits) }", "", false},
 		{"for clause := shadows const", "const bits = 3072\nfunc f() {\n\tfor bits := 0; bits < 2; bits++ {\n\t\tgen(rand, bits)\n\t}\n}", "", false},
-		{"for clause := shadows in the body", "const bits = 3072\nfunc f() {\n\tfor bits := 0; ; {\n\t\tgen(rand, bits)\n\t}\n}", "", false},
+		// The local the clause declares is never written, so the argument is
+		// traced to its own initializer, not to the const it shadows.
+		{"for clause := shadows in the body", "const bits = 3072\nfunc f() {\n\tfor bits := 0; ; {\n\t\tgen(rand, bits)\n\t}\n}", "0", true},
 		{"select receive := shadows const", "const bits = 3072\nfunc f(c chan int) {\n\tselect {\n\tcase bits := <-c:\n\t\tgen(rand, bits)\n\t}\n}", "", false},
 		{"select receive = does not shadow", "const bits = 3072\nfunc f(c chan int) {\n\tvar v int\n\tselect {\n\tcase v = <-c:\n\t\tgen(rand, bits)\n\t}\n}", "3072", true},
-		{"labeled := shadows const", "const bits = 3072\nfunc f() {\nL:\n\tbits := 1\n\tgen(rand, bits)\n\tgoto L\n}", "", false},
+		{"labeled := shadows const", "const bits = 3072\nfunc f() {\nL:\n\tbits := 1\n\tgen(rand, bits)\n\tgoto L\n}", "1", true},
 		{"variadic parameter shadows const", "const bits = 3072\nfunc f(bits ...int) { gen(rand, bits) }", "", false},
 		{"func literal parameter shadows const", "const bits = 3072\nfunc f() {\n\th := func(bits int) { gen(rand, bits) }\n\t_ = h\n}", "", false},
 		{"type switch alias shadows const", "const bits = 3072\nfunc f(x any) {\n\tswitch bits := x.(type) {\n\tcase int:\n\t\tgen(rand, bits)\n\t}\n}", "", false},
