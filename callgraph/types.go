@@ -739,6 +739,9 @@ type FileAnalysis struct {
 	// nodePropertyReads lists the property reads of the file's functions, in
 	// source order, as the parser keyed them (Node only).
 	nodePropertyReads []nodePropertyReadSite
+	// nodeReExports holds what the file re-exports from other modules (Node
+	// only), nil when nothing.
+	nodeReExports *nodeModuleReExports
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -888,6 +891,9 @@ type CallGraph struct {
 	// nodeAssignedProps holds every property name any Node module assigns on
 	// an object other than `this`.
 	nodeAssignedProps map[string]bool
+	// nodeReExports indexes each Node module's re-exports by module path, for
+	// resolveNodeReExportedCalls.
+	nodeReExports map[string]*nodeModuleReExports
 	// nodeClassOwners holds the Node classes whose supertypes the parser
 	// resolved through imports.
 	nodeClassOwners map[string]bool

@@ -280,6 +280,14 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // => m.f(p)); } }`, `const { a } = f(() => m.g())`) is a function of its own
 // with its calls, as one nested in a top-level function is (its calls were
 // in no function).
+// A call made through a module of the build that re-exports another module's
+// export is keyed as the export: `createHash()` imported from a file holding
+// `export { createHash } from 'crypto'` calls crypto.createHash, and so do
+// `export { crypto }` of `import * as crypto from 'node:crypto'`, `export *
+// as ns from`, a whole re-export (`export * from 'm'`, `module.exports =
+// require('m')`, `__exportStar`) of exactly one module for a name the file
+// does not export itself, and chains of them (were keyed under the
+// re-exporting module).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

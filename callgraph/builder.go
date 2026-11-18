@@ -449,6 +449,7 @@ func (b *Builder) indexCallers(graph *CallGraph) {
 	pruneGoPredeclaredCalls(graph, b.ecosystem)
 	resolveGoDotImportCalls(graph, b.ecosystem)
 	resolveGoFieldReceiverCalls(graph, b.ecosystem)
+	resolveNodeReExportedCalls(graph)
 	resolveNodeTypedReceivers(graph)
 	b.linkNodePackageCalls(graph)
 	b.recordNodePackageExports(graph)
