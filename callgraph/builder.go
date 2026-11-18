@@ -952,6 +952,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			graph.PythonImports[analysis.FilePath] = analysis.PythonImports
 		}
 	}
+	if b.ecosystem == ecosystemGo && projectLocal && len(analysis.GoValues) > 0 {
+		if graph.GoValues == nil {
+			graph.GoValues = make(map[string][]GoValue)
+		}
+		graph.GoValues[analysis.FilePath] = analysis.GoValues
+	}
 	if b.ecosystem == ecosystemGo && projectLocal && len(analysis.GoImports) > 0 {
 		if graph.GoImports == nil {
 			graph.GoImports = make(map[string][]GoImport)

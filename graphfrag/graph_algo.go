@@ -275,7 +275,9 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // identifier also binds the name Go tooling assumes for it (go-jose/v4 binds
 // jose); a bare call through a file's only dot import is keyed to that
 // import's package; the graph lists each project file's import specs.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "12"
+// graph-algo-go-13: the graph lists each project file's composite literals,
+// new(T) expressions and field stores (GoValues, graph-fragment-1.34).
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "13"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
