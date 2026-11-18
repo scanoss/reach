@@ -238,7 +238,17 @@ import (
 // (GraphFragmentGoValue). A detector matches a rule written as such an
 // expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
-const SchemaVersion = "graph-fragment-1.34"
+//
+// 1.35 gives a C or C++ fragment (graph-algo-c-1, graph-algo-cpp-1) the
+// facts a detector matches without the source: imports, each #include
+// directive of each file with the header as module, its text and span, and
+// local when it is written in a function body; declarations, the local
+// variables each function declares; attribute_stores, its field stores
+// (`ctx->mode = v`); and strings, by file path, the string literals each file
+// writes (GraphFragmentString). A detector reads the version to know that a
+// header, a local or a literal it does not find is not written; a fragment
+// before 1.35 carries none of these for C or C++.
+const SchemaVersion = "graph-fragment-1.35"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -484,8 +494,9 @@ type GraphFragmentExport struct {
 	// Imports are, by file path, the bindings of each scanned file's import
 	// statements in source order (Python, optional with no schema bump; Rust
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
-	// optional with no schema bump; Go import specs from 1.32). A rule that names an import, or reads an
-	// argument through an import alias, needs them without the source.
+	// optional with no schema bump; Go import specs from 1.32; C and C++
+	// #include directives from 1.35). A rule that names an import, or reads
+	// an argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
 	// expressions and field stores of each scanned Go file in source order
@@ -507,9 +518,9 @@ type GraphFragmentExport struct {
 	// Rust file's function bodies, in source order (1.30, Rust).
 	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
 	// Strings are, by file path, the string literals each scanned C or C++
-	// file writes, in source order (graph-algo-c-1, graph-algo-cpp-1;
-	// optional, no schema bump): a rule that matches a literal anywhere (a
-	// global table, a comparison) needs them without the source.
+	// file writes, in source order (1.35, C and C++): a rule that matches a
+	// literal anywhere (a global table, a comparison) needs them without the
+	// source.
 	Strings map[string][]GraphFragmentString `json:"strings,omitempty"`
 	// Exports maps each public dotted name of the component (Python; optional,
 	// no schema bump) that names a declaration made elsewhere in it to that

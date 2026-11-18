@@ -302,11 +302,13 @@ const goGraphAlgoPrefix = "graph-algo-go-"
 // fragments list each project file's #include directives (`imports`, the
 // graph's CIncludes): the header as written, angle or quote form, the
 // directive's text and span, and whether it sits in a preprocessor
-// conditional; a declaration of a name another declaration of the package
+// conditional; each function's local declarations and field stores; a
+// declaration of a name another declaration of the package
 // already holds (alternative backends, #if/#else bodies) is kept under a key
 // scoped to its file (and line) instead of being dropped; and each project
 // file's string literals (`strings`, the graph's CStrings: the literal as
-// written and its span, at most 256 bytes each).
+// written and its span, at most 256 bytes each). The fragment facts are
+// graph-fragment-1.35.
 const GraphAlgoVersionC = cGraphAlgoPrefix + "1"
 
 // cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped
