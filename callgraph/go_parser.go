@@ -449,6 +449,7 @@ func (p *GoParser) extractFunctions(root *sitter.Node, src []byte, filePath, pac
 func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, filePath, packagePath string, analysis *FileAnalysis) {
 	var calls []FunctionCall
 	varTypes := make(map[string]string)
+	from := len(analysis.GoValues)
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		if child.Type() != "var_declaration" {
@@ -457,10 +458,12 @@ func (p *GoParser) extractGoPackageInitCalls(root *sitter.Node, src []byte, file
 		p.walkForCalls(child, src, filePath, analysis, "", "", varTypes, &calls)
 	}
 	if len(calls) == 0 {
+		// Values outside any function keep an empty Function.
 		return
 	}
 	fn := goVarinitDecl(analysis, filePath, packagePath, int(root.EndPoint().Row)+1)
 	fn.Calls = calls
+	keyGoValues(analysis, from, fn.ID.String())
 }
 
 // goVarinitPrefix starts the name of a file's synthetic package-level
@@ -870,7 +873,9 @@ func (p *GoParser) parseFunctionDecl(node *sitter.Node, src []byte, filePath, pa
 
 	if body != nil {
 		varTypes := p.collectGoVarTypes(params, src, node)
+		from := len(analysis.GoValues)
 		decl.Calls = p.extractCalls(body, src, filePath, analysis, "", "", varTypes)
+		keyGoValues(analysis, from, decl.ID.String())
 		decl.ReturnSources = p.extractReturnSources(body, src, filePath, analysis, "", "", varTypes)
 		decl.constructed = goReturnedObjects(body, src, decl.ID.Package, analysis)
 		decl.localBindings = countLocalBindings(body, src, goLocalBinders)
@@ -931,7 +936,9 @@ func (p *GoParser) parseMethodDecl(node *sitter.Node, src []byte, filePath, pack
 
 	if body != nil {
 		varTypes := p.collectGoVarTypes(params, src, node)
+		from := len(analysis.GoValues)
 		decl.Calls = p.extractCalls(body, src, filePath, analysis, receiver, receiverVar, varTypes)
+		keyGoValues(analysis, from, decl.ID.String())
 		decl.ReturnSources = p.extractReturnSources(body, src, filePath, analysis, receiver, receiverVar, varTypes)
 		decl.constructed = goReturnedObjects(body, src, decl.ID.Package, analysis)
 		decl.localBindings = countLocalBindings(body, src, goLocalBinders)
@@ -1239,6 +1246,9 @@ func (p *GoParser) walkForCalls(
 	varTypes map[string]string,
 	calls *[]FunctionCall,
 ) {
+	if v := goValueAt(node, src, analysis, varTypes); v != nil {
+		analysis.GoValues = append(analysis.GoValues, *v)
+	}
 	if node.Type() == "call_expression" {
 		if call := p.parseCallExpr(node, src, filePath, analysis, currentReceiverType, currentReceiverVar, varTypes); call != nil {
 			p.anchors.set(call, node)

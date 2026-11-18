@@ -218,7 +218,17 @@ import (
 // span. A detector tells a rule's `import $P "p"`, which binds only an
 // aliased import, from `import "p"`. A 1.30 Go fragment decodes with none;
 // such a rule then cannot tell the two apart.
-const SchemaVersion = "graph-fragment-1.32"
+//
+// 1.33 gives a Go fragment go_values: by file path, the composite literals
+// (`tls.Config{MinVersion: v}`, `&rsa.PSSOptions{...}`), new(T) expressions
+// and field stores (`cfg.CipherSuites = v`) of each file, nested ones
+// included, each with its kind, span (a literal's `&` at addr_col), type as
+// written and qualified, a store's receiver, its fields or elements as
+// written with their spans, and the key of the function that holds it
+// (GraphFragmentGoValue). A detector matches a rule written as such an
+// expression without the source. A 1.32 fragment decodes with none: such a
+// rule then matches nothing.
+const SchemaVersion = "graph-fragment-1.33"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -467,6 +477,10 @@ type GraphFragmentExport struct {
 	// optional with no schema bump; Go import specs from 1.32). A rule that names an import, or reads an
 	// argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
+	// GoValues are, by file path, the composite literals, new(T)
+	// expressions and field stores of each scanned Go file in source order
+	// (1.33).
+	GoValues map[string][]GraphFragmentGoValue `json:"go_values,omitempty"`
 	// ObjectLiterals are, by file path, the outermost object expressions of
 	// each scanned file in source order (1.28, Node). The text of every object
 	// is written in full, so the field can be large on big files.
@@ -581,6 +595,42 @@ type GraphFragmentObjectLiteral struct {
 	AssignedVar    string `json:"assigned_var,omitempty"`
 	AssignStartCol int    `json:"assign_start_col,omitempty"`
 	AssignLine     int    `json:"assign_line,omitempty"`
+}
+
+// GraphFragmentGoValue is one Go expression that builds or configures a
+// value without a call the graph records (callgraph.GoValue,
+// graph-fragment-1.33): kind "composite" (`T{...}`), "new" (`new(T)`) or
+// "store" (`x.f = v`). The span is the expression's own (columns 1-based, end
+// exclusive, end_line only when it spans lines); a composite literal's
+// leading `&` is at addr_col. type_text is the type as written (a store's
+// receiver's declared type), package and type qualify it as method keys do;
+// receiver is a store's receiver as written; fields are a literal's elements
+// in order (name empty for a positional one) or a store's field and value.
+// function is the key of the function that holds it, empty outside any.
+type GraphFragmentGoValue struct {
+	Kind     string                      `json:"kind"`
+	Line     int                         `json:"line"`
+	StartCol int                         `json:"start_col"`
+	EndCol   int                         `json:"end_col"`
+	EndLine  int                         `json:"end_line,omitempty"`
+	AddrCol  int                         `json:"addr_col,omitempty"`
+	TypeText string                      `json:"type_text,omitempty"`
+	Package  string                      `json:"package,omitempty"`
+	Type     string                      `json:"type,omitempty"`
+	Receiver string                      `json:"receiver,omitempty"`
+	Fields   []GraphFragmentGoValueField `json:"fields,omitempty"`
+	Function string                      `json:"function,omitempty"`
+}
+
+// GraphFragmentGoValueField is one element of a Go composite literal, or
+// the field a store writes, with its value as written and the value's span.
+type GraphFragmentGoValueField struct {
+	Name     string `json:"name,omitempty"`
+	Value    string `json:"value"`
+	Line     int    `json:"line"`
+	StartCol int    `json:"start_col"`
+	EndCol   int    `json:"end_col"`
+	EndLine  int    `json:"end_line,omitempty"`
 }
 
 // GraphFragmentPropertyRead is one member expression of a Node file whose

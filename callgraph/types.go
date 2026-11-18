@@ -718,6 +718,9 @@ type FileAnalysis struct {
 	// GoImports lists the specs of the file's import declarations, in
 	// source order (Go only).
 	GoImports []GoImport
+	// GoValues lists the composite literals, new(T) expressions and field
+	// stores of the file, in source order (Go only).
+	GoValues []GoValue
 	// NodeImports lists the imports, requires, dynamic imports and
 	// re-exports of the file, in source order (Node only).
 	NodeImports []NodeImport
@@ -816,6 +819,9 @@ type CallGraph struct {
 	// GoImports holds the import specs of each project source file, by
 	// file path (Go only), paths and names as written.
 	GoImports map[string][]GoImport
+	// GoValues holds the composite literals, new(T) expressions and field
+	// stores of each project source file, by file path (Go only).
+	GoValues map[string][]GoValue
 	// NodeImports holds the imports, requires, dynamic imports and
 	// re-exports of each project source file, by file path (Node only), with
 	// module specifiers as written.
