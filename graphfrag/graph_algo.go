@@ -194,7 +194,11 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // (variants under mutually exclusive `#[cfg]` attributes) keeps the calls,
 // references and declarations of every body under its one key, the first
 // body's position kept; a stored rs-10 graph has only the last body's.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "11"
+// graph-algo-rs-12: items also list, as kind block, each block of a function
+// body that declares a use or an `extern crate` of its own (a match arm's,
+// a branch's, a nested, closure, async or unsafe block), so a reader scopes
+// such a use to its block; a stored rs-11 graph lists none.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "12"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

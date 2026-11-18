@@ -92,6 +92,11 @@ const (
 	RustItemStatic      = "static"
 	RustItemStruct      = "struct"
 	RustItemExternCrate = "extern_crate"
+	// RustItemBlock is a block of a function body that declares a use or
+	// an `extern crate` of its own (a match arm's, an if or else branch's, a
+	// nested, closure, async or unsafe block), not the body itself: the use
+	// is in scope in that block only. It has no name.
+	RustItemBlock = "block"
 	// RustItemType is a type alias, `[pub] type A<T> = X;`, in a module, a
 	// function body or an impl block: an impl's associated type definition
 	// (`type Output = X;`) is one too, so consumers see both. A trait's
@@ -115,13 +120,33 @@ const (
 // what the declaration walk skips: a test-only inline module in a scan
 // without tests.
 func (p *RustParser) collectRustScopeFacts(root *sitter.Node, src []byte, analysis *FileAnalysis) {
+	blocks := map[uint32]bool{}
+	// scopeBlock records the block a local use or extern crate is declared
+	// in, once, unless it is a function's body (the fn item covers it).
+	scopeBlock := func(node *sitter.Node) {
+		block := node.Parent()
+		if block == nil || block.Type() != "block" || blocks[block.StartByte()] {
+			return
+		}
+		if owner := block.Parent(); owner != nil && owner.Type() == rustNodeFunctionItem {
+			return
+		}
+		blocks[block.StartByte()] = true
+		recordRustItem(block, src, analysis, RustItemBlock, "")
+	}
 	var walk func(node *sitter.Node, local bool)
 	walk = func(node *sitter.Node, local bool) {
 		switch node.Type() {
 		case rustNodeUseDeclaration:
+			if local {
+				scopeBlock(node)
+			}
 			recordRustUse(node, src, analysis, local)
 			return
 		case rustNodeExternCrate:
+			if local {
+				scopeBlock(node)
+			}
 			recordRustExternCrate(node, src, analysis, local)
 			return
 		case rustNodeModItem:

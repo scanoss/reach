@@ -760,7 +760,10 @@ type GraphFragmentPropertyRead struct {
 //
 // kind is mod (an inline module with a body), fn (a function with a body),
 // impl, trait, const, static, struct, extern_crate or type (a type alias,
-// 1.27, an impl's associated type definition included); name is the item's
+// 1.27, an impl's associated type definition included), or block
+// (graph-algo-rs-12): a block of a function body, other than the body, that
+// declares a use or an `extern crate` of its own, its span from `{` to `}`
+// and no name; name is the item's
 // name as written, an impl block's self type without whitespace (`Kdf<H>`),
 // an `extern crate`'s crate. The span is the item without its attributes,
 // visibility to closing brace or semicolon, columns 1-based, end exclusive.

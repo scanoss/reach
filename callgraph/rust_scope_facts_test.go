@@ -216,3 +216,45 @@ fn bare() {}
 		t.Errorf("params:\n got %+v\nwant %+v", got, want)
 	}
 }
+
+// TestRustUseBlockItems: a block of a function body that declares a use or
+// an extern crate of its own is an item of kind block, once however many it
+// declares (a match arm's, an else branch's, a nested, closure, async or
+// unsafe block); a fn body, a block without a use and a module are not.
+func TestRustUseBlockItems(t *testing.T) {
+	src := `fn f(c: u8) {
+    use acme::A;
+    match c {
+        1 => {
+            use acme::B;
+            use acme::C;
+        }
+        _ => {}
+    }
+    if c == 0 {
+    } else {
+        extern crate acme_x;
+    }
+    let g = || { use acme::D; };
+    let h = async { use acme::E; };
+    unsafe { { use acme::F; } }
+}
+`
+	_, items := parseRustScopeFacts(t, src)
+	var got []RustItem
+	for _, it := range items {
+		if it.Kind == RustItemBlock {
+			got = append(got, it)
+		}
+	}
+	want := []RustItem{
+		{Kind: RustItemBlock, Line: 4, StartCol: 14, EndCol: 10, EndLine: 7},
+		{Kind: RustItemBlock, Line: 11, StartCol: 12, EndCol: 6, EndLine: 13},
+		{Kind: RustItemBlock, Line: 14, StartCol: 16, EndCol: 32},
+		{Kind: RustItemBlock, Line: 15, StartCol: 19, EndCol: 35},
+		{Kind: RustItemBlock, Line: 16, StartCol: 14, EndCol: 30},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("block items:\n got %+v\nwant %+v", got, want)
+	}
+}
