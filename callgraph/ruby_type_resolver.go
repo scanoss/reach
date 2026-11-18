@@ -3,7 +3,11 @@
 
 package callgraph
 
-import "github.com/scanoss/reach/callgraph/contracts"
+import (
+	"strings"
+
+	"github.com/scanoss/reach/callgraph/contracts"
+)
 
 // RubyContractTypeResolver applies return types from the Ruby contracts KB.
 //
@@ -46,7 +50,53 @@ func (r *RubyContractTypeResolver) ResolveTypes(graph *CallGraph, _ []PackageDir
 		// so the binding runs whether a KB loaded or not.
 		r.bindLocalReceivers(fn)
 	}
+	r.bindInstanceVariables(graph)
 	return nil
+}
+
+// bindInstanceVariables types a call made through an instance variable the
+// class assigns in one of its methods: `@signer = Aws::Sigv4::Signer.new(..)`
+// in `initialize`, `@signer.sign_request(..)` in another method. A local
+// lives in one body, so bindLocalReceivers never sees the pair; an instance
+// variable belongs to the class, which is the scope this reads.
+func (r *RubyContractTypeResolver) bindInstanceVariables(graph *CallGraph) {
+	producers := map[string]string{} // "<class>\x00@var" -> the type its producer returns
+	bound := map[string]int{}        // how many calls bind it
+	for _, fn := range graph.Functions {
+		if fn == nil || fn.ID.Type == "" {
+			continue
+		}
+		for i := range fn.Calls {
+			call := &fn.Calls[i]
+			if !strings.HasPrefix(call.AssignedVar, "@") {
+				continue
+			}
+			key := fn.ID.Type + "\x00" + call.AssignedVar
+			bound[key]++
+			if t := r.returnTypeOf(call); t != "" {
+				producers[key] = t
+			}
+		}
+	}
+	for _, fn := range graph.Functions {
+		if fn == nil || fn.ID.Type == "" {
+			continue
+		}
+		for i := range fn.Calls {
+			call := &fn.Calls[i]
+			if !strings.HasPrefix(call.ReceiverVar, "@") || call.ResolvedReceiverType != "" {
+				continue
+			}
+			key := fn.ID.Type + "\x00" + call.ReceiverVar
+			if bound[key] != 1 {
+				continue
+			}
+			if t := producers[key]; t != "" {
+				call.ResolvedReceiverType = t
+				call.ReceiverBoundOnce = true
+			}
+		}
+	}
 }
 
 // fillReturnType takes the return type of the first unconditional contract of

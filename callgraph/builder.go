@@ -318,6 +318,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 		markCPPProjectLocalCalls(graph)
 	}
 	if b.ecosystem == ecosystemRuby {
+		resolveRubyReceiverTypes(graph)
 		resolveRubyLocalCalls(graph)
 		resolveRubyDynamicDispatch(graph)
 		graph.RubyExports = resolveRubyExports(graph)

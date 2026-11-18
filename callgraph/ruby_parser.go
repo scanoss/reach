@@ -381,10 +381,19 @@ func rubyAssignedVar(node *sitter.Node, src []byte) string {
 		return ""
 	}
 	left := parent.ChildByFieldName("left")
-	if left == nil || left.Type() != rubyNodeIdentifier {
+	if left == nil {
 		return ""
 	}
-	return left.Content(src)
+	switch left.Type() {
+	case rubyNodeIdentifier:
+		return left.Content(src)
+	case rubyNodeInstanceVariable:
+		// `@signer = Aws::Sigv4::Signer.new(..)`: the name keeps its `@`, so
+		// an instance variable is never confused with a local of the same
+		// name, and the class it belongs to can type it for every method.
+		return left.Content(src)
+	}
+	return ""
 }
 
 // collectInto gathers the calls no method declares, so the module init owns

@@ -199,3 +199,30 @@ func TestRubyDynamicDispatchCandidates(t *testing.T) {
 		t.Errorf("calls = %q, want %q", got, want)
 	}
 }
+
+// An instance variable belongs to the class, so the constructor one method
+// runs types the calls every other method makes on it.
+func TestRubyInstanceVariableTypedByItsConstructor(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"up.rb": "class Uploader\n  def initialize\n    @signer = Aws::Sigv4::Signer.new(service: 's3')\n  end\n" +
+			"  def headers(url)\n    @signer.sign_request(url: url)\n  end\nend\n",
+	})
+	if !hasCall(t, graph, "lib.(Uploader).headers#1", "lib.(Aws::Sigv4::Signer).sign_request#1") {
+		t.Errorf("`@signer.sign_request` names no owner; calls = %q",
+			callsOf(t, graph, "lib.(Uploader).headers#1"))
+	}
+}
+
+// An instance variable two constructors bind is two types, which is no type.
+func TestRubyInstanceVariableBoundTwiceIsUntyped(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"up.rb": "class Uploader\n  def initialize\n    @c = OpenSSL::Cipher.new('aes')\n  end\n" +
+			"  def swap\n    @c = OpenSSL::Digest.new('sha256')\n  end\n" +
+			"  def run\n    @c.update('x')\n  end\nend\n",
+	})
+	for _, c := range callsOf(t, graph, "lib.(Uploader).run#0") {
+		if c != "lib.update#1" {
+			t.Errorf("a rebound instance variable was typed: %q", c)
+		}
+	}
+}
