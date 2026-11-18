@@ -294,6 +294,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // createECDH(c)`) carries AssignedVar `this._dh`, and a call on that field
 // (`this._dh.generateKeys()`) ReceiverVar `this._dh`, so a contract types it
 // as a call on a variable (was no AssignedVar, no ReceiverVar, caller-local).
+// A call written as the fallback operand of `||` or `??` (`const iv = p.iv ||
+// randomBytes(16)`) carries the AssignedVar the whole expression binds (was
+// none).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

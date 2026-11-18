@@ -1650,11 +1650,27 @@ func nodeCallChainContext(node *sitter.Node, src []byte) (chainID, assignedVar s
 			chainID = fmt.Sprintf("%d", root.StartByte())
 		}
 	}
-	value := nodeResolvedValue(root)
+	value := nodeFallbackValue(nodeResolvedValue(root))
 	if assignedVar = assignedVarFromParent(value, src); assignedVar == "" {
 		assignedVar = nodeThisFieldAssigned(value, src)
 	}
 	return chainID, assignedVar
+}
+
+// nodeFallbackValue climbs from a value written as the fallback of `||` or
+// `??` (`const iv = opts.iv || randomBytes(16)`) to the whole expression,
+// which a variable bound to it holds whenever the first operand is unset.
+func nodeFallbackValue(value *sitter.Node) *sitter.Node {
+	for {
+		parent := value.Parent()
+		if parent == nil || parent.Type() != "binary_expression" || !sameSyntaxNode(parent.ChildByFieldName("right"), value) {
+			return value
+		}
+		if op := parent.ChildByFieldName("operator"); op == nil || op.Type() != "||" && op.Type() != "??" {
+			return value
+		}
+		value = nodeResolvedValue(parent)
+	}
 }
 
 // nodeThisFieldAssigned names the field `this.<name> = <value>` assigns value
