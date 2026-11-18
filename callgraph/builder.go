@@ -1356,11 +1356,21 @@ func (b *Builder) rekeyCRedefinition(graph *CallGraph, existing, candidate *Func
 //
 // The earlier declaration's own position and signature are kept, so the caller
 // key points at the substantive body rather than at the forwarder.
+//
+// A free function defined twice in one file is the same shape: the variants
+// sit under mutually exclusive `#[cfg]` attributes (`#[cfg(unix)] fn main` and
+// `#[cfg(not(unix))] fn main`), the parser reads both, and last-write-wins
+// dropped every call of the earlier body (rcgen examples/rsa-irc-openssl.rs,
+// azure_core src/hmac.rs's three hmac_sha256, redis src/tls.rs). Which body
+// is compiled depends on the build, so the graph keeps both, as Go keeps its
+// build-tagged variants. Free functions of one key in two files are left
+// alone: a call names no file, and a merged body would read the other file's
+// calls in the wrong one.
 func (b *Builder) mergeRustTypedMethodCollision(graph *CallGraph, key string, existing, candidate *FunctionDecl) bool {
-	if b.ecosystem != ecosystemRust {
+	if b.ecosystem != ecosystemRust || existing == candidate {
 		return false
 	}
-	if existing.ID.Type == "" || existing == candidate {
+	if existing.ID.Type == "" && existing.FilePath != candidate.FilePath {
 		return false
 	}
 	merged := *existing
