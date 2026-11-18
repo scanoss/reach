@@ -138,6 +138,13 @@ type Function struct {
 	// StartLine it gives the line range used to map a crypto finding to its
 	// containing function during annotate-only (no AST available then).
 	EndLine int
+	// StartCol and EndCol (1.38+) narrow StartLine/EndLine to columns: the
+	// 1-based column of the span's first character on StartLine and one past
+	// its last on EndLine. Zero when the producer records no columns. They tell
+	// a function written inline as a call argument from the function that
+	// writes it, when both start on one line.
+	StartCol int
+	EndCol   int
 	// FilePath is the source file path, relative to the component root.
 	FilePath string
 	// DisplaySymbol is the customer-facing symbol. Constructors use
