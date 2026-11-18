@@ -61,15 +61,17 @@ func TestRubyResolverLeavesARebooundLocalAlone(t *testing.T) {
 	}
 }
 
-// A knowledge base that does not load leaves the graph as it was, rather than
-// failing the build: a graph without contract types is poorer, never wrong.
-func TestRubyResolverWithoutAKBIsANoOp(t *testing.T) {
+// A knowledge base that does not load leaves the contract types out, rather
+// than failing the build: a graph without them is poorer, never wrong. What a
+// constructor says needs no contract, so it is still read -- and no Ruby KB
+// is installed today, which would make it dead code otherwise.
+func TestRubyResolverWithoutAKBStillReadsAConstructor(t *testing.T) {
 	graph, fn := rubyGraph(rubyCall("OpenSSL::Cipher", "new", "cipher", ""), rubyCall("", "encrypt", "", "cipher"))
 	if err := NewRubyContractTypeResolver(nil).ResolveTypes(graph, nil); err != nil {
 		t.Fatal(err)
 	}
-	if fn.Calls[1].ResolvedReceiverType != "" {
-		t.Error("a nil KB resolved a type")
+	if got := fn.Calls[1].ResolvedReceiverType; got != "OpenSSL::Cipher" {
+		t.Errorf("receiver type = %q, want OpenSSL::Cipher", got)
 	}
 }
 

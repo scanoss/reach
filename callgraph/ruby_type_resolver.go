@@ -37,13 +37,13 @@ func NewRubyContractTypeResolverFromSource() *RubyContractTypeResolver {
 // contracts, and the resolved receiver type of a call whose receiver is a
 // local bound once to a call a contract types.
 func (r *RubyContractTypeResolver) ResolveTypes(graph *CallGraph, _ []PackageDir) error {
-	if r.kb == nil || len(r.kb.Contracts) == 0 {
-		return nil
-	}
+	contracted := r.kb != nil && len(r.kb.Contracts) > 0
 	for _, fn := range graph.Functions {
-		if fn.ReturnType == "" {
+		if contracted && fn.ReturnType == "" {
 			r.fillReturnType(fn)
 		}
+		// `mac = OpenSSL::HMAC.new(..)` types `mac` with no contract at all,
+		// so the binding runs whether a KB loaded or not.
 		r.bindLocalReceivers(fn)
 	}
 	return nil
@@ -97,14 +97,14 @@ func (r *RubyContractTypeResolver) bindLocalReceivers(fn *FunctionDecl) {
 // constructor with no contract still types its local: `OpenSSL::Cipher.new`
 // returns an OpenSSL::Cipher, which is the shape most Ruby crypto rules match.
 func (r *RubyContractTypeResolver) returnTypeOf(call *FunctionCall) string {
-	matches := r.kb.ContractsForTolerant(call.Callee.String(), 0)
-	for i := range matches {
-		contract := &matches[i]
-		if contract.When == nil && contract.Return.Type != "" {
-			return contract.Return.Type
+	if r.kb != nil {
+		for i, matches := 0, r.kb.ContractsForTolerant(call.Callee.String(), 0); i < len(matches); i++ {
+			if contract := &matches[i]; contract.When == nil && contract.Return.Type != "" {
+				return contract.Return.Type
+			}
 		}
 	}
-	if call.Callee.Name == "new" && call.Callee.Type != "" {
+	if BaseFunctionName(call.Callee.Name) == rubyConstructorName && call.Callee.Type != "" {
 		return call.Callee.Type
 	}
 	return ""
