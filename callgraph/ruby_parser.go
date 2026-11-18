@@ -278,15 +278,36 @@ func rubyMethodDecl(node *sitter.Node, src []byte, filePath, packagePath, namesp
 	if name == nil {
 		return nil
 	}
+	params := rubyMethodParameters(node, src)
 	return &FunctionDecl{
-		ID:        FunctionID{Package: packagePath, Type: namespace, Name: name.Content(src)},
-		FilePath:  filePath,
-		StartLine: int(node.StartPoint().Row) + 1,
-		EndLine:   int(node.EndPoint().Row) + 1,
-		StartCol:  int(node.StartPoint().Column) + 1,
-		EndCol:    int(node.EndPoint().Column) + 1,
-		OwnerType: namespace,
+		// The name carries the method's arity, as a call's callee does: the
+		// builder matches a call to a declaration by comparing the two, so a
+		// declaration written without it is reachable from nothing.
+		ID:         FunctionID{Package: packagePath, Type: namespace, Name: fmt.Sprintf("%s#%d", name.Content(src), len(params))},
+		FilePath:   filePath,
+		StartLine:  int(node.StartPoint().Row) + 1,
+		EndLine:    int(node.EndPoint().Row) + 1,
+		StartCol:   int(node.StartPoint().Column) + 1,
+		EndCol:     int(node.EndPoint().Column) + 1,
+		OwnerType:  namespace,
+		Parameters: params,
 	}
+}
+
+// rubyMethodParameters are the parameters a `def` declares. A block
+// parameter (`&blk`) is one, as Ruby counts it in arity terms for the
+// purposes of matching a call that passes a block inline.
+func rubyMethodParameters(node *sitter.Node, src []byte) []FunctionParameter {
+	list := node.ChildByFieldName("parameters")
+	if list == nil {
+		return nil
+	}
+	params := make([]FunctionParameter, 0, int(list.NamedChildCount()))
+	for i := 0; i < int(list.NamedChildCount()); i++ {
+		p := list.NamedChild(i)
+		params = append(params, FunctionParameter{Name: p.Content(src)})
+	}
+	return params
 }
 
 // rubyRequirePath returns the library a `require` or `require_relative` names.

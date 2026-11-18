@@ -123,7 +123,7 @@ func TestRubyParserMethodNesting(t *testing.T) {
 	a := parseOneRuby(t, "module Outer\n  class Inner\n    def run\n      Digest::SHA256.digest(\"x\")\n    end\n  end\nend\n")
 	var decl *FunctionDecl
 	for i := range a.Functions {
-		if a.Functions[i].ID.Name == "run" {
+		if rubyBareName(a.Functions[i].ID.Name) == "run" {
 			decl = &a.Functions[i]
 		}
 	}
@@ -155,7 +155,7 @@ func TestRubyParserNestedDefDoesNotDuplicate(t *testing.T) {
 		for _, c := range fn.Calls {
 			if rubyBareName(c.Callee.Name) == "hexdigest" {
 				total++
-				if fn.ID.Name != "inner" {
+				if rubyBareName(fn.ID.Name) != "inner" {
 					t.Errorf("hexdigest recorded in %q, want inner", fn.ID.Name)
 				}
 			}
@@ -171,7 +171,7 @@ func TestRubyParserAliasesAreScoped(t *testing.T) {
 	a := parseOneRuby(t, "def a\n  m = Digest::MD5\n  m.hexdigest(\"x\")\nend\ndef b(m)\n  m.hexdigest(\"y\")\nend\n")
 	for _, fn := range a.Functions {
 		for _, c := range fn.Calls {
-			switch fn.ID.Name {
+			switch rubyBareName(fn.ID.Name) {
 			case "a":
 				if c.Callee.Type != "Digest::MD5" {
 					t.Errorf("a: type = %q, want Digest::MD5", c.Callee.Type)
@@ -209,7 +209,7 @@ func TestRubyParserModuleAndMethodSplit(t *testing.T) {
 	got := map[string]string{}
 	for _, fn := range a.Functions {
 		for _, c := range fn.Calls {
-			got[fn.ID.Name] = c.Callee.Type
+			got[rubyBareName(fn.ID.Name)] = c.Callee.Type
 		}
 	}
 	if got[moduleInitMethodName] != "Digest::MD5" || got["run"] != "Digest::SHA1" {
