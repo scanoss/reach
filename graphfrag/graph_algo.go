@@ -275,6 +275,11 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // file function that returns only global objects (`getGlobal()`).
 // `c.randomUUID()` is (Crypto).randomUUID and `c.subtle.digest()`
 // (SubtleCrypto).digest (were caller-local, or crypto.webcrypto.subtle.digest).
+// A function nested in a class method, in a class field's value or in the
+// value of a destructuring declaration (`class T { h(xs) { return xs.map((p)
+// => m.f(p)); } }`, `const { a } = f(() => m.g())`) is a function of its own
+// with its calls, as one nested in a top-level function is (its calls were
+// in no function).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

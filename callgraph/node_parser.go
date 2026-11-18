@@ -713,7 +713,13 @@ func (p *NodeParser) extractAssignedFunctions(node *sitter.Node, src []byte, fil
 		}
 		name := declarator.ChildByFieldName("name")
 		value := declarator.ChildByFieldName("value")
-		if name == nil || name.Type() != goNodeIdentifier || value == nil {
+		if name == nil || value == nil {
+			continue
+		}
+		if name.Type() != goNodeIdentifier {
+			// `const { a } = f(() => ..)`: the value's functions are the
+			// file's all the same.
+			p.extractDeclarations(value, src, filePath, packagePath, bindings, analysis)
 			continue
 		}
 		bound := name.Content(src)
@@ -806,9 +812,13 @@ func (p *NodeParser) extractClassMethods(node *sitter.Node, src []byte, filePath
 			if decl := p.parseNodeFunction(member, src, filePath, packagePath, "", owner, bindings); decl != nil {
 				analysis.Functions = append(analysis.Functions, *decl)
 			}
+			// A callback or a function declared in the method is a function of
+			// its own, as one in a top-level function is.
+			p.extractDeclarations(member.ChildByFieldName("body"), src, filePath, packagePath, bindings, analysis)
 		case nodeFieldDefinition, nodePublicFieldDefinition:
 			if value := member.ChildByFieldName("value"); value != nil {
 				fieldInit = append(fieldInit, value)
+				p.extractDeclarations(value, src, filePath, packagePath, bindings, analysis)
 			}
 		}
 	}

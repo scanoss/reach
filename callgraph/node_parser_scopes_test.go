@@ -157,3 +157,43 @@ func TestNodeParser_ClassAssignedToExports(t *testing.T) {
 		}
 	}
 }
+
+// A callback or a function declared inside a class method, a class field or
+// the value of a destructuring declaration is a function of its own, as one in
+// a top-level function is: its calls are in the graph, under it.
+func TestNodeParser_FunctionsNestedInClassesAndDestructuringsAreDeclared(t *testing.T) {
+	t.Parallel()
+
+	analysis := parseNodeSource(t, `const crypto_1 = require('crypto');
+class T {
+  h(xs) { return xs.map((p) => crypto_1.createHash('sha1').update(p).digest()); }
+  run() { function inner() { return crypto_1.randomBytes(4); } return inner(); }
+  field = (x) => crypto_1.createHmac('sha256', x);
+  static make = function () { return crypto_1.createSign('RSA-SHA256'); };
+}
+{
+  const { server } = setup({ verify: check((key) => crypto_1.createVerify('RSA-SHA256')) });
+}
+`)
+	found := make(map[string]string)
+	for i := range analysis.Functions {
+		fn := &analysis.Functions[i]
+		for _, call := range fn.Calls {
+			if call.Callee.Package == "crypto" {
+				found[call.Callee.Name] = fn.ID.Name
+			}
+		}
+	}
+	want := map[string]string{
+		"createHash":   "<anonymous>@3:25",
+		"randomBytes":  "inner",
+		"createHmac":   "<anonymous>@5:11",
+		"createSign":   "<anonymous>@6:17",
+		"createVerify": "<anonymous>@9:44",
+	}
+	for callee, fn := range want {
+		if found[callee] != fn {
+			t.Errorf("crypto.%s: called from %q, want %q", callee, found[callee], fn)
+		}
+	}
+}
