@@ -272,6 +272,14 @@ const GraphAlgoVersionGo = goGraphAlgoPrefix + "11"
 // with one is a Go graph.
 const goGraphAlgoPrefix = "graph-algo-go-"
 
+// GraphAlgoVersionRuby is the Ruby call graph algorithm id. It moves when a
+// Ruby graph changes, and re-mines Ruby graphs alone.
+const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "1"
+
+// rubyGraphAlgoPrefix starts every Ruby graph algorithm id: a fragment stamped
+// with one is a Ruby graph.
+const rubyGraphAlgoPrefix = "graph-algo-rb-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
@@ -287,6 +295,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionNode
 	case "go":
 		return GraphAlgoVersionGo
+	case "ruby":
+		return GraphAlgoVersionRuby
 	}
 	return GraphAlgoVersion
 }
@@ -303,6 +313,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "node"
 	case strings.HasPrefix(id, goGraphAlgoPrefix):
 		return "go"
+	case strings.HasPrefix(id, rubyGraphAlgoPrefix):
+		return "ruby"
 	}
 	return ""
 }
@@ -326,6 +338,8 @@ func EcosystemForPurl(purl string) string {
 		return "rust"
 	case strings.HasPrefix(purl, "pkg:npm/"):
 		return "node"
+	case strings.HasPrefix(purl, "pkg:gem/"):
+		return "ruby"
 	default:
 		return ""
 	}

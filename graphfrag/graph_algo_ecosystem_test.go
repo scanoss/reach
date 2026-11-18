@@ -76,3 +76,27 @@ func TestGraphEcosystem(t *testing.T) {
 		}
 	}
 }
+
+// Ruby graphs carry an id of their own, and a gem purl resolves to it.
+func TestGraphAlgoVersionRubyIsItsOwn(t *testing.T) {
+	for name, id := range map[string]string{
+		"Java":   graphfrag.GraphAlgoVersion,
+		"Python": graphfrag.GraphAlgoVersionPython,
+		"Rust":   graphfrag.GraphAlgoVersionRust,
+		"Node":   graphfrag.GraphAlgoVersionNode,
+		"Go":     graphfrag.GraphAlgoVersionGo,
+	} {
+		if graphfrag.GraphAlgoVersionRuby == id {
+			t.Fatalf("Ruby shares the %s id %q", name, id)
+		}
+	}
+	if got := graphfrag.GraphAlgoVersionFor("ruby"); got != graphfrag.GraphAlgoVersionRuby {
+		t.Errorf("GraphAlgoVersionFor(ruby) = %q", got)
+	}
+	if got := graphfrag.GraphAlgoVersionForPurl("pkg:gem/openssl"); got != graphfrag.GraphAlgoVersionRuby {
+		t.Errorf("a gem purl gives %q, want the Ruby id", got)
+	}
+	if got := graphfrag.EcosystemForPurl("pkg:gem/openssl"); got != "ruby" {
+		t.Errorf("EcosystemForPurl(gem) = %q, want ruby", got)
+	}
+}
