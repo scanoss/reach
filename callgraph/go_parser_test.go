@@ -486,3 +486,47 @@ func TestGoParser_ImportSpecs(t *testing.T) {
 		t.Errorf("Imports = %v", analysis.Imports)
 	}
 }
+
+// An unaliased import whose last element is not an identifier binds the name
+// Go tooling assumes for it (go-port audit E4): go-jose/v4 declares package
+// jose. The name binds only when no import claims it and one path offers it.
+func TestGoParser_AssumedImportName(t *testing.T) {
+	cases := []struct {
+		name, imports, call, want string
+	}{
+		{"go- prefix under /vN", `import "example.com/go-jose/go-jose/v4"`, "jose.Sign", "example.com/go-jose/go-jose/v4"},
+		{"go- prefix", `import "example.com/acme/go-lib"`, "lib.Sign", "example.com/acme/go-lib"},
+		{"cut at a dot", `import "example.com/acme/lib.go"`, "lib.Sign", "example.com/acme/lib.go"},
+		{"cut at a hyphen", `import "example.com/acme/lib-core"`, "lib.Sign", "example.com/acme/lib-core"},
+		{"an alias claims it", "import (\n\t\"example.com/acme/go-lib\"\n\tlib \"example.com/other\"\n)", "lib.Sign", "example.com/other"},
+		{"two paths offer it", "import (\n\t\"example.com/a/go-lib\"\n\t\"example.com/b/go-lib\"\n)", "lib.Sign", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := "package p\n" + c.imports + "\nfunc run() {\n\t" + c.call + "()\n}\n"
+			path := filepath.Join(dir, "main.go")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			found := false
+			for _, fn := range analysis.Functions {
+				for _, call := range fn.Calls {
+					if call.Raw == c.call {
+						found = true
+						if call.Callee.Package != c.want {
+							t.Errorf("%s resolves to %q, want %q", c.call, call.Callee.Package, c.want)
+						}
+					}
+				}
+			}
+			if !found {
+				t.Errorf("call %s not found", c.call)
+			}
+		})
+	}
+}
