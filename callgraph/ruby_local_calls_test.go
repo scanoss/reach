@@ -6,6 +6,8 @@ package callgraph
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"testing"
 )
 
@@ -157,5 +159,25 @@ func TestRubyModuleInitIsPerFile(t *testing.T) {
 	}
 	if len(files) != 2 {
 		t.Errorf("module inits = %q, want one per file", files)
+	}
+}
+
+// Ruby writes an attribute with a setter call; the rules read it as the
+// attribute store it is.
+func TestRubyAttributeStores(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"a.rb": "ctx = OpenSSL::SSL::SSLContext.new\nctx.verify_mode = OpenSSL::SSL::VERIFY_NONE\n" +
+			"def tune(c)\n  c.timeout ||= 5\nend\n",
+	})
+	var got []string
+	for _, fn := range graph.Functions {
+		for _, st := range fn.AttributeStores {
+			got = append(got, st.Receiver+"."+st.Attribute+st.Operator+st.Value.Text)
+		}
+	}
+	sort.Strings(got)
+	want := []string{"c.timeout||=5", "ctx.verify_mode=OpenSSL::SSL::VERIFY_NONE"}
+	if !slices.Equal(got, want) {
+		t.Errorf("stores = %q, want %q", got, want)
 	}
 }

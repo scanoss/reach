@@ -116,8 +116,9 @@ func (p *RubyParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 	p.walk(root, src, filePath, packagePath, "", analysis)
 	// Top-level statements belong to no method; the module init owns them, as
 	// it does for Python.
-	p.collectInto(root, src, filePath, packagePath, rubyScopeAliases(root, src), analysis,
-		rubyModuleDecl(root, filePath, packagePath, analysis))
+	moduleIdx := rubyModuleDecl(root, filePath, packagePath, analysis)
+	p.collectInto(root, src, filePath, packagePath, rubyScopeAliases(root, src), analysis, moduleIdx)
+	analysis.Functions[moduleIdx].AttributeStores = rubyModuleAttributeStores(root, src)
 	return analysis, nil
 }
 
@@ -143,6 +144,7 @@ func (p *RubyParser) walk(node *sitter.Node, src []byte, filePath, packagePath, 
 				}
 				decl.Calls = append(decl.Calls,
 					rubyBareSelfCalls(body, src, filePath, packagePath, decl.Parameters)...)
+				decl.AttributeStores = rubyAttributeStores(body, src)
 			}
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
