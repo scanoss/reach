@@ -26,6 +26,11 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 	if graphfrag.GraphAlgoVersionGo == graphfrag.GraphAlgoVersion {
 		t.Fatalf("Go shares the Java graph algorithm id %q", graphfrag.GraphAlgoVersion)
 	}
+	for _, other := range []string{graphfrag.GraphAlgoVersion, graphfrag.GraphAlgoVersionPython, graphfrag.GraphAlgoVersionRust, graphfrag.GraphAlgoVersionNode, graphfrag.GraphAlgoVersionGo} {
+		if graphfrag.GraphAlgoVersionRuby == other {
+			t.Fatalf("Ruby shares a graph algorithm id: %q", graphfrag.GraphAlgoVersionRuby)
+		}
+	}
 	for _, c := range []struct{ ecosystem, want string }{
 		{"java", graphfrag.GraphAlgoVersion},
 		{"", graphfrag.GraphAlgoVersion},
@@ -33,6 +38,7 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 		{"python", graphfrag.GraphAlgoVersionPython},
 		{"rust", graphfrag.GraphAlgoVersionRust},
 		{"node", graphfrag.GraphAlgoVersionNode},
+		{"ruby", graphfrag.GraphAlgoVersionRuby},
 	} {
 		if got := graphfrag.GraphAlgoVersionFor(c.ecosystem); got != c.want {
 			t.Errorf("GraphAlgoVersionFor(%q) = %q, want %q", c.ecosystem, got, c.want)
@@ -44,6 +50,7 @@ func TestGraphAlgoVersionFor(t *testing.T) {
 		{"pkg:npm/jose", graphfrag.GraphAlgoVersionNode},
 		{"pkg:cargo/acme_kdf", graphfrag.GraphAlgoVersionRust},
 		{"pkg:golang/filippo.io/age", graphfrag.GraphAlgoVersionGo},
+		{"pkg:gem/openssl", graphfrag.GraphAlgoVersionRuby},
 	} {
 		if got := graphfrag.GraphAlgoVersionForPurl(c.purl); got != c.want {
 			t.Errorf("GraphAlgoVersionForPurl(%q) = %q, want %q", c.purl, got, c.want)

@@ -284,6 +284,18 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // new(T) expressions and field stores (GoValues, graph-fragment-1.34).
 const GraphAlgoVersionGo = goGraphAlgoPrefix + "13"
 
+// graph-algo-rb-1: the first Ruby graph (scanoss/roadmap#95). A file's body
+// is a function of its own, because Ruby runs it: its calls would otherwise be
+// lost. `require` and `require_relative` are read as the imports they are,
+// though the grammar writes them as calls. A call qualified by a constant path
+// (`OpenSSL::HMAC.hexdigest`) carries that path; one through a local
+// (`cipher.encrypt`) stays caller-local for the builder to bind. A `def
+// self.x` is static, owned by the class that encloses it.
+const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "1"
+
+// rubyGraphAlgoPrefix prefixes every Ruby graph algorithm id.
+const rubyGraphAlgoPrefix = "graph-algo-rb-"
+
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.
 const goGraphAlgoPrefix = "graph-algo-go-"
@@ -303,6 +315,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionNode
 	case "go":
 		return GraphAlgoVersionGo
+	case "ruby":
+		return GraphAlgoVersionRuby
 	}
 	return GraphAlgoVersion
 }
@@ -319,6 +333,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "node"
 	case strings.HasPrefix(id, goGraphAlgoPrefix):
 		return "go"
+	case strings.HasPrefix(id, rubyGraphAlgoPrefix):
+		return "ruby"
 	}
 	return ""
 }
@@ -342,6 +358,8 @@ func EcosystemForPurl(purl string) string {
 		return "rust"
 	case strings.HasPrefix(purl, "pkg:npm/"):
 		return "node"
+	case strings.HasPrefix(purl, "pkg:gem/"):
+		return "ruby"
 	default:
 		return ""
 	}
