@@ -37,10 +37,18 @@ var goConstTypes = map[string]bool{
 type goDeclKind int
 
 const (
-	// goDeclOpaque is a declaration of the name that yields no literal: a
-	// variable, a parameter, or a const without a literal initializer.
+	// goDeclOpaque is a declaration of the name that yields no literal and
+	// that the value walk does not follow: a const without a literal
+	// initializer, a range or receive binding, a receiver, a named result or
+	// a function literal's parameter.
 	goDeclOpaque goDeclKind = iota
 	goDeclLiteral
+	// goDeclVar is a `var` or `:=` binding, which the value walk traces to
+	// its initializer (goValueWalk).
+	goDeclVar
+	// goDeclParam is a parameter of a function or method declaration, which
+	// a caller's argument fills.
+	goDeclParam
 )
 
 // goDecl is one declaration of a name inside a scope. end is the byte offset
@@ -49,6 +57,15 @@ type goDecl struct {
 	end   uint32
 	kind  goDeclKind
 	value string
+	// spec is the var_spec, short_var_declaration or parameter declaration
+	// that binds a goDeclVar or goDeclParam, and init the expression a
+	// goDeclVar is initialized with: nil when it has none, or when several
+	// names take the values of one call (tuple).
+	spec  *sitter.Node
+	init  *sitter.Node
+	tuple bool
+	// index is a goDeclParam's position among the arguments a call passes.
+	index int
 }
 
 // goConstScopes indexes, once per scope node, the names each lexical scope
@@ -84,45 +101,11 @@ func (c *goConstScopes) index(scope *sitter.Node, src []byte) map[string][]goDec
 	return idx
 }
 
-// argumentSources traces each argument of a call expression that is a bare
-// identifier naming a Go const initialized with an integer or string literal.
-// The result is parallel to the call's arguments and nil when none resolves.
-// Every other argument shape stays unresolved.
-func (c *goConstScopes) argumentSources(call *sitter.Node, src []byte) [][]SourceNode {
-	args := call.ChildByFieldName("arguments")
-	if args == nil || args.Type() != goNodeArgumentList {
-		return nil
-	}
-	sources := make([][]SourceNode, 0, int(args.NamedChildCount()))
-	resolved := false
-	for i := 0; i < int(args.NamedChildCount()); i++ {
-		arg := args.NamedChild(i)
-		if arg.Type() == goNodeComment {
-			continue
-		}
-		var nodes []SourceNode
-		if arg.Type() == goNodeIdentifier {
-			if value, ok := c.lookup(arg, arg.Content(src), src); ok {
-				nodes = []SourceNode{{
-					Type:        "VARIABLE",
-					Name:        arg.Content(src),
-					SourceNodes: []SourceNode{{Type: "VALUE", Value: value}},
-				}}
-				resolved = true
-			}
-		}
-		sources = append(sources, nodes)
-	}
-	if !resolved {
-		return nil
-	}
-	return sources
-}
-
-// lookup resolves name at use to the literal of the const it denotes. It walks
-// outward through the enclosing scopes; the innermost scope that declares name
-// decides, so a shadowed name never inherits an outer const.
-func (c *goConstScopes) lookup(use *sitter.Node, name string, src []byte) (string, bool) {
+// resolve returns the declaration of the file that name at use denotes, with
+// the scope node declaring it; nil when no scope of the file declares name. It
+// walks outward through the enclosing scopes; the innermost scope that
+// declares name decides, so a shadowed name never inherits an outer const.
+func (c *goConstScopes) resolve(use *sitter.Node, name string, src []byte) (*goDecl, *sitter.Node) {
 	for child, scope := use, use.Parent(); scope != nil; child, scope = scope, scope.Parent() {
 		position := child.StartByte()
 		if scope.Type() == goNodeSourceFile {
@@ -137,13 +120,10 @@ func (c *goConstScopes) lookup(use *sitter.Node, name string, src []byte) (strin
 			}
 		}
 		if best != nil {
-			return best.value, best.kind == goDeclLiteral
+			return best, scope
 		}
 	}
-	if c.crossFile != nil {
-		return c.crossFile(name)
-	}
-	return "", false
+	return nil, nil
 }
 
 // goCollectDecls records the names a scope child declares. It looks through the
@@ -158,10 +138,12 @@ func goCollectDecls(n *sitter.Node, src []byte, idx map[string][]goDecl) {
 	case goNodeVarDeclaration:
 		goWalk(n, func(c *sitter.Node) {
 			if c.Type() == goNodeVarSpec {
-				goAddNames(c, n.EndByte(), src, idx)
+				goAddVarNames(c, goFieldNamed(c, javaFieldName), c.ChildByFieldName("value"), n.EndByte(), src, idx)
 			}
 		})
-	case goNodeShortVarDeclaration, goNodeRangeClause:
+	case goNodeShortVarDeclaration:
+		goAddVarNames(n, goListItems(n.ChildByFieldName(goFieldLeft)), n.ChildByFieldName(goFieldRight), n.EndByte(), src, idx)
+	case goNodeRangeClause:
 		goAddIdentifiers(n.ChildByFieldName(goFieldLeft), n.EndByte(), src, idx)
 	case goNodeReceiveStatement:
 		if goHasToken(n, ":=") {
@@ -221,6 +203,52 @@ func goLiteralText(n *sitter.Node, src []byte) (string, bool) {
 	return "", false
 }
 
+// goAddVarNames records the names a var spec or a short variable declaration
+// binds, each paired with its own initializer when the right side lists one
+// value per name.
+func goAddVarNames(spec *sitter.Node, names []*sitter.Node, values *sitter.Node, end uint32, src []byte, idx map[string][]goDecl) {
+	inits := goListItems(values)
+	for i, name := range names {
+		if name.Type() != goNodeIdentifier {
+			continue
+		}
+		decl := goDecl{end: end, kind: goDeclVar, spec: spec, tuple: values != nil && len(inits) != len(names)}
+		if len(inits) == len(names) {
+			decl.init = inits[i]
+		}
+		idx[name.Content(src)] = append(idx[name.Content(src)], decl)
+	}
+}
+
+// goFieldNamed returns the named children of n held in field.
+func goFieldNamed(n *sitter.Node, field string) []*sitter.Node {
+	var out []*sitter.Node
+	for i := 0; i < int(n.ChildCount()); i++ {
+		if c := n.Child(i); c.IsNamed() && n.FieldNameForChild(i) == field {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// goListItems returns the expressions of an expression list, comments left
+// out; a lone expression is a list of one.
+func goListItems(list *sitter.Node) []*sitter.Node {
+	if list == nil {
+		return nil
+	}
+	if list.Type() != goNodeExpressionList {
+		return []*sitter.Node{list}
+	}
+	out := make([]*sitter.Node, 0, list.NamedChildCount())
+	for i := 0; i < int(list.NamedChildCount()); i++ {
+		if c := list.NamedChild(i); c.Type() != goNodeComment {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func goAddNames(n *sitter.Node, end uint32, src []byte, idx map[string][]goDecl) {
 	for i := 0; i < int(n.ChildCount()); i++ {
 		if c := n.Child(i); c.IsNamed() && n.FieldNameForChild(i) == javaFieldName {
@@ -266,7 +294,15 @@ func goWalk(n *sitter.Node, visit func(*sitter.Node)) {
 func goCollectBoundNames(scope *sitter.Node, src []byte, idx map[string][]goDecl) {
 	switch scope.Type() {
 	case nodeFunctionDeclaration, javaNodeMethodDeclaration, goNodeFuncLiteral:
-		for _, field := range []string{"receiver", "parameters", "result", "type_parameters"} {
+		// A declaration's parameters are filled by its callers' arguments; a
+		// literal's are filled by whatever calls the func value, so they stay
+		// opaque like the receiver and the named results.
+		opaque := []string{"receiver", "parameters", "result", "type_parameters"}
+		if scope.Type() != goNodeFuncLiteral {
+			goAddParameters(scope.ChildByFieldName("parameters"), src, idx)
+			opaque = []string{"receiver", "result", "type_parameters"}
+		}
+		for _, field := range opaque {
 			if list := scope.ChildByFieldName(field); list != nil {
 				goWalk(list, func(c *sitter.Node) {
 					if c.Type() == goNodeParameterDecl || c.Type() == goNodeVariadicParam || c.Type() == "type_parameter_declaration" {
@@ -277,5 +313,34 @@ func goCollectBoundNames(scope *sitter.Node, src []byte, idx map[string][]goDecl
 		}
 	case goNodeTypeSwitch:
 		goAddIdentifiers(scope.ChildByFieldName("alias"), 0, src, idx)
+	}
+}
+
+// goAddParameters records the parameters of a function or method declaration
+// with their position among a call's arguments; a method's receiver is not
+// one. A variadic parameter receives a slice of the trailing arguments, not
+// one of them, so it is recorded as opaque.
+func goAddParameters(list *sitter.Node, src []byte, idx map[string][]goDecl) {
+	if list == nil {
+		return
+	}
+	index := 0
+	for i := 0; i < int(list.NamedChildCount()); i++ {
+		param := list.NamedChild(i)
+		switch param.Type() {
+		case goNodeParameterDecl:
+			names := goFieldNamed(param, javaFieldName)
+			if len(names) == 0 {
+				index++
+				continue
+			}
+			for _, name := range names {
+				idx[name.Content(src)] = append(idx[name.Content(src)], goDecl{kind: goDeclParam, spec: param, index: index})
+				index++
+			}
+		case goNodeVariadicParam:
+			goAddNames(param, 0, src, idx)
+			index++
+		}
 	}
 }

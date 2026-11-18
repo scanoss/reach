@@ -25,6 +25,7 @@ type GoParser struct {
 	includeTests bool
 	anchors      callAnchors
 	consts       goConstScopes
+	values       goValueCache
 	bindings     goBindingIndexes
 	// pkgIndex is the package-level declaration index of the directory being
 	// parsed; nil outside ParseDirectorySelected.
@@ -96,6 +97,7 @@ func (p *GoParser) ParseFile(filePath, packagePath string) (*FileAnalysis, error
 	defer tree.Close()
 	defer p.anchors.reset()
 	defer p.consts.reset()
+	defer p.values.reset()
 	defer p.bindings.reset()
 
 	root := tree.RootNode()
@@ -1158,7 +1160,7 @@ func (p *GoParser) goReturnSource(
 	location := &SourceLocation{FilePath: filePath, Line: int(expr.StartPoint().Row) + 1}
 	switch expr.Type() {
 	case goNodeCallExpression:
-		call := p.parseCallExpr(expr, src, filePath, analysis, currentReceiverType, currentReceiverVar, varTypes)
+		call := p.parseCallTarget(expr, src, filePath, analysis, currentReceiverType, currentReceiverVar, varTypes)
 		if call == nil {
 			return SourceNode{}, false
 		}
@@ -1348,7 +1350,28 @@ func (p *GoParser) parseGoMisparsedGenericCall(node *sitter.Node, src []byte, fi
 	}
 }
 
+// parseCallExpr parses a call of the walk, with the sources of its arguments.
 func (p *GoParser) parseCallExpr(
+	node *sitter.Node,
+	src []byte,
+	filePath string,
+	analysis *FileAnalysis,
+	currentReceiverType string,
+	currentReceiverVar string,
+	varTypes map[string]string,
+) *FunctionCall {
+	call := p.parseCallTarget(node, src, filePath, analysis, currentReceiverType, currentReceiverVar, varTypes)
+	if call != nil {
+		p.values.noteCall(node, call.Callee)
+		w := goValueWalk{p: p, src: src, filePath: filePath, analysis: analysis, receiverType: currentReceiverType, receiverVar: currentReceiverVar, varTypes: varTypes}
+		call.ArgumentSources = w.argumentSources(node, call)
+	}
+	return call
+}
+
+// parseCallTarget parses a call without tracing its arguments: what a call
+// result in an argument's provenance needs, and all a return source needs.
+func (p *GoParser) parseCallTarget(
 	node *sitter.Node,
 	src []byte,
 	filePath string,
@@ -1401,7 +1424,6 @@ func (p *GoParser) parseCallExpr(
 		call.StartCol = int(node.StartPoint().Column) + 1
 		call.EndCol = int(node.EndPoint().Column) + 1
 		call.EndLine = int(node.EndPoint().Row) + 1
-		call.ArgumentSources = p.consts.argumentSources(node, src)
 	}
 	return call
 }
