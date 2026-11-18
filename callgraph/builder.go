@@ -38,6 +38,9 @@ const (
 	// ecosystemPython is the ecosystem identifier for Python callgraphs.
 	// Used to gate Python-specific dispatch (e.g. expandPythonSubclassDispatch).
 	ecosystemPython = "python"
+	// ecosystemRuby is the ecosystem identifier for Ruby callgraphs. Used to
+	// gate the public-constant export resolution, which is Ruby-specific.
+	ecosystemRuby = "ruby"
 	// ecosystemRust is the ecosystem identifier for Rust callgraphs. Used to
 	// gate the same-typed-method merge, which is Rust-specific.
 	ecosystemRust = "rust"
@@ -313,6 +316,10 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	b.analyzePackages(packages, graph)
 	if b.ecosystem == ecosystemCPP {
 		markCPPProjectLocalCalls(graph)
+	}
+	if b.ecosystem == ecosystemRuby {
+		resolveRubyLocalCalls(graph)
+		graph.RubyExports = resolveRubyExports(graph)
 	}
 	if b.ecosystem == ecosystemPython {
 		b.finishPythonBuild(graph)

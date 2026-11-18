@@ -141,6 +141,8 @@ func (p *RubyParser) walk(node *sitter.Node, src []byte, filePath, packagePath, 
 				for i := 0; i < int(body.ChildCount()); i++ {
 					p.walkCalls(body.Child(i), src, filePath, packagePath, scoped, &decl.Calls)
 				}
+				decl.Calls = append(decl.Calls,
+					rubyBareSelfCalls(body, src, filePath, packagePath, decl.Parameters)...)
 			}
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
@@ -215,7 +217,13 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 		}
 	case rubyNodeCall:
 		// A chain link: the receiver is the previous call, which carries the
-		// type. The builder joins them through the chain, not through a type.
+		// type. The builder joins them through the chain, not through a type
+		// — except where the previous link names the type itself:
+		// `Encode.new(..).segments` runs a method of `Encode`, the one class
+		// an instantiation can return.
+		if constant := rubyInstantiatedConstant(receiver, src); constant != "" {
+			call.Callee.Type = constant
+		}
 	}
 	return call
 }
@@ -280,6 +288,11 @@ func rubyMethodDecl(node *sitter.Node, src []byte, filePath, packagePath, namesp
 	}
 	params := rubyMethodParameters(node, src)
 	return &FunctionDecl{
+		// A `def self.x` is reached through the class, never through an
+		// instance; Ruby lets a class declare both sides under one name
+		// (`Request.execute` and `Request.new.execute`), so the side is what
+		// tells the two declarations apart.
+		Static: node.Type() == rubyNodeSingletonMethod,
 		// The name carries the method's arity, as a call's callee does: the
 		// builder matches a call to a declaration by comparing the two, so a
 		// declaration written without it is reachable from nothing.
@@ -431,4 +444,23 @@ func rubyModuleDecl(root *sitter.Node, filePath, packagePath string, analysis *F
 // `::OpenSSL::Cipher`, which denotes the same type as `OpenSSL::Cipher`.
 func rubyConstantName(name string) string {
 	return strings.TrimPrefix(name, rubyScopeSeparator)
+}
+
+// rubyInstantiatedConstant is the constant a call instantiates, as in
+// `Encode.new(..)`, and empty for every other call: only `new` is known to
+// return an instance of the constant that receives it.
+func rubyInstantiatedConstant(node *sitter.Node, src []byte) string {
+	method := node.ChildByFieldName("method")
+	if method == nil || method.Content(src) != "new" {
+		return ""
+	}
+	receiver := node.ChildByFieldName("receiver")
+	if receiver == nil {
+		return ""
+	}
+	switch receiver.Type() {
+	case rubyNodeScopeResolution, rubyNodeConstant:
+		return rubyConstantName(receiver.Content(src))
+	}
+	return ""
 }
