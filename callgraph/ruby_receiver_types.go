@@ -36,8 +36,19 @@ func resolveRubyReceiverTypes(graph *CallGraph) {
 				// Bound more than once, or not at all: two types are no type.
 				continue
 			}
-			if t := producers[key]; t != "" {
+			if t := producers[key]; t == "" {
+				continue
+			} else if strings.HasPrefix(call.ReceiverVar, "@") {
+				// Only an instance variable takes the class as its owner.
+				// A local the constructor beside it types is an instance,
+				// and naming its class there makes it answer a rule that
+				// spells a class receiver -- `OpenSSL::HMAC.digest(..)` is
+				// not what `mac.digest` runs, and the fragment carries no
+				// distinction between the two (owner decision).
 				call.Callee.Type = t
+				call.ResolvedReceiverType = t
+				call.ReceiverBoundOnce = true
+			} else {
 				call.ResolvedReceiverType = t
 				call.ReceiverBoundOnce = true
 			}
