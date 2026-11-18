@@ -389,7 +389,18 @@ const goGraphAlgoPrefix = "graph-algo-go-"
 // an edge from the file's synthetic <varinit:file>, which is always a root,
 // as Go's is. A table tree-sitter reads as K&R parameter declarations after
 // a macro line counts as file scope.
-const GraphAlgoVersionC = cGraphAlgoPrefix + "2"
+//
+// graph-algo-c-3: a C fragment carries the parser's calls, as Java, Python,
+// Go and Node ones do: each call anchor's callee, text, arguments and their
+// provenance, each function's return sources, the external signatures and
+// the rebind lines, so annotate rebuilds a C graph's calls, and the linkage
+// of each callee, from the fragment. Its source_lines also hold the
+// preprocessor conditionals of each file's statically false #if blocks, so
+// annotate drops the findings in them as a scan of the file does. A C
+// fragment of an earlier id annotates its supporting calls without the
+// callee's text or the KB category and roles of a call of an externally
+// linked function, and keeps the findings of #if 0 blocks.
+const GraphAlgoVersionC = cGraphAlgoPrefix + "3"
 
 // cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped
 // with one is a C graph.
