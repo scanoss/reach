@@ -266,7 +266,11 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // pruned; a type parameter types no call; a `package main` file beside a read
 // package lends it nothing; GoUnreadTypeCall tells calls on a type of an
 // unread package.
-const GraphAlgoVersionGo = goGraphAlgoPrefix + "11"
+// graph-algo-go-12: an unaliased import whose last element is not an
+// identifier also binds the name Go tooling assumes for it (go-jose/v4 binds
+// jose); a bare call through a file's only dot import is keyed to that
+// import's package; the graph lists each project file's import specs.
+const GraphAlgoVersionGo = goGraphAlgoPrefix + "12"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped
 // with one is a Go graph.

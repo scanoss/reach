@@ -210,7 +210,15 @@ import (
 // whether it is a self receiver (GraphFragmentParam). A 1.29 fragment decodes
 // with neither; a 1.29 reader rejects the longer item array of a fn with
 // parameters, which is why this is a bump and not an optional field.
-const SchemaVersion = "graph-fragment-1.30"
+//
+// 1.32 (1.31 is reserved for Node) gives a Go fragment its import specs
+// under imports: by file path, each spec of each file's import declarations
+// as written, its path as module and the name written before it as alias
+// ("" for none, "." for a dot import, "_" for a blank one), with the spec's
+// span. A detector tells a rule's `import $P "p"`, which binds only an
+// aliased import, from `import "p"`. A 1.30 Go fragment decodes with none;
+// such a rule then cannot tell the two apart.
+const SchemaVersion = "graph-fragment-1.32"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
