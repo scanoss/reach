@@ -137,7 +137,7 @@ func TestRustVarinit(t *testing.T) {
 		t.Errorf("varinit calls = %v, missing %v", callees, want)
 	}
 	var refs []string
-	for _, r := range fn.ConstantRefs {
+	for _, r := range withoutTypeRefs(fn.ConstantRefs) {
 		refs = append(refs, r.Text+"/"+r.Context)
 	}
 	if len(refs) != 2 || refs[0] != "acme_kdf::Salt::DEFAULT/init" || refs[1] != "acme_kdf::Mode::Cbc/arg" {

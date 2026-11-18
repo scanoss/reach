@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+// withoutTypeRefs drops the references in the position kind type, which
+// TestRustTypeRefs covers.
+func withoutTypeRefs(refs []ConstantRef) []ConstantRef {
+	var out []ConstantRef
+	for _, r := range refs {
+		if r.Context != ConstantRefType {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // parseRustFunction parses one file and returns the declaration named name.
 func parseRustFunction(t *testing.T, src, name string) FunctionDecl {
 	t.Helper()
@@ -53,6 +65,7 @@ fn run(x: u32, m: Mode) -> u32 {
 }
 `
 	fn := parseRustFunction(t, src, "run")
+	fn.ConstantRefs = withoutTypeRefs(fn.ConstantRefs)
 	type ref struct{ text, context string }
 	var got []ref
 	for _, r := range fn.ConstantRefs {
@@ -115,7 +128,8 @@ func TestRustLetDeclarations(t *testing.T) {
 // TestRustNameRefs: a one-segment path a body reads as a value is a reference
 // when its name starts with an upper-case letter (a constant, a unit struct or
 // a variant brought in by a use: `&X25519`, `SysRng`); a lower-case name (a
-// local), a callee, a pattern, a type and a macro's name are not. A struct
+// local), a callee, a pattern and a macro's name are not; a type is one only
+// in the position kind type (TestRustTypeRefs). A struct
 // literal's path is a reference too, of one segment or more.
 func TestRustNameRefs(t *testing.T) {
 	src := `use acme_kdf::{Key, X25519};
@@ -147,6 +161,7 @@ fn run(x: u32, Mode: u8) -> Key {
 }
 `
 	fn := parseRustFunction(t, src, "run")
+	fn.ConstantRefs = withoutTypeRefs(fn.ConstantRefs)
 	type ref struct{ text, context string }
 	var got []ref
 	for _, r := range fn.ConstantRefs {
@@ -179,5 +194,100 @@ fn run(x: u32, Mode: u8) -> Key {
 	}
 	if r := fn.ConstantRefs[3]; r.Line != 9 || r.StartCol != 15 || r.EndCol != 18 {
 		t.Errorf("struct ref span = %d:%d-%d, want 8:15-18", r.Line, r.StartCol, r.EndCol)
+	}
+}
+
+// TestRustTypeRefs: a path written as a whole type is a reference in the
+// position kind type, where OpenGrep matches a path pattern: a field, a
+// parameter, a return type, a let annotation, a cast, a generic argument, a
+// `dyn` or `impl` trait, an alias, an impl's self type, a const's type. A fn's
+// signature holds its own; one outside any fn (a field, an alias, an impl
+// header, a trait fn's signature) is the file's <varinit>. A generic type's
+// head, a trait bound (generic arguments included), an impl's trait, a
+// qualified path, a declared name, a primitive, the prelude's types and a
+// lower-case name are not.
+func TestRustTypeRefs(t *testing.T) {
+	src := `use acme::Key;
+pub struct Holder { rng: SysRng, keys: Vec<acme::Key>, n: u8, s: String }
+pub struct Pair(Key, Option<acme::Nonce>);
+enum Slot { A(SysRng), B { k: acme::Key } }
+type Alias = acme::Cipher;
+const C: acme::Level = acme::LOW;
+impl Holder {}
+impl Tr for acme::Key {}
+impl From<SysRng> for Holder {}
+trait Sealed { fn seal(&self) -> acme::Sealed; }
+fn run<R: Into<SysRng>, T = acme::Dflt>(r: R, k: &acme::Key, h: impl acme::Hash, d: Box<dyn acme::Dyn>) -> Result<Key, acme::Error>
+where R: Bound<acme::Other> {
+    let x: acme::Key = make();
+    let y = make::<SysRng>();
+    let z = x as Key;
+    let f = |a: Rng2| -> Rng3 { a };
+    let p: <X as acme::Tr>::Out = q;
+    let g: Gen<u8> = q;
+    let w: wrapper = q;
+}
+`
+	type ref struct {
+		text      string
+		line, col int
+	}
+	typeRefs := func(fn FunctionDecl) []ref {
+		var got []ref
+		for _, r := range fn.ConstantRefs {
+			if r.Context == ConstantRefType {
+				got = append(got, ref{r.Text, r.Line, r.StartCol})
+			}
+		}
+		return got
+	}
+	run := parseRustFunction(t, src, "run")
+	wantRun := []ref{
+		{"acme::Dflt", 11, 29}, {"R", 11, 44}, {"acme::Key", 11, 51}, {"acme::Hash", 11, 70},
+		{"acme::Dyn", 11, 93}, {"Key", 11, 115}, {"acme::Error", 11, 120},
+		{"acme::Key", 13, 12}, {"SysRng", 14, 20}, {"Key", 15, 18}, {"Rng2", 16, 17}, {"Rng3", 16, 26},
+	}
+	if got := typeRefs(run); !reflect.DeepEqual(got, wantRun) {
+		t.Errorf("run's type refs:\n got %v\nwant %v", got, wantRun)
+	}
+	varinit := parseRustFunction(t, src, "<varinit:main>")
+	wantVarinit := []ref{
+		{"SysRng", 2, 26}, {"acme::Key", 2, 44}, {"Key", 3, 17}, {"acme::Nonce", 3, 29},
+		{"SysRng", 4, 15}, {"acme::Key", 4, 31}, {"acme::Cipher", 5, 14}, {"acme::Level", 6, 10},
+		{"Holder", 7, 6}, {"acme::Key", 8, 13}, {"Holder", 9, 23}, {"acme::Sealed", 10, 34},
+	}
+	if got := typeRefs(varinit); !reflect.DeepEqual(got, wantVarinit) {
+		t.Errorf("varinit's type refs:\n got %v\nwant %v", got, wantVarinit)
+	}
+	if r := run.ConstantRefs[0]; r.EndCol != 39 || r.Context != ConstantRefType {
+		t.Errorf("first ref = %+v, want acme::Dflt ending at column 39", r)
+	}
+}
+
+// TestRustTypeRefScopes: a static's type and its initializer's turbofish are
+// listed once each in <varinit>, an extern fn's signature too; a fn nested in
+// a body gives its signature to the enclosing fn; a test-only module in a scan
+// without tests gives none.
+func TestRustTypeRefScopes(t *testing.T) {
+	src := `static K: Lazy<acme::Kdf> = Lazy::<acme::Kdf>::new(make);
+extern "C" { fn ext(a: SysRng) -> acme::Out; }
+#[cfg(test)]
+mod tests { struct T { r: TestOnly } }
+fn outer() { fn inner(a: Inner1) -> Inner2 { a } }
+`
+	texts := func(fn FunctionDecl) []string {
+		var got []string
+		for _, r := range fn.ConstantRefs {
+			if r.Context == ConstantRefType {
+				got = append(got, r.Text)
+			}
+		}
+		return got
+	}
+	if got, want := texts(parseRustFunction(t, src, "<varinit:main>")), []string{"acme::Kdf", "acme::Kdf", "SysRng", "acme::Out"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("varinit's type refs = %v, want %v", got, want)
+	}
+	if got, want := texts(parseRustFunction(t, src, "outer")), []string{"Inner1", "Inner2"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("outer's type refs = %v, want %v", got, want)
 	}
 }

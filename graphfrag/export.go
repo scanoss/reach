@@ -238,7 +238,25 @@ import (
 // (GraphFragmentGoValue). A detector matches a rule written as such an
 // expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
-const SchemaVersion = "graph-fragment-1.34"
+//
+// 1.35 widens a Rust fragment's constant_refs with the paths written as a
+// whole type, in the position kind type: a struct, tuple struct, union or
+// variant field, a parameter, a return type (fn, trait or extern fn, closure,
+// fn pointer), a let annotation, a cast's target, a type alias, an impl's
+// self type, a const or static item's type, a generic argument (turbofish
+// and `Item = T` included), the referent of a reference or pointer, a tuple
+// or array element, a `dyn` or `impl` trait and a generic parameter's
+// default; text is the path as written (`SysRng`, `acme::Key`), one-segment
+// names under the rule of 1.33 (upper-case, not the prelude's types nor
+// Self). A generic type's head (`Key<u8>`), a trait bound or where predicate
+// (with its generic arguments), an impl's trait and a qualified path
+// (`<X as T>::Out`) are left out: OpenGrep matches a path pattern in none.
+// A reference in a fn's signature belongs to that fn; one outside any fn (a
+// field, an alias, an impl header, a const's type, a trait or extern fn's
+// signature) to the file's <varinit:<file>> function. The arrays keep their
+// layout; a detector reads the version to know that a type it does not find
+// is not written, where a 1.34 fragment lists no type at all.
+const SchemaVersion = "graph-fragment-1.35"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -1046,7 +1064,8 @@ func decodePositional(what string, data []byte, required int, targets ...any) er
 // `import static`; context is the position kind: compare (operand of == or
 // !=), equals (receiver or argument of equals), case (switch label), return,
 // assign, init (initializer of a local or a field), array (array initializer
-// element), arg (call or constructor argument) or other. end_line is written
+// element), arg (call or constructor argument), other, struct (a Rust struct
+// literal's path, 1.33) or type (a path written as a Rust type, 1.35). end_line is written
 // only for a reference that spans lines.
 //
 // 1.19 appends operand, written only for a reference in a comparison whose
