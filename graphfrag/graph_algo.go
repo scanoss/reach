@@ -176,7 +176,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // not None, Some, Ok, Err or Self), and the path of every struct literal, of
 // one segment or more, in a new position kind struct (`acme::Key { .. }`)
 // (graph-fragment-1.33): a stored rs-7 graph has neither.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "8"
+// graph-algo-rs-9: such a one-segment name is listed wherever it is read,
+// not only under the parents rs-8 named: a match scrutinee, an if or while
+// condition, a closure body, a break value. It is left out only in a pattern
+// (a binding, a match arm's name, a parameter), as a segment of a longer
+// path, as a callee and as a macro's name.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "9"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

@@ -135,6 +135,14 @@ fn run(x: u32, Mode: u8) -> Key {
     }
     if y == MAX { return Fallback; }
     debug_assert!(y != MAX2);
+    match LIMIT2 {
+        _ => {}
+    }
+    if FLAG {}
+    while FLAG2 {}
+    let c = || Default2;
+    if let Some(v) = CACHE {}
+    loop { break STOP; }
     Key { bits: 2 }
 }
 `
@@ -155,6 +163,12 @@ fn run(x: u32, Mode: u8) -> Key {
 		{"MAX", ConstantRefCompare},
 		{"Fallback", ConstantRefReturn},
 		{"MAX2", ConstantRefCompare},
+		{"LIMIT2", ConstantRefOther},
+		{"FLAG", ConstantRefOther},
+		{"FLAG2", ConstantRefOther},
+		{"Default2", ConstantRefOther},
+		{"CACHE", ConstantRefOther},
+		{"STOP", ConstantRefOther},
 		{"Key", ConstantRefStruct},
 	}
 	if !reflect.DeepEqual(got, want) {
