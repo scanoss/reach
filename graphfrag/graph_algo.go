@@ -355,6 +355,40 @@ const GraphAlgoVersionGo = goGraphAlgoPrefix + "15"
 // with one is a Go graph.
 const goGraphAlgoPrefix = "graph-algo-go-"
 
+// GraphAlgoVersionC identifies the callgraph-construction algorithm of C
+// graphs. C has its own id so a change to C graph construction never marks a
+// graph of another ecosystem stale.
+//
+// graph-algo-c-1: the C graphs of graph-algo-39, under their own id, whose
+// fragments list each project file's #include directives (`imports`, the
+// graph's CIncludes): the header as written, angle or quote form, the
+// directive's text and span, and whether it sits in a preprocessor
+// conditional; each function's local declarations and field stores; a
+// declaration of a name another declaration of the package
+// already holds (alternative backends, #if/#else bodies) is kept under a key
+// scoped to its file (and line) instead of being dropped; and each project
+// file's string literals (`strings`, the graph's CStrings: the literal as
+// written and its span, at most 256 bytes each). The fragment facts are
+// graph-fragment-1.37.
+const GraphAlgoVersionC = cGraphAlgoPrefix + "1"
+
+// cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped
+// with one is a C graph.
+const cGraphAlgoPrefix = "graph-algo-c-"
+
+// GraphAlgoVersionCPP identifies the callgraph-construction algorithm of C++
+// graphs, apart from C's and every other ecosystem's.
+//
+// graph-algo-cpp-1: the C++ graphs of graph-algo-39, under their own id, with
+// each project file's #include directives and string literals as
+// graph-algo-c-1 lists C's, and redefinitions kept as graph-algo-c-1 keeps
+// them.
+const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "1"
+
+// cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped
+// with one is a C++ graph.
+const cppGraphAlgoPrefix = "graph-algo-cpp-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
@@ -370,6 +404,10 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionNode
 	case "go":
 		return GraphAlgoVersionGo
+	case "c":
+		return GraphAlgoVersionC
+	case "cpp":
+		return GraphAlgoVersionCPP
 	}
 	return GraphAlgoVersion
 }
@@ -386,6 +424,10 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "node"
 	case strings.HasPrefix(id, goGraphAlgoPrefix):
 		return "go"
+	case strings.HasPrefix(id, cppGraphAlgoPrefix):
+		return "cpp"
+	case strings.HasPrefix(id, cGraphAlgoPrefix):
+		return "c"
 	}
 	return ""
 }

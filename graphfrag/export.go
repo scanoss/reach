@@ -270,7 +270,17 @@ import (
 // "var"), its one right-hand expression as written, and, for a var with a
 // type, type_text. A 1.35 fragment decodes with neither: such a rule then
 // cannot place a call relative to an assignment.
-const SchemaVersion = "graph-fragment-1.36"
+//
+// 1.37 gives a C or C++ fragment (graph-algo-c-1, graph-algo-cpp-1) the
+// facts a detector matches without the source: imports, each #include
+// directive of each file with the header as module, its text and span, and
+// local when it is written in a function body; declarations, the local
+// variables each function declares; attribute_stores, its field stores
+// (`ctx->mode = v`); and strings, by file path, the string literals each file
+// writes (GraphFragmentString). A detector reads the version to know that a
+// header, a local or a literal it does not find is not written; a fragment
+// before 1.37 carries none of these for C or C++.
+const SchemaVersion = "graph-fragment-1.37"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -516,8 +526,9 @@ type GraphFragmentExport struct {
 	// Imports are, by file path, the bindings of each scanned file's import
 	// statements in source order (Python, optional with no schema bump; Rust
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
-	// optional with no schema bump; Go import specs from 1.32). A rule that names an import, or reads an
-	// argument through an import alias, needs them without the source.
+	// optional with no schema bump; Go import specs from 1.32; C and C++
+	// #include directives from 1.37). A rule that names an import, or reads
+	// an argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
 	// expressions and field stores of each scanned Go file in source order
@@ -541,6 +552,11 @@ type GraphFragmentExport struct {
 	// BinaryExprs are, by file path, the binary expressions of each scanned
 	// Rust file's function bodies, in source order (1.30, Rust).
 	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
+	// Strings are, by file path, the string literals each scanned C or C++
+	// file writes, in source order (1.37, C and C++): a rule that matches a
+	// literal anywhere (a global table, a comparison) needs them without the
+	// source.
+	Strings map[string][]GraphFragmentString `json:"strings,omitempty"`
 	// Exports maps each public dotted name of the component (Python and
 	// Node; optional, no schema bump) that names a declaration made elsewhere
 	// in it to that declaration: a function key, or a class as `pkg.(Type)`.
@@ -875,6 +891,34 @@ func AppendBinaryExprJSON(dst []byte, e GraphFragmentBinaryExpr) []byte {
 // UnmarshalJSON decodes the positional expression array.
 func (e *GraphFragmentBinaryExpr) UnmarshalJSON(data []byte) error {
 	return decodePositional("binary expression", data, 9, &e.Line, &e.StartCol, &e.EndCol, &e.Op, &e.Left, &e.Right, &e.LeftEndCol, &e.RightStartCol, &e.Function, &e.EndLine, &e.LeftEndLine, &e.RightLine)
+}
+
+// GraphFragmentString is one string literal of a C or C++ file. JSON is a
+// positional array: [line, start_col, end_col, text, end_line].
+//
+// text is the literal as written, prefix and quotes included (`L"x"`); each
+// piece of a concatenation is a literal of its own. Columns are 1-based, end
+// exclusive; end_line is written only for a literal continued over lines.
+type GraphFragmentString struct {
+	Line, StartCol, EndCol, EndLine int
+	Text                            string
+}
+
+// MarshalJSON encodes the literal as a positional JSON array.
+func (s GraphFragmentString) MarshalJSON() ([]byte, error) {
+	return AppendStringJSON(nil, s), nil
+}
+
+// AppendStringJSON appends the positional encoding of s to dst.
+func AppendStringJSON(dst []byte, s GraphFragmentString) []byte {
+	dst = appendPositionalInts(append(dst, '['), s.Line, s.StartCol, s.EndCol)
+	dst = appendPositionalStrings(dst, s.Text)
+	return appendPositionalEnd(dst, s.EndLine)
+}
+
+// UnmarshalJSON decodes the positional literal array.
+func (s *GraphFragmentString) UnmarshalJSON(data []byte) error {
+	return decodePositional("string", data, 4, &s.Line, &s.StartCol, &s.EndCol, &s.Text, &s.EndLine)
 }
 
 // GraphFragmentExternalSignature is one signature of a method outside the

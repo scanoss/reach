@@ -107,23 +107,102 @@ func (p *CParser) parseFile(filePath, packagePath string) (*FileAnalysis, error)
 	defer func() { p.defines = nil }()
 	staticFunctions := make(map[string]bool)
 	collectCStaticFunctions(root, src, staticFunctions)
-	p.walkFile(root, src, filePath, packagePath, staticFunctions, analysis)
+	p.walkFile(root, src, filePath, packagePath, staticFunctions, true, analysis)
+	if altRoot, altSrc, altTree := cFunctionTree(p.parser, root, src); altTree != nil {
+		defer altTree.Close()
+		collectCStaticFunctions(altRoot, altSrc, staticFunctions)
+		alt := &FileAnalysis{FilePath: filePath, PackageName: packagePath, PackagePath: packagePath, Imports: map[string]string{}}
+		p.walkFile(altRoot, altSrc, filePath, packagePath, staticFunctions, false, alt)
+		analysis.Functions = cMergeFunctions(analysis.Functions, cBrokenFunctionLines(root), alt.Functions)
+	}
+	analysis.CStrings = cStringLiterals(root, src)
 	return analysis, nil
 }
 
-func (p *CParser) walkFile(node *sitter.Node, src []byte, filePath, packagePath string, staticFunctions map[string]bool, analysis *FileAnalysis) {
+// walkFile lists the functions of a tree and, with includes (the tree is the
+// file's own), its #include directives.
+func (p *CParser) walkFile(node *sitter.Node, src []byte, filePath, packagePath string, staticFunctions map[string]bool, includes bool, analysis *FileAnalysis) {
 	switch node.Type() {
 	case "preproc_include":
-		p.extractInclude(node, src, analysis)
+		if includes {
+			p.extractInclude(node, src, analysis)
+		}
 	case cNodeFunctionDefinition:
 		if decl := p.parseFunction(node, src, filePath, packagePath, staticFunctions); decl != nil {
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
+		if body := node.ChildByFieldName("body"); body != nil && includes {
+			analysis.CIncludes = append(analysis.CIncludes, cBodyIncludes(body, src)...)
+		}
 		return
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walkFile(node.Child(i), src, filePath, packagePath, staticFunctions, analysis)
+		child := node.Child(i)
+		if i+1 < int(node.ChildCount()) {
+			if decl := p.parseMacroFunction(child, node.Child(i+1), src, filePath, packagePath, staticFunctions); decl != nil {
+				analysis.Functions = append(analysis.Functions, *decl)
+				i++
+				continue
+			}
+		}
+		p.walkFile(child, src, filePath, packagePath, staticFunctions, includes, analysis)
 	}
+}
+
+// parseMacroFunction reads a function a macro declares with more than one
+// argument (`ZEND_METHOD(Cls, name) { ... }`, `SYSCALL_DEFINE2(name, ...)
+// { ... }`), which tree-sitter parses as a call statement missing its `;`
+// followed by a block. The function is named after the macro and its
+// identifier arguments (ZEND_METHOD_Cls_name) and spans head and block.
+func (p *CParser) parseMacroFunction(head, body *sitter.Node, src []byte, filePath, packagePath string, staticFunctions map[string]bool) *FunctionDecl {
+	if head.Type() != "expression_statement" || body.Type() != "compound_statement" || head.NamedChildCount() == 0 {
+		return nil
+	}
+	call := head.NamedChild(0)
+	if call.Type() != "call_expression" || !cMissingSemicolon(head) {
+		return nil
+	}
+	macro := call.ChildByFieldName("function")
+	if macro == nil || macro.Type() != cNodeIdentifier {
+		return nil
+	}
+	name := macro.Content(src)
+	if args := call.ChildByFieldName("arguments"); args != nil {
+		for i := 0; i < int(args.NamedChildCount()); i++ {
+			if arg := args.NamedChild(i); arg.Type() == cNodeIdentifier {
+				name += "_" + arg.Content(src)
+			}
+		}
+	}
+	decl := &FunctionDecl{
+		ID:           cFunctionID(packagePath, filePath, name, staticFunctions),
+		FilePath:     filePath,
+		StartLine:    int(head.StartPoint().Row) + 1,
+		EndLine:      int(body.EndPoint().Row) + 1,
+		StartCol:     int(head.StartPoint().Column) + 1,
+		EndCol:       int(body.EndPoint().Column) + 1,
+		OwnerType:    "module",
+		OwnerName:    packagePath,
+		FunctionType: "function",
+	}
+	handles := make(map[string]bool)
+	collectCHandleVars(body, src, handles)
+	p.walkCalls(body, src, filePath, packagePath, staticFunctions, handles, &decl.Calls)
+	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions)
+	decl.Declarations = cDeclarations(body, src)
+	decl.AttributeStores = cFieldStores(body, src)
+	return decl
+}
+
+// cMissingSemicolon reports whether tree-sitter inserted the `;` that ends a
+// statement.
+func cMissingSemicolon(stmt *sitter.Node) bool {
+	for i := 0; i < int(stmt.ChildCount()); i++ {
+		if c := stmt.Child(i); c.IsMissing() && c.Type() == ";" {
+			return true
+		}
+	}
+	return false
 }
 
 func collectCStaticFunctions(node *sitter.Node, src []byte, result map[string]bool) {
@@ -149,6 +228,9 @@ func (p *CParser) extractInclude(node *sitter.Node, src []byte, analysis *FileAn
 	header := strings.Trim(strings.TrimSpace(path.Content(src)), "<>\"")
 	if header != "" {
 		analysis.Imports[header] = header
+	}
+	if include, ok := cIncludeOf(node, src); ok {
+		analysis.CIncludes = append(analysis.CIncludes, include)
 	}
 }
 
@@ -177,6 +259,8 @@ func (p *CParser) parseFunction(node *sitter.Node, src []byte, filePath, package
 	collectCHandleVars(node, src, handles)
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, handles, &decl.Calls)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions)
+	decl.Declarations = cDeclarations(body, src)
+	decl.AttributeStores = cFieldStores(body, src)
 	return decl
 }
 
@@ -225,6 +309,11 @@ func cDeclaratorName(node *sitter.Node, src []byte) string {
 	}
 	if child := node.ChildByFieldName("declarator"); child != nil {
 		return cDeclaratorName(child, src)
+	}
+	if node.Type() == "parenthesized_declarator" && node.NamedChildCount() > 0 {
+		// `PHP_FUNCTION(name) { ... }` reads as type PHP_FUNCTION and the
+		// declarator (name).
+		return cDeclaratorName(node.NamedChild(0), src)
 	}
 	return ""
 }

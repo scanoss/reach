@@ -93,6 +93,7 @@ func (p *CPPParser) parseFile(filePath, packagePath string) (*FileAnalysis, erro
 	collectCPPStaticFunctions(tree.RootNode(), src, staticFunctions)
 	collectCPPDeclaredTypes(tree.RootNode(), src, "", analysis.DeclaredTypes)
 	p.walkFile(tree.RootNode(), src, filePath, packagePath, "", staticFunctions, analysis.DeclaredTypes, analysis)
+	analysis.CStrings = cStringLiterals(tree.RootNode(), src)
 	return analysis, nil
 }
 
@@ -259,6 +260,9 @@ func (p *CPPParser) extractInclude(node *sitter.Node, src []byte, analysis *File
 	header := strings.Trim(strings.TrimSpace(path.Content(src)), "<>\"")
 	if header != "" {
 		analysis.Imports[header] = header
+	}
+	if include, ok := cIncludeOf(node, src); ok {
+		analysis.CIncludes = append(analysis.CIncludes, include)
 	}
 }
 
