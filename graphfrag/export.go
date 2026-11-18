@@ -280,7 +280,13 @@ import (
 // writes (GraphFragmentString). A detector reads the version to know that a
 // header, a local or a literal it does not find is not written; a fragment
 // before 1.37 carries none of these for C or C++.
-const SchemaVersion = "graph-fragment-1.37"
+//
+// 1.38 adds start_col and end_col to a function: the columns of its span on
+// its first and last lines, so a reader tells a function written inline as a
+// call argument (a callback) from the function that writes it on the same
+// line. A fragment before 1.38, or a function without columns, places a call
+// by lines only.
+const SchemaVersion = "graph-fragment-1.38"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -1363,12 +1369,17 @@ type GraphFragmentFunction struct {
 	FilePath                      string   `json:"file_path,omitempty"`
 	StartLine                     int      `json:"start_line,omitempty"`
 	EndLine                       int      `json:"end_line,omitempty"`
-	ReturnType                    string   `json:"return_type,omitempty"`
-	ParameterTypes                []string `json:"parameter_types,omitempty"`
-	Visibility                    string   `json:"visibility,omitempty"`
-	OwnerVisibility               string   `json:"owner_visibility,omitempty"`
-	DisplaySymbol                 string   `json:"display_symbol,omitempty"`
-	Aliases                       []string `json:"aliases,omitempty"`
+	// StartCol and EndCol (1.38+): the 1-based column of the span's first
+	// character on StartLine and one past its last on EndLine. Zero when the
+	// producer records no columns.
+	StartCol        int      `json:"start_col,omitempty"`
+	EndCol          int      `json:"end_col,omitempty"`
+	ReturnType      string   `json:"return_type,omitempty"`
+	ParameterTypes  []string `json:"parameter_types,omitempty"`
+	Visibility      string   `json:"visibility,omitempty"`
+	OwnerVisibility string   `json:"owner_visibility,omitempty"`
+	DisplaySymbol   string   `json:"display_symbol,omitempty"`
+	Aliases         []string `json:"aliases,omitempty"`
 	// EntryKind (1.14+) is "main" or "framework_entry" for a function the
 	// producing scan recognized as an entry point: a program entry, or a method
 	// a framework or the runtime calls, which no call edge leads to.

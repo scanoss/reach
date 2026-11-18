@@ -43,6 +43,8 @@ func EncodeFragment(frag Fragment) ([]byte, error) {
 			FilePath:           fn.FilePath,
 			StartLine:          fn.StartLine,
 			EndLine:            fn.EndLine,
+			StartCol:           fn.StartCol,
+			EndCol:             fn.EndCol,
 			ReturnType:         fn.ReturnType,
 			ParameterTypes:     append([]string(nil), fn.ParameterTypes...),
 			Visibility:         fn.Visibility,

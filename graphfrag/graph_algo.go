@@ -304,7 +304,11 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // function the module declares (`signer.sign(..)` in a file holding a
 // `function sign`, or inside it) is a call of the bare method name, `sign`,
 // which no function declares (it was dropped: no edge, no external call).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "8"
+// graph-algo-node-9: Node fragments carry each function's columns
+// (graph-fragment-1.38 start_col, end_col), so annotating a stored fragment
+// places a crypto call written on the line where a callback argument starts
+// in the function that writes the call, as a scan does (was the callback).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "9"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
