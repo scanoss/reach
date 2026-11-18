@@ -36,6 +36,12 @@ func resolveRubyLocalCalls(graph *CallGraph) {
 	if len(index) == 0 {
 		return
 	}
+	// Both indexes are built once. Reading the supertypes by scanning every
+	// declared type, as this did, costs nothing on a gem of twenty files and
+	// minutes on one of 1237: the scan ran per call, and a generated client
+	// makes hundreds of thousands of them.
+	supers := indexRubySupertypesBySuffix(graph)
+	answers := map[string]*FunctionDecl{}
 	for _, fn := range graph.Functions {
 		if fn == nil {
 			continue
@@ -56,7 +62,7 @@ func resolveRubyLocalCalls(graph *CallGraph) {
 				kept = append(kept, call, bound)
 				continue
 			}
-			bindRubyLocalCall(graph, index, fn, &call)
+			bindRubyLocalCall(graph, index, supers, answers, fn, &call)
 			if call.RubySelfCandidate && call.Callee.Type == "" {
 				// A bare word the caller's class does not declare: a local
 				// read, a method of a dependency's base class, or Kernel's.
@@ -121,7 +127,8 @@ func indexRubyLocalDecls(graph *CallGraph) rubyLocalIndex {
 // the component makes one. A call already keyed to a declaration is left as
 // it is: the parser resolved it, and this pass only reaches what it could
 // not.
-func bindRubyLocalCall(graph *CallGraph, index rubyLocalIndex, caller *FunctionDecl, call *FunctionCall) {
+func bindRubyLocalCall(graph *CallGraph, index rubyLocalIndex, supers map[string][]string,
+	answers map[string]*FunctionDecl, caller *FunctionDecl, call *FunctionCall) {
 	if _, resolved := graph.Functions[call.Callee.String()]; resolved {
 		return
 	}
@@ -142,7 +149,7 @@ func bindRubyLocalCall(graph *CallGraph, index rubyLocalIndex, caller *FunctionD
 		return
 	}
 	static := call.StaticReceiver || call.RubySelfClassReceiver
-	decl := rubyDeclFor(graph, index, constant, name, static, 0)
+	decl := rubyDeclFor(graph, index, supers, answers, constant, name, static, 0)
 	if decl == nil || decl.ID.String() == caller.ID.String() {
 		// A call bound to its own declaration says nothing, and reaching one
 		// means the walk took a module in and came back out: `include M` in
@@ -161,11 +168,21 @@ const rubyMaxSupertypeDepth = 8
 // then the one it takes from a superclass or an included module. A class
 // that only includes a module declares nothing itself, which is why the
 // walk is what resolves the call at all.
-func rubyDeclFor(graph *CallGraph, index rubyLocalIndex, constant, name string, static bool, depth int) *FunctionDecl {
+func rubyDeclFor(graph *CallGraph, index rubyLocalIndex, supers map[string][]string,
+	answers map[string]*FunctionDecl, constant, name string, static bool, depth int) *FunctionDecl {
 	if constant == "" || depth > rubyMaxSupertypeDepth {
 		return nil
 	}
+	// The same question is asked tens of thousands of times over, and a
+	// cycle of includes would ask it forever. The first ask records nothing,
+	// so a cycle answers nothing and ends there.
+	memo := rubyLocalKey(constant, name, static)
+	if decl, asked := answers[memo]; asked {
+		return decl
+	}
+	answers[memo] = nil
 	if decl := index[rubyLocalKey(constant, name, static)]; decl != nil {
+		answers[memo] = decl
 		return decl
 	}
 	if !static {
@@ -173,35 +190,48 @@ func rubyDeclFor(graph *CallGraph, index rubyLocalIndex, constant, name string, 
 		// the class itself; where the class declares no instance method of
 		// that name, the class-side one is what the call runs.
 		if decl := index[rubyLocalKey(constant, name, true)]; decl != nil {
+			answers[memo] = decl
 			return decl
 		}
 	}
-	for _, super := range rubySupertypesOf(graph, constant) {
-		if decl := rubyDeclFor(graph, index, super, name, static, depth+1); decl != nil {
+	for _, super := range rubySupertypesOf(graph, supers, constant) {
+		if decl := rubyDeclFor(graph, index, supers, answers, super, name, static, depth+1); decl != nil {
+			answers[memo] = decl
 			return decl
 		}
 	}
 	return nil
 }
 
-// rubySupertypesOf is what a constant takes its methods from. The source
-// keys them by the full path a class is declared under, and a call spells
-// the constant as the enclosing namespace lets it, so the last segment is
-// what joins the two -- and where two classes share it, neither answers.
-func rubySupertypesOf(graph *CallGraph, constant string) []string {
-	if supers := graph.SourceSupertypes[constant]; len(supers) > 0 {
-		return supers
+// rubySupertypesOf is what a constant takes its methods from: its own entry,
+// or the one declared under a path whose last segment is that name.
+func rubySupertypesOf(graph *CallGraph, supers map[string][]string, constant string) []string {
+	if own := graph.SourceSupertypes[constant]; len(own) > 0 {
+		return own
 	}
-	var found []string
+	return supers[constant]
+}
+
+// indexRubySupertypesBySuffix keys each declared type's supertypes by the
+// last segment of its path, which is how a call inside the enclosing
+// namespace spells it. A name two types share answers nothing: a guess
+// between them would invent a method the program does not call.
+func indexRubySupertypesBySuffix(graph *CallGraph) map[string][]string {
+	out := make(map[string][]string, len(graph.SourceSupertypes))
+	ambiguous := map[string]bool{}
 	for typ, supers := range graph.SourceSupertypes {
-		if typ != constant && rubyConstantSuffix(typ) == constant {
-			if found != nil {
-				return nil // ambiguous: two classes end in this name
-			}
-			found = supers
+		suffix := rubyConstantSuffix(typ)
+		if suffix == typ || ambiguous[suffix] {
+			continue
 		}
+		if _, seen := out[suffix]; seen {
+			ambiguous[suffix] = true
+			delete(out, suffix)
+			continue
+		}
+		out[suffix] = supers
 	}
-	return found
+	return out
 }
 
 // rubyConstantSuffix is the last segment of a constant path: the name a
