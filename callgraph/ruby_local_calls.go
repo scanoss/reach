@@ -130,7 +130,7 @@ func bindRubyLocalCall(graph *CallGraph, index rubyLocalIndex, caller *FunctionD
 		return
 	}
 	constant := call.Callee.Type
-	if call.RubySelfCandidate {
+	if call.RubySelfCandidate || call.RubySelfClassReceiver {
 		constant = caller.ID.Type
 	}
 	if constant == "" {
@@ -141,17 +141,67 @@ func bindRubyLocalCall(graph *CallGraph, index rubyLocalIndex, caller *FunctionD
 	if constant == "" {
 		return
 	}
-	decl := index[rubyLocalKey(constant, name, call.StaticReceiver)]
-	if decl == nil && !call.StaticReceiver {
-		// A receiver the parser could only name by its constant is read as
-		// the class itself; where the class declares no instance method of
-		// that name, the class-side one is what the call runs.
-		decl = index[rubyLocalKey(constant, name, true)]
-	}
-	if decl == nil {
+	static := call.StaticReceiver || call.RubySelfClassReceiver
+	decl := rubyDeclFor(graph, index, constant, name, static, 0)
+	if decl == nil || decl.ID.String() == caller.ID.String() {
+		// A call bound to its own declaration says nothing, and reaching one
+		// means the walk took a module in and came back out: `include M` in
+		// a class gives it M's instance methods, and the class methods come
+		// from M's `included` hook, which only running the program decides.
 		return
 	}
 	call.Callee = decl.ID
+}
+
+// rubyMaxSupertypeDepth bounds the walk up a mixin chain, which Ruby lets a
+// program make as deep as it likes.
+const rubyMaxSupertypeDepth = 8
+
+// rubyDeclFor is the declaration a constant answers a method with: its own,
+// then the one it takes from a superclass or an included module. A class
+// that only includes a module declares nothing itself, which is why the
+// walk is what resolves the call at all.
+func rubyDeclFor(graph *CallGraph, index rubyLocalIndex, constant, name string, static bool, depth int) *FunctionDecl {
+	if constant == "" || depth > rubyMaxSupertypeDepth {
+		return nil
+	}
+	if decl := index[rubyLocalKey(constant, name, static)]; decl != nil {
+		return decl
+	}
+	if !static {
+		// A receiver the parser could only name by its constant is read as
+		// the class itself; where the class declares no instance method of
+		// that name, the class-side one is what the call runs.
+		if decl := index[rubyLocalKey(constant, name, true)]; decl != nil {
+			return decl
+		}
+	}
+	for _, super := range rubySupertypesOf(graph, constant) {
+		if decl := rubyDeclFor(graph, index, super, name, static, depth+1); decl != nil {
+			return decl
+		}
+	}
+	return nil
+}
+
+// rubySupertypesOf is what a constant takes its methods from. The source
+// keys them by the full path a class is declared under, and a call spells
+// the constant as the enclosing namespace lets it, so the last segment is
+// what joins the two -- and where two classes share it, neither answers.
+func rubySupertypesOf(graph *CallGraph, constant string) []string {
+	if supers := graph.SourceSupertypes[constant]; len(supers) > 0 {
+		return supers
+	}
+	var found []string
+	for typ, supers := range graph.SourceSupertypes {
+		if typ != constant && rubyConstantSuffix(typ) == constant {
+			if found != nil {
+				return nil // ambiguous: two classes end in this name
+			}
+			found = supers
+		}
+	}
+	return found
 }
 
 // rubyConstantSuffix is the last segment of a constant path: the name a

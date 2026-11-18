@@ -130,6 +130,7 @@ func (p *RubyParser) walk(node *sitter.Node, src []byte, filePath, packagePath, 
 	switch node.Type() {
 	case rubyNodeClass, rubyNodeModule:
 		child := rubyNamespaceOf(node, src, namespace)
+		rubySupertypes(node, src, child, analysis)
 		for i := 0; i < int(node.ChildCount()); i++ {
 			p.walk(node.Child(i), src, filePath, packagePath, child, analysis)
 		}
@@ -231,6 +232,10 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 		// an instantiation can return.
 		if constant := rubyInstantiatedConstant(receiver, src); constant != "" {
 			call.Callee.Type = constant
+		} else if rubyIsSelfClass(receiver, src) {
+			// `self.class.default_cert_store`: the receiver is the caller's
+			// own class, which only the whole declaration knows.
+			call.RubySelfClassReceiver = true
 		}
 	}
 	return call
@@ -498,4 +503,78 @@ func rubyModulePath(filePath, packagePath string) string {
 		return stem
 	}
 	return packagePath + rubyScopeSeparator + stem
+}
+
+// rubyIsSelfClass reports the call `self.class`, the receiver that denotes
+// the class of the object running the method.
+func rubyIsSelfClass(node *sitter.Node, src []byte) bool {
+	method := node.ChildByFieldName("method")
+	if method == nil || method.Content(src) != "class" {
+		return false
+	}
+	receiver := node.ChildByFieldName("receiver")
+	return receiver != nil && receiver.Content(src) == "self"
+}
+
+// rubySupertypes records what a class or module takes its methods from: the
+// superclass it declares, and every module its body includes, extends or
+// prepends. Ruby composes with modules far more than it subclasses, and a
+// class that only includes one declares no method of its own -- `class
+// Basement; include HTTParty; end` answers `Basement.put` from the module.
+func rubySupertypes(node *sitter.Node, src []byte, typ string, analysis *FileAnalysis) {
+	if typ == "" {
+		return
+	}
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if analysis.Supertypes == nil {
+			analysis.Supertypes = map[string][]string{}
+		}
+		for _, seen := range analysis.Supertypes[typ] {
+			if seen == name {
+				return
+			}
+		}
+		analysis.Supertypes[typ] = append(analysis.Supertypes[typ], name)
+	}
+	if super := node.ChildByFieldName("superclass"); super != nil {
+		add(rubyConstantName(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(super.Content(src)), "<"))))
+	}
+	body := node.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	for i := 0; i < int(body.ChildCount()); i++ {
+		if name, ok := rubyMixedInModule(body.Child(i), src); ok {
+			add(name)
+		}
+	}
+}
+
+// rubyMixedInModule is the module a body statement mixes in.
+func rubyMixedInModule(node *sitter.Node, src []byte) (string, bool) {
+	if node.Type() != rubyNodeCall || node.ChildByFieldName("receiver") != nil {
+		return "", false
+	}
+	method := node.ChildByFieldName("method")
+	if method == nil {
+		return "", false
+	}
+	switch method.Content(src) {
+	case "include", "extend", "prepend":
+	default:
+		return "", false
+	}
+	args := node.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() == 0 {
+		return "", false
+	}
+	first := args.NamedChild(0)
+	switch first.Type() {
+	case rubyNodeConstant, rubyNodeScopeResolution:
+		return rubyConstantName(first.Content(src)), true
+	}
+	return "", false
 }

@@ -254,3 +254,29 @@ func TestRubyRequireOfAnInterpolatedPathIsNotAnEdge(t *testing.T) {
 		}
 	}
 }
+
+// Ruby composes with modules far more than it subclasses, and a class that
+// only includes one declares no method of its own.
+func TestRubyCallThroughAnIncludedModule(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"m.rb": "module Signing\n  def sign(data)\n    data\n  end\nend\n",
+		"c.rb": "class Client\n  include Signing\nend\n",
+		"a.rb": "class Caller\n  def run(c)\n    Client.new.sign('x')\n  end\nend\n",
+	})
+	if !hasCall(t, graph, "lib.(Caller).run#1", "lib.(Signing).sign#1") {
+		t.Errorf("`Client.new.sign` does not reach the included module; calls = %q",
+			callsOf(t, graph, "lib.(Caller).run#1"))
+	}
+}
+
+// A superclass answers what the subclass does not declare.
+func TestRubyCallThroughASuperclass(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"b.rb": "class Base\n  def digest(x)\n    x\n  end\nend\n",
+		"d.rb": "class Child < Base\nend\n",
+		"a.rb": "class Caller\n  def run\n    Child.new.digest('x')\n  end\nend\n",
+	})
+	if !hasCall(t, graph, "lib.(Caller).run#0", "lib.(Base).digest#1") {
+		t.Errorf("the superclass does not answer; calls = %q", callsOf(t, graph, "lib.(Caller).run#0"))
+	}
+}
