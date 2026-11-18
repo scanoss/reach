@@ -248,8 +248,9 @@ type FunctionDecl struct {
 	// when language semantics set it (main, an init function).
 	EntryRule string
 	// ImplicitCalls are calls the source makes without a call expression: a
-	// JSX element renders its component, and a function written inline as an
-	// argument runs when the call it is passed to runs (Node only). They
+	// JSX element renders its component, a function written inline as an
+	// argument runs when the call it is passed to runs (Node), and a function
+	// handed out as a value is referenced (FunctionCall.Reference). They
 	// become call edges like Calls, but are kept apart so that finding
 	// attribution, which matches a crypto call by its position, never picks
 	// one.

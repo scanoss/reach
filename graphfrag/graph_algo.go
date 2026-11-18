@@ -381,7 +381,15 @@ const goGraphAlgoPrefix = "graph-algo-go-"
 // file's string literals (`strings`, the graph's CStrings: the literal as
 // written and its span, at most 256 bytes each). The fragment facts are
 // graph-fragment-1.37.
-const GraphAlgoVersionC = cGraphAlgoPrefix + "1"
+//
+// graph-algo-c-2: a function handed out as a value has a caller. A function
+// name read as a value (a callback argument, an assignment, an initializer,
+// a return, through `&`, casts and `?:`) is an exact edge from the function
+// that reads it, and one in a file-scope initializer (a table of handlers)
+// an edge from the file's synthetic <varinit:file>, which is always a root,
+// as Go's is. A table tree-sitter reads as K&R parameter declarations after
+// a macro line counts as file scope.
+const GraphAlgoVersionC = cGraphAlgoPrefix + "2"
 
 // cGraphAlgoPrefix starts every C graph algorithm id: a fragment stamped
 // with one is a C graph.
