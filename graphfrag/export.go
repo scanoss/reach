@@ -239,7 +239,25 @@ import (
 // expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
 //
-// 1.36 (1.35 is claimed by two open changes) adds two Go facts and a kind.
+// 1.35 widens a Rust fragment's constant_refs with the paths written as a
+// whole type, in the position kind type: a struct, tuple struct, union or
+// variant field, a parameter, a return type (fn, trait or extern fn, closure,
+// fn pointer), a let annotation, a cast's target, a type alias, an impl's
+// self type, a const or static item's type, a generic argument (turbofish
+// and `Item = T` included), the referent of a reference or pointer, a tuple
+// or array element, a `dyn` or `impl` trait and a generic parameter's
+// default; text is the path as written (`SysRng`, `acme::Key`), one-segment
+// names under the rule of 1.33 (upper-case, not the prelude's types nor
+// Self). A generic type's head (`Key<u8>`), a trait bound or where predicate
+// (with its generic arguments), an impl's trait and a qualified path
+// (`<X as T>::Out`) are left out: OpenGrep matches a path pattern in none.
+// A reference in a fn's signature belongs to that fn; one outside any fn (a
+// field, an alias, an impl header, a const's type, a trait or extern fn's
+// signature) to the file's <varinit:<file>> function. The arrays keep their
+// layout; a detector reads the version to know that a type it does not find
+// is not written, where a 1.34 fragment lists no type at all.
+//
+// 1.36 adds two Go facts and a kind.
 // go_blocks lists, by file path, the extent of every block of each file's
 // function bodies (the body, if and else bodies, for bodies, bare blocks,
 // function literal bodies, and each case or default clause of a switch, type
@@ -250,7 +268,7 @@ import (
 // "assign": an assignment of a function body to plain names (`x := e`, `x,
 // err = f()`, `var x T = e`), with its names, its operator (":=", "=" or
 // "var"), its one right-hand expression as written, and, for a var with a
-// type, type_text. A 1.34 fragment decodes with neither: such a rule then
+// type, type_text. A 1.35 fragment decodes with neither: such a rule then
 // cannot place a call relative to an assignment.
 const SchemaVersion = "graph-fragment-1.36"
 
@@ -1083,7 +1101,8 @@ func decodePositional(what string, data []byte, required int, targets ...any) er
 // `import static`; context is the position kind: compare (operand of == or
 // !=), equals (receiver or argument of equals), case (switch label), return,
 // assign, init (initializer of a local or a field), array (array initializer
-// element), arg (call or constructor argument) or other. end_line is written
+// element), arg (call or constructor argument), other, struct (a Rust struct
+// literal's path, 1.33) or type (a path written as a Rust type, 1.35). end_line is written
 // only for a reference that spans lines.
 //
 // 1.19 appends operand, written only for a reference in a comparison whose

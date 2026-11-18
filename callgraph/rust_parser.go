@@ -402,6 +402,7 @@ func (p *RustParser) parseFile(filePath, packagePath string) (*FileAnalysis, err
 	// Before the synthetic <varinit>, whose span is the whole file, so each
 	// expression keys to a function it stands in.
 	p.collectRustBinaryExprs(root, src, analysis)
+	p.collectRustItemTypeRefs(root, src, analysis)
 	p.appendRustVarinit(root, filePath, packagePath, analysis)
 
 	return analysis, nil

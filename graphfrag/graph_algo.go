@@ -181,7 +181,16 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // condition, a closure body, a break value. It is left out only in a pattern
 // (a binding, a match arm's name, a parameter), as a segment of a longer
 // path, as a callee and as a macro's name.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "9"
+// graph-algo-rs-10: constant_refs also list each path written as a whole type
+// where OpenGrep matches a path pattern, in a new position kind type (`rng:
+// SysRng`, `-> acme::Key`, `let k: acme::Key`, `Vec<SysRng>`, `x as Key`,
+// `impl acme::Key {}`), one-segment names under the rule of rs-8 (upper-case
+// first letter, not the prelude's nor Self). A fn's signature references are
+// its own; those outside any fn (a field, an alias, an impl's self type, a
+// const's type, a trait or extern fn's signature) are the file's
+// `<varinit:<file>>`, which a file with any now has (graph-fragment-1.35): a
+// stored rs-9 graph has none.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "10"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
