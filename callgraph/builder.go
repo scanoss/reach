@@ -319,6 +319,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	}
 	if b.ecosystem == ecosystemRuby {
 		resolveRubyLocalCalls(graph)
+		resolveRubyDynamicDispatch(graph)
 		graph.RubyExports = resolveRubyExports(graph)
 	}
 	if b.ecosystem == ecosystemPython {
@@ -1907,7 +1908,7 @@ func (b *Builder) indexCallDispatch(graph *CallGraph, callerKey string, call *Fu
 		return
 	}
 	idx.addCallerIndexed(graph.Callers, calleeKey, callerKey)
-	recordCallEdgeResolution(graph, callerKey, calleeKey, EdgeKindExact, "", call)
+	recordCallEdgeResolution(graph, callerKey, calleeKey, b.callEdgeKind(call), "", call)
 	if b.ecosystem == ecosystemPython {
 		if declared, ok := pythonPublicPathDeclaration(graph, call.Callee, calleeKey); ok {
 			idx.addCallerIndexed(graph.Callers, declared, callerKey)
@@ -4888,4 +4889,22 @@ func pythonDependencyTopLevelNames(packages []PackageDir) map[string]bool {
 		}
 	}
 	return names
+}
+
+// callEdgeKind is how far the graph resolved a call. A Ruby call on a named
+// receiver whose type nothing gives -- an instance variable, a parameter --
+// is a guess at the method's owner, not a resolution: saying so is what lets
+// a consumer report the finding behind it as unknown rather than
+// unreachable, which would be a claim the graph cannot make.
+func (b *Builder) callEdgeKind(call *FunctionCall) EdgeKind {
+	if b.ecosystem != ecosystemRuby {
+		return EdgeKindExact
+	}
+	if call.RubyDispatchCandidate {
+		return EdgeKindNameOnly
+	}
+	if call.Callee.Type != "" || call.ResolvedReceiverType != "" || call.ReceiverVar == "" {
+		return EdgeKindExact
+	}
+	return EdgeKindNameOnly
 }

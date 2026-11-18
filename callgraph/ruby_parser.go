@@ -26,6 +26,7 @@ const (
 	rubyNodeScopeResolution    = "scope_resolution"
 	rubyNodeConstant           = "constant"
 	rubyNodeIdentifier         = "identifier"
+	rubyNodeInstanceVariable   = "instance_variable"
 	rubyNodeArgumentList       = "argument_list"
 	rubyScopeSeparator         = "::"
 )
@@ -217,6 +218,11 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 			call.Callee.Type = constant
 			call.StaticReceiver = true
 		}
+	case rubyNodeInstanceVariable:
+		// `@algorithm.sign(..)`: the receiver is named, its type is not. The
+		// name is what says the call has one, which is what tells a call the
+		// graph resolved from one it only guessed.
+		call.ReceiverVar = receiver.Content(src)
 	case rubyNodeCall:
 		// A chain link: the receiver is the previous call, which carries the
 		// type. The builder joins them through the chain, not through a type

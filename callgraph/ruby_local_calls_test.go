@@ -181,3 +181,21 @@ func TestRubyAttributeStores(t *testing.T) {
 		t.Errorf("stores = %q, want %q", got, want)
 	}
 }
+
+// A call on a receiver nothing types may run any method of that name the
+// component declares; each candidate is a guess, so each is name-only.
+func TestRubyDynamicDispatchCandidates(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"enc.rb": "class Enc\n  def signature\n    @algorithm.sign(data: 1)\n  end\nend\n",
+		"a.rb":   "class Hmac\n  def sign(data:)\n    data\n  end\nend\n",
+		"b.rb":   "class Ecdsa\n  def sign(data:)\n    data\n  end\nend\n",
+	})
+	// The unresolved call stays beside the candidates: it is the site the
+	// card matcher reads, and it resolves to no declaration of its own.
+	got := callsOf(t, graph, "lib.(Enc).signature#0")
+	sort.Strings(got)
+	want := []string{"lib.(Ecdsa).sign#1", "lib.(Hmac).sign#1", "lib.sign#1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("calls = %q, want %q", got, want)
+	}
+}

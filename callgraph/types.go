@@ -412,6 +412,10 @@ type FunctionCall struct {
 	// (TikaInputStream.get(..)), which binds at compile time and never
 	// dispatches to a subtype (Java only).
 	StaticReceiver bool
+	// RubyDispatchCandidate marks one of the declarations a Ruby call on a
+	// receiver nothing types may run (`@algorithm.sign`). Each is an edge
+	// the graph guesses, never one it resolved, so each is name-only.
+	RubyDispatchCandidate bool
 	// RubySelfCandidate marks a call Ruby spells as a bare word, which the
 	// grammar cannot tell from a local read: it becomes an edge only where
 	// the caller's own class declares the method (resolveRubyLocalCalls),
