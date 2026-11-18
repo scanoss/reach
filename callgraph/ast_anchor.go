@@ -107,7 +107,8 @@ func namedChildIndexes(parent *sitter.Node) map[uintptr]int {
 // module or class_definition, so this never changes their anchor.
 func isFunctionContainer(kind string) bool {
 	switch kind {
-	case "function_declaration", "function_definition", "function_item", "method_declaration", "constructor_declaration", "method_definition", "arrow_function", "function_expression", "generator_function_declaration", "lambda_expression", "static_initializer", "field_declaration", pythonOwnerTypeModule, pythonNodeClassDefinition:
+	case "function_declaration", "function_definition", "function_item", "method_declaration", "constructor_declaration", "method_definition", "arrow_function", "function_expression", "generator_function_declaration", "lambda_expression", "static_initializer", "field_declaration", pythonOwnerTypeModule, pythonNodeClassDefinition,
+		rubyNodeMethod, rubyNodeSingletonMethod, rubyNodeClass:
 		return true
 	default:
 		return false
