@@ -1387,6 +1387,10 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 		if p.objectMethodReceiver(objectText, name) {
 			call.Callee.Type = objectText
 		}
+	case nodeThisField(object, src) != "":
+		// A field of this holds what the function last assigned it
+		// (`this._dh = createECDH(c); this._dh.generateKeys()`).
+		call.ReceiverVar = nodeThisField(object, src)
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
 	if !importedObject && call.Callee.Type == "" && object.Type() == nodeNewExpression {
@@ -1646,7 +1650,33 @@ func nodeCallChainContext(node *sitter.Node, src []byte) (chainID, assignedVar s
 			chainID = fmt.Sprintf("%d", root.StartByte())
 		}
 	}
-	return chainID, assignedVarFromParent(nodeResolvedValue(root), src)
+	value := nodeResolvedValue(root)
+	if assignedVar = assignedVarFromParent(value, src); assignedVar == "" {
+		assignedVar = nodeThisFieldAssigned(value, src)
+	}
+	return chainID, assignedVar
+}
+
+// nodeThisFieldAssigned names the field `this.<name> = <value>` assigns value
+// to, as `this.<name>`: the receiver a later `this.<name>.m()` reads.
+func nodeThisFieldAssigned(value *sitter.Node, src []byte) string {
+	parent := value.Parent()
+	if parent == nil || parent.Type() != nodeAssignmentExpression || !sameSyntaxNode(parent.ChildByFieldName("right"), value) {
+		return ""
+	}
+	return nodeThisField(parent.ChildByFieldName("left"), src)
+}
+
+// nodeThisField spells `this.<name>` as written, "" for anything else.
+func nodeThisField(node *sitter.Node, src []byte) string {
+	if node == nil || node.Type() != nodeMemberExpression {
+		return ""
+	}
+	object, property := node.ChildByFieldName("object"), node.ChildByFieldName("property")
+	if object == nil || property == nil || object.Type() != nodeThisNode || property.Type() != nodePropertyIdentifier {
+		return ""
+	}
+	return nodeThisNode + "." + property.Content(src)
 }
 
 // nodeResolvedValue climbs from a call to the expression whose value the

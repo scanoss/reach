@@ -290,6 +290,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // re-exporting module).
 // A call in a default parameter value (`function f(a, aux = randomBytes(32))`)
 // is a call of the function (was in no function).
+// A call whose result a function assigns to a field of this (`this._dh =
+// createECDH(c)`) carries AssignedVar `this._dh`, and a call on that field
+// (`this._dh.generateKeys()`) ReceiverVar `this._dh`, so a contract types it
+// as a call on a variable (was no AssignedVar, no ReceiverVar, caller-local).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
