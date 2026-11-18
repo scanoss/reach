@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/rs/zerolog/log"
 	sitter "github.com/smacker/go-tree-sitter"
@@ -276,17 +277,22 @@ func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileA
 }
 
 // processImportSpec binds the spec's name. An unaliased /vN import (N >= 2)
-// also offers vN in versionNames: some modules declare `package vN` there.
-// That name binds only when no import claims it and no other /vN path offers
-// it, as two such paths leave it ambiguous ("").
+// also offers vN in versionNames: some modules declare `package vN` there;
+// an unaliased import whose name is not an identifier (go-jose) also offers
+// the name Go tooling assumes for it (jose). An offered name binds only when
+// no import claims it and no other path offers it, as two such paths leave it
+// ambiguous ("").
 func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
-	var alias, path string
+	var alias, path, written string
 
 	for i := 0; i < int(spec.ChildCount()); i++ {
 		child := spec.Child(i)
 		switch child.Type() {
 		case "package_identifier":
 			alias = child.Content(src)
+			written = alias
+		case "dot", "blank_identifier":
+			written = child.Content(src)
 		case "interpreted_string_literal":
 			// Remove surrounding quotes
 			path = strings.Trim(child.Content(src), "\"")
@@ -296,21 +302,60 @@ func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *Fi
 	if path == "" {
 		return
 	}
+	start, end := spec.StartPoint(), spec.EndPoint()
+	imp := GoImport{Path: path, Alias: written, Line: int(start.Row) + 1, StartCol: int(start.Column) + 1, EndCol: int(end.Column) + 1}
+	if end.Row != start.Row {
+		imp.EndLine = int(end.Row) + 1
+	}
+	analysis.GoImports = append(analysis.GoImports, imp)
 
 	if alias == "" {
 		alias = GoImplicitImportName(path)
 		if last := path[strings.LastIndex(path, "/")+1:]; last != alias && !strings.HasPrefix(path, "gopkg.in/") {
 			if n, ok := goMajorVersion(last); ok && n >= 2 {
-				if other, seen := versionNames[last]; seen && other != path {
-					versionNames[last] = ""
-				} else if !seen {
-					versionNames[last] = path
-				}
+				offerGoImportName(versionNames, last, path)
 			}
+		}
+		if assumed := goAssumedImportName(alias); assumed != alias {
+			offerGoImportName(versionNames, assumed, path)
 		}
 	}
 
 	analysis.Imports[alias] = path
+}
+
+// offerGoImportName offers name for path in offered: it binds only when no
+// import claims it and no other path offers it (two paths leave it "").
+func offerGoImportName(offered map[string]string, name, path string) {
+	if other, seen := offered[name]; seen && other != path {
+		offered[name] = ""
+	} else if !seen {
+		offered[name] = path
+	}
+}
+
+// goAssumedImportName is the package name Go tooling assumes for an import
+// whose last element is not an identifier (x/tools ImportPathToAssumedName):
+// a leading "go-" dropped, then the element cut at its first character that
+// cannot be in an identifier. github.com/go-jose/go-jose/v4 declares package
+// jose; "" when nothing is left.
+func goAssumedImportName(name string) string {
+	name = strings.TrimPrefix(name, "go-")
+	if i := strings.IndexFunc(name, func(r rune) bool {
+		return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}); i >= 0 {
+		name = name[:i]
+	}
+	return name
+}
+
+// GoImport is one import spec of a Go file, as written: `"p"` (Alias ""),
+// `a "p"` (Alias "a"), `. "p"` (Alias ".") or `_ "p"` (Alias "_"). Line,
+// StartCol and EndCol locate the spec (columns 1-based, end exclusive);
+// EndLine is set only when it spans lines.
+type GoImport struct {
+	Path, Alias                     string
+	Line, StartCol, EndCol, EndLine int
 }
 
 // GoImplicitImportName is the name an unaliased import binds. It is the

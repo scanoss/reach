@@ -210,7 +210,15 @@ import (
 // whether it is a self receiver (GraphFragmentParam). A 1.29 fragment decodes
 // with neither; a 1.29 reader rejects the longer item array of a fn with
 // parameters, which is why this is a bump and not an optional field.
-const SchemaVersion = "graph-fragment-1.30"
+//
+// 1.32 (1.31 is reserved for Node) gives a Go fragment its import specs
+// under imports: by file path, each spec of each file's import declarations
+// as written, its path as module and the name written before it as alias
+// ("" for none, "." for a dot import, "_" for a blank one), with the spec's
+// span. A detector tells a rule's `import $P "p"`, which binds only an
+// aliased import, from `import "p"`. A 1.30 Go fragment decodes with none;
+// such a rule then cannot tell the two apart.
+const SchemaVersion = "graph-fragment-1.32"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -456,7 +464,7 @@ type GraphFragmentExport struct {
 	// Imports are, by file path, the bindings of each scanned file's import
 	// statements in source order (Python, optional with no schema bump; Rust
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
-	// optional with no schema bump). A rule that names an import, or reads an
+	// optional with no schema bump; Go import specs from 1.32). A rule that names an import, or reads an
 	// argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// ObjectLiterals are, by file path, the outermost object expressions of
@@ -516,6 +524,12 @@ type GraphFragmentExport struct {
 // end_col 1-based and exclusive, end_line only when it spans lines), and its
 // use tree as written (text: `a::{b::{self, C}}`, or `a as z`); local marks a
 // declaration inside a function body.
+//
+// A Go binding (callgraph.GoImport, 1.32) is one import spec as written:
+// module the import path, alias the name written before it ("" for none,
+// "." for a dot import, "_" for a blank one), with the spec's span (start_col,
+// end_col 1-based and exclusive, end_line only when it spans lines). A rule
+// that binds only an aliased import (`import $P "p"`) needs the alias.
 //
 // A Node binding (callgraph.NodeImport, graph-algo-node-3) carries the module
 // specifier as written ('node:crypto', './util'); name the export imported

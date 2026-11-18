@@ -442,6 +442,7 @@ func (b *Builder) resolveCalleesByContract(graph *CallGraph, kb *contracts.Knowl
 // the fluent fallback) over them.
 func (b *Builder) indexCallers(graph *CallGraph) {
 	pruneGoPredeclaredCalls(graph, b.ecosystem)
+	resolveGoDotImportCalls(graph, b.ecosystem)
 	resolveGoFieldReceiverCalls(graph, b.ecosystem)
 	resolveNodeTypedReceivers(graph)
 	b.linkNodePackageCalls(graph)
@@ -950,6 +951,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			}
 			graph.PythonImports[analysis.FilePath] = analysis.PythonImports
 		}
+	}
+	if b.ecosystem == ecosystemGo && projectLocal && len(analysis.GoImports) > 0 {
+		if graph.GoImports == nil {
+			graph.GoImports = make(map[string][]GoImport)
+		}
+		graph.GoImports[analysis.FilePath] = analysis.GoImports
 	}
 	if b.ecosystem == ecosystemNode && projectLocal && len(analysis.NodeImports) > 0 {
 		if graph.NodeImports == nil {

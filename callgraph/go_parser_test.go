@@ -458,3 +458,111 @@ func (s *S) Run() {
 		}
 	}
 }
+
+// Each import spec is listed as written, in source order, with its span: a
+// rule that binds only an aliased import (`import $P "p"`) tells `x "p"`
+// from `"p"` by it.
+func TestGoParser_ImportSpecs(t *testing.T) {
+	dir := t.TempDir()
+	source := "package p\n\nimport \"example.com/a\"\n\nimport (\n\tx \"example.com/b\"\n\t. \"example.com/c\"\n\t_ \"example.com/d\"\n)\n\nfunc run() { a.F(); x.G() }\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	want := []GoImport{
+		{Path: "example.com/a", Line: 3, StartCol: 8, EndCol: 23},
+		{Path: "example.com/b", Alias: "x", Line: 6, StartCol: 2, EndCol: 19},
+		{Path: "example.com/c", Alias: ".", Line: 7, StartCol: 2, EndCol: 19},
+		{Path: "example.com/d", Alias: "_", Line: 8, StartCol: 2, EndCol: 19},
+	}
+	if !reflect.DeepEqual(analysis.GoImports, want) {
+		t.Errorf("GoImports = %+v, want %+v", analysis.GoImports, want)
+	}
+	if analysis.Imports["x"] != "example.com/b" || analysis.Imports["a"] != "example.com/a" {
+		t.Errorf("Imports = %v", analysis.Imports)
+	}
+}
+
+// An unaliased import whose last element is not an identifier binds the name
+// Go tooling assumes for it (go-port audit E4): go-jose/v4 declares package
+// jose. The name binds only when no import claims it and one path offers it.
+func TestGoParser_AssumedImportName(t *testing.T) {
+	cases := []struct {
+		name, imports, call, want string
+	}{
+		{"go- prefix under /vN", `import "example.com/go-jose/go-jose/v4"`, "jose.Sign", "example.com/go-jose/go-jose/v4"},
+		{"go- prefix", `import "example.com/acme/go-lib"`, "lib.Sign", "example.com/acme/go-lib"},
+		{"cut at a dot", `import "example.com/acme/lib.go"`, "lib.Sign", "example.com/acme/lib.go"},
+		{"cut at a hyphen", `import "example.com/acme/lib-core"`, "lib.Sign", "example.com/acme/lib-core"},
+		{"an alias claims it", "import (\n\t\"example.com/acme/go-lib\"\n\tlib \"example.com/other\"\n)", "lib.Sign", "example.com/other"},
+		{"two paths offer it", "import (\n\t\"example.com/a/go-lib\"\n\t\"example.com/b/go-lib\"\n)", "lib.Sign", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := "package p\n" + c.imports + "\nfunc run() {\n\t" + c.call + "()\n}\n"
+			path := filepath.Join(dir, "main.go")
+			if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+			if err != nil {
+				t.Fatalf("ParseFile: %v", err)
+			}
+			found := false
+			for _, fn := range analysis.Functions {
+				for _, call := range fn.Calls {
+					if call.Raw == c.call {
+						found = true
+						if call.Callee.Package != c.want {
+							t.Errorf("%s resolves to %q, want %q", c.call, call.Callee.Package, c.want)
+						}
+					}
+				}
+			}
+			if !found {
+				t.Errorf("call %s not found", c.call)
+			}
+		})
+	}
+}
+
+// TestGoBuilder_DotImportCalls: a bare call through a file's only dot import
+// is keyed to the imported package (go-port audit E4b); a name the package
+// declares, a builtin, or a file with two dot imports keeps the parse.
+func TestGoBuilder_DotImportCalls(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"a.go": "package p\nimport . \"example.com/acme/lib\"\nfunc run(b []byte) {\n\tSign(b)\n\thelper()\n\t_ = len(b)\n}\n",
+		"b.go": "package p\nfunc helper() {}\n",
+		"c.go": "package p\nimport (\n\t. \"example.com/acme/x\"\n\t. \"example.com/acme/y\"\n)\nfunc two() { Open() }\n",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	graph, err := NewBuilderForEcosystem("go", NewGoParser()).BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: "example.com/p"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"Sign": "example.com/acme/lib", "helper": "example.com/p", "Open": "example.com/p"}
+	got := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, c := range fn.Calls {
+			got[c.Raw] = c.Callee.Package
+		}
+	}
+	for raw, pkg := range want {
+		if got[raw] != pkg {
+			t.Errorf("%s keyed to %q, want %q (calls %v)", raw, got[raw], pkg, got)
+		}
+	}
+	if _, kept := got["len"]; kept {
+		t.Errorf("builtin len kept: %v", got)
+	}
+}
