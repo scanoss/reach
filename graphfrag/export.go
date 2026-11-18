@@ -541,12 +541,17 @@ type GraphFragmentExport struct {
 	// BinaryExprs are, by file path, the binary expressions of each scanned
 	// Rust file's function bodies, in source order (1.30, Rust).
 	BinaryExprs map[string][]GraphFragmentBinaryExpr `json:"binary_exprs,omitempty"`
-	// Exports maps each public dotted name of the component (Python; optional,
-	// no schema bump) that names a declaration made elsewhere in it to that
-	// declaration: a function key, or a class as `pkg.(Type)`. Re-exports
-	// (`from .api_jwt import encode`), star imports, `__all__` and module-level
-	// aliases (`encode = _jwt_global_obj.encode`) give such names. The stitch
-	// joins a client's call of a public name (`jwt.encode`) through it.
+	// Exports maps each public dotted name of the component (Python and
+	// Node; optional, no schema bump) that names a declaration made elsewhere
+	// in it to that declaration: a function key, or a class as `pkg.(Type)`.
+	// In Python, re-exports (`from .api_jwt import encode`), star imports,
+	// `__all__` and module-level aliases (`encode = _jwt_global_obj.encode`)
+	// give such names. In Node (graph-algo-node-7), a call through a package
+	// specifier is keyed by it (`acme-sign.sign`, `acme-sign/sub.go`,
+	// `acme-sign.default`) while the package declares the function in the
+	// module that defines it (`acme-sign/index.sign`). The stitch joins a
+	// client's call of a public name (`jwt.encode`, `acme-sign.sign`) through
+	// it.
 	Exports map[string]string `json:"exports,omitempty"`
 	// PublicPaths maps each name a package's `__init__.py` imports, spelled
 	// as the package's attribute, to the module path that declares it

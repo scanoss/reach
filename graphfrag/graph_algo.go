@@ -257,7 +257,15 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // targets it (`hotp.gen(k)` calls m.(hotp).gen, was unbound). Of the others
 // sharing a key, the last module-level one (else the last one) keeps it and
 // each other one takes its start as a suffix (`sign@3:10`). A module without
-// such a pair keys as node-6 did.
+// such a pair keys as node-6 did. Fragments list in `exports` each key a
+// caller spells through one of the package's specifiers (`acme.sign`,
+// `acme/sub.go`, `@acme/sign.sign`, `acme.default`, `notp.hotp.gen`) that
+// names a function the package declares under another key
+// (`acme/index.sign`), from package.json `exports`, `main` or index, directory
+// indexes and re-exporting files; a stitch joins an application's call into
+// the package through it, where a node-6 fragment has no exports. A package
+// call linked in one build also follows `var o = {}; o.f = function` behind
+// `module.exports = { o }`.
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

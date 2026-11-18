@@ -822,27 +822,41 @@ func NodeCodeNames(path string) (map[string]bool, error) {
 // defined: the function, method or class a consumer's call reaches. ok is
 // false when the path cannot be followed statically.
 func (s *NodeShapes) Definition(file, name string, members []string) (string, int, bool) {
+	def, dm := s.definition(file, name, members)
+	if def == nil {
+		return "", 0, false
+	}
+	return dm.path, nodeLine(def), true
+}
+
+// definitionStart is Definition with the 1-based column the definition starts
+// at, which tells a function apart from another value on its line.
+func (s *NodeShapes) definitionStart(file, name string, members []string) (string, int, int, bool) {
+	def, dm := s.definition(file, name, members)
+	if def == nil {
+		return "", 0, 0, false
+	}
+	return dm.path, nodeLine(def), int(def.StartPoint().Column) + 1, true
+}
+
+func (s *NodeShapes) definition(file, name string, members []string) (*sitter.Node, *nodeShapeModule) {
 	mod := s.module(file)
 	if mod == nil {
-		return "", 0, false
+		return nil, nil
 	}
 	if value := assignedExportPath(mod, name, members); value != nil {
 		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil {
-			return dm.path, nodeLine(def), true
+			return def, dm
 		}
 	}
 	value, vm := s.exportValue(mod, name, 0)
 	for _, member := range members {
 		if value == nil {
-			return "", 0, false
+			return nil, nil
 		}
 		value, vm = s.memberValue(vm, value, member, 0)
 	}
-	value, vm = s.definitionNode(vm, value, 0)
-	if value == nil {
-		return "", 0, false
-	}
-	return vm.path, nodeLine(value), true
+	return s.definitionNode(vm, value, 0)
 }
 
 // definitionNode follows bindings and re-export requires to the node that
@@ -877,6 +891,20 @@ func (s *NodeShapes) requiredModule(m *nodeShapeModule, call *sitter.Node) *node
 	return s.relative(m, unquoteNodeString(args.NamedChild(0).Content(m.src)))
 }
 
+// nodeDeclaratorName is the identifier a declarator binds value to (`hotp`
+// in `var hotp = {}`), or "".
+func nodeDeclaratorName(value *sitter.Node, src []byte) string {
+	parent := value.Parent()
+	if parent == nil || parent.Type() != nodeVariableDeclarator {
+		return ""
+	}
+	name := parent.ChildByFieldName(nodeFieldName)
+	if name == nil || name.Type() != goNodeIdentifier {
+		return ""
+	}
+	return name.Content(src)
+}
+
 // memberValue returns the node that member of value is bound to.
 func (s *NodeShapes) memberValue(m *nodeShapeModule, n *sitter.Node, member string, depth int) (*sitter.Node, *nodeShapeModule) {
 	n = nodeUnwrapValue(n)
@@ -897,7 +925,17 @@ func (s *NodeShapes) memberValue(m *nodeShapeModule, n *sitter.Node, member stri
 		}
 		return nil, nil
 	case n.Type() == nodeObjectLiteral:
-		return s.objectMember(m, n, member, depth)
+		if found, fm := s.objectMember(m, n, member, depth); found != nil {
+			return found, fm
+		}
+		// `var hotp = {}; hotp.gen = function..` adds the member after the
+		// literal that `module.exports = { hotp }` reaches.
+		if name := nodeDeclaratorName(n, m.src); name != "" {
+			if found := nodeAssignedValue(m, name+"."+member); found != nil {
+				return found, m
+			}
+		}
+		return nil, nil
 	case nodeIsFunction(n):
 		return s.functionMember(m, n, "", member)
 	case n.Type() == nodeCallExpression:

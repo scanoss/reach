@@ -75,7 +75,8 @@ type Fragment struct {
 
 	// Exports maps the component's public dotted names to the declarations
 	// they name, a function key or a class as `pkg.(Type)` (graph-fragment
-	// `exports`, Python, additive). Nil for producers that do not record it.
+	// `exports`, Python and Node, additive). Nil for producers that do not
+	// record it.
 	Exports map[string]string
 
 	// ServiceProviders maps a service type to the classes the component

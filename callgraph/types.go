@@ -853,6 +853,13 @@ type CallGraph struct {
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",
 	// "jwt.PyJWT" -> "jwt.api_jwt.(PyJWT)".
 	PythonExports map[string]string
+	// NodePackageExports maps each key a caller spells through a specifier of
+	// one of the build's Node packages to the function the package declares
+	// under another key (recordNodePackageExports): "acme-sign.sign" ->
+	// "acme-sign/index.sign", "notp.hotp.gen" -> "notp/index.(hotp).gen",
+	// "acme-sign.default" -> "acme-sign/index.exports". A domain writes it as
+	// a fragment's `exports`, which the stitch joins a client's call through.
+	NodePackageExports map[string]string
 	// NamedValues merges every parsed file's NamedValues.
 	NamedValues map[string]NamedValue
 	// javaMemberTypes merges every parsed file's JavaMemberTypes ("" when two
