@@ -288,6 +288,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // require('m')`, `__exportStar`) of exactly one module for a name the file
 // does not export itself, and chains of them (were keyed under the
 // re-exporting module).
+// A call in a default parameter value (`function f(a, aux = randomBytes(32))`)
+// is a call of the function (was in no function).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment

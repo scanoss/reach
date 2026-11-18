@@ -197,3 +197,26 @@ class T {
 		}
 	}
 }
+
+// A call in a default parameter value is a call of the function, which
+// evaluates it on each call that omits the argument.
+func TestNodeParser_DefaultParameterCallsBelongToTheFunction(t *testing.T) {
+	t.Parallel()
+
+	analysis := parseNodeSource(t, `const crypto = require('crypto');
+function sign(message, key, aux = crypto.randomBytes(32)) { return aux; }
+const wrap = async (alg, { salt = crypto.randomBytes(16) } = {}) => salt;
+`)
+	found := make(map[string][]string)
+	for i := range analysis.Functions {
+		fn := &analysis.Functions[i]
+		for _, call := range fn.Calls {
+			found[fn.ID.Name] = append(found[fn.ID.Name], call.Callee.String())
+		}
+	}
+	for _, name := range []string{"sign", "wrap"} {
+		if got := found[name]; len(got) != 1 || got[0] != "crypto.randomBytes" {
+			t.Errorf("%s calls %q, want [crypto.randomBytes]", name, got)
+		}
+	}
+}

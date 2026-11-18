@@ -917,7 +917,12 @@ func (p *NodeParser) parseNodeFunction(node *sitter.Node, src []byte, filePath, 
 	p.scope = p.scopeFor(params, body, own, src)
 	defer func() { p.scope = previousScope }()
 	p.withReadScope(decl.ID.String(), own, func() {
-		decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+		// A default parameter value is evaluated by the function, on each
+		// call that omits the argument: `auxRand = randomBytes(32)`.
+		if params != nil {
+			decl.Calls = p.extractCalls(params, src, filePath, packagePath, owner, imports, locals)
+		}
+		decl.Calls = append(decl.Calls, p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)...)
 	})
 	decl.ImplicitCalls = nodeImplicitCalls(body, src, filePath, packagePath, imports, locals)
 	decl.ImplicitCalls = append(decl.ImplicitCalls, nodeCallbackReferences(body, src, filePath, packagePath, owner, imports, locals, p.nodeBoundNames(node, own, src))...)
