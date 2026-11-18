@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -233,4 +234,51 @@ func sortedGraphKeys(graph *CallGraph) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// A free function defined twice in one file, under mutually exclusive
+// `#[cfg]` attributes, keeps the calls of both bodies under its one key.
+// Last-write-wins dropped the earlier body: rcgen 0.14.10
+// examples/rsa-irc-openssl.rs (`fn main` under cfg(unix) and cfg(not(unix))),
+// azure_core 1.1.0 src/hmac.rs (three hmac_sha256), redis 1.8.2 src/tls.rs.
+// The same name in two files keeps two keys, each with its own calls.
+func TestRustBuilder_CfgVariantsInOneFileKeepEveryBody(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeRustFile(t, dir, "Cargo.toml", "[package]\nname = \"cfgdup\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	writeRustFile(t, dir, "src/lib.rs", `pub mod other;
+
+#[cfg(feature = "a")]
+pub fn hmac(k: &[u8]) { acme::make(1); }
+
+#[cfg(feature = "b")]
+pub fn hmac(k: &[u8]) { acme::make(2); }
+
+#[cfg(not(any(feature = "a", feature = "b")))]
+pub fn hmac(k: &[u8]) { acme::make(3); }
+`)
+	writeRustFile(t, dir, "src/other.rs", "pub fn hmac(k: &[u8]) { acme::make(4); }\n")
+	builder := NewBuilderForEcosystem("rust", NewRustParser())
+	graph, err := builder.BuildFromDirectories([]PackageDir{{Dir: dir, ImportPath: "cfgdup"}}, nil)
+	if err != nil {
+		t.Fatalf("BuildFromDirectories: %v", err)
+	}
+	for key, want := range map[string][]int{"cfgdup.hmac": {4, 7, 10}, "cfgdup::other.hmac": {1}} {
+		fn := graph.Functions[key]
+		if fn == nil {
+			t.Fatalf("%s not in the graph; have %v", key, sortedFunctionKeys(graph.Functions))
+		}
+		var lines []int
+		for _, c := range fn.Calls {
+			lines = append(lines, c.Line)
+		}
+		sort.Ints(lines)
+		if fmt.Sprint(lines) != fmt.Sprint(want) {
+			t.Errorf("%s call lines = %v, want %v", key, lines, want)
+		}
+		if key == "cfgdup.hmac" && fn.StartLine != 4 {
+			t.Errorf("%s starts on line %d, want the first body's 4", key, fn.StartLine)
+		}
+	}
 }

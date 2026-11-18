@@ -190,7 +190,11 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // const's type, a trait or extern fn's signature) are the file's
 // `<varinit:<file>>`, which a file with any now has (graph-fragment-1.35): a
 // stored rs-9 graph has none.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "10"
+// graph-algo-rs-11: a free function defined more than once in one file
+// (variants under mutually exclusive `#[cfg]` attributes) keeps the calls,
+// references and declarations of every body under its one key, the first
+// body's position kept; a stored rs-10 graph has only the last body's.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "11"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
