@@ -171,7 +171,12 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // written and their spans, the enclosing function's key), and each fn item
 // carries its parameters as written (pattern, type, span, self receiver)
 // (graph-fragment-1.30): a stored rs-6 graph has neither.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "7"
+// graph-algo-rs-8: constant_refs also list a one-segment path a body reads as
+// a value whose name starts with an upper-case letter (`&X25519`, `SysRng`;
+// not None, Some, Ok, Err or Self), and the path of every struct literal, of
+// one segment or more, in a new position kind struct (`acme::Key { .. }`)
+// (graph-fragment-1.33): a stored rs-7 graph has neither.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "8"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
@@ -271,7 +276,7 @@ const nodeGraphAlgoPrefix = "graph-algo-node-"
 // jose); a bare call through a file's only dot import is keyed to that
 // import's package; the graph lists each project file's import specs.
 // graph-algo-go-13: the graph lists each project file's composite literals,
-// new(T) expressions and field stores (GoValues, graph-fragment-1.33).
+// new(T) expressions and field stores (GoValues, graph-fragment-1.34).
 const GraphAlgoVersionGo = goGraphAlgoPrefix + "13"
 
 // goGraphAlgoPrefix starts every Go graph algorithm id: a fragment stamped

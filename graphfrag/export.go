@@ -219,16 +219,25 @@ import (
 // aliased import, from `import "p"`. A 1.30 Go fragment decodes with none;
 // such a rule then cannot tell the two apart.
 //
-// 1.33 gives a Go fragment go_values: by file path, the composite literals
+// 1.33 widens a Rust fragment's constant_refs: a one-segment path a body
+// reads as a value whose name starts with an upper-case letter (`&X25519`
+// after `use ring::agreement::X25519`, `SysRng`; the prelude's None, Some,
+// Ok, Err and Self are left out), and the path of every struct literal, of
+// one segment or more, in the position kind struct (`acme::Key { bits: 1 }`).
+// The arrays keep their layout; a detector reads the version to know that a
+// one-segment name it does not find is not read as a value, where a 1.30
+// fragment leaves that undecided. (1.31 is reserved for Node.)
+//
+// 1.34 gives a Go fragment go_values: by file path, the composite literals
 // (`tls.Config{MinVersion: v}`, `&rsa.PSSOptions{...}`), new(T) expressions
 // and field stores (`cfg.CipherSuites = v`) of each file, nested ones
 // included, each with its kind, span (a literal's `&` at addr_col), type as
 // written and qualified, a store's receiver, its fields or elements as
 // written with their spans, and the key of the function that holds it
 // (GraphFragmentGoValue). A detector matches a rule written as such an
-// expression without the source. A 1.32 fragment decodes with none: such a
+// expression without the source. A 1.33 fragment decodes with none: such a
 // rule then matches nothing.
-const SchemaVersion = "graph-fragment-1.33"
+const SchemaVersion = "graph-fragment-1.34"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -479,7 +488,7 @@ type GraphFragmentExport struct {
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
 	// expressions and field stores of each scanned Go file in source order
-	// (1.33).
+	// (1.34).
 	GoValues map[string][]GraphFragmentGoValue `json:"go_values,omitempty"`
 	// ObjectLiterals are, by file path, the outermost object expressions of
 	// each scanned file in source order (1.28, Node). The text of every object
@@ -599,7 +608,7 @@ type GraphFragmentObjectLiteral struct {
 
 // GraphFragmentGoValue is one Go expression that builds or configures a
 // value without a call the graph records (callgraph.GoValue,
-// graph-fragment-1.33): kind "composite" (`T{...}`), "new" (`new(T)`) or
+// graph-fragment-1.34): kind "composite" (`T{...}`), "new" (`new(T)`) or
 // "store" (`x.f = v`). The span is the expression's own (columns 1-based, end
 // exclusive, end_line only when it spans lines); a composite literal's
 // leading `&` is at addr_col. type_text is the type as written (a store's

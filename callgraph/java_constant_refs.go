@@ -42,6 +42,7 @@ const (
 	ConstantRefArray   = "array"   // element of an array initializer
 	ConstantRefArg     = "arg"     // argument of a call, a constructor or an enum constant
 	ConstantRefOther   = "other"   // anything else (a receiver, an operand, an annotation value)
+	ConstantRefStruct  = "struct"  // path of a Rust struct literal (`acme::Key { .. }`)
 )
 
 // collectJavaConstantRefs records every qualified constant reference of the
