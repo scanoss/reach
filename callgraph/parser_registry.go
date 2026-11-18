@@ -28,6 +28,8 @@ func NewParserForEcosystem(ecosystem string, opts ...ParserOption) Parser {
 		return NewNodeParser(opts...)
 	case "python":
 		return NewPythonParser(opts...)
+	case "ruby":
+		return NewRubyParser(opts...)
 	case "rust":
 		return NewRustParser(opts...)
 	default:
