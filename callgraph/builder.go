@@ -1888,10 +1888,15 @@ func (idx dispatchIndexes) expandAbstractClassDispatchMemoized(b *Builder, calle
 // classification.
 func (b *Builder) indexCallDispatch(graph *CallGraph, callerKey string, call *FunctionCall, idx dispatchIndexes) {
 	calleeKey := call.Callee.String()
-	if call.nodeUnboundMember && call.Callee.Type == "" && graph.Functions[calleeKey] != nil {
+	if call.nodeUnboundMember && call.Callee.Type == "" && (call.Callee.Package == "" || graph.Functions[calleeKey] != nil) {
 		// `getThing().digest()` or `param.digest()`: no receiver binds the call
-		// to the module function of the same name.
-		b.indexFluentFallback(graph, callerKey, call, idx)
+		// to the module function of the same name. It stays a call of the
+		// method of a value nothing typed, keyed by the bare name, which no
+		// function declares, so it is not lost with that function's key.
+		call.Callee = FunctionID{Name: call.Callee.Name}
+		calleeKey = call.Callee.String()
+		idx.addCallerIndexed(graph.Callers, calleeKey, callerKey)
+		recordCallEdgeResolution(graph, callerKey, calleeKey, EdgeKindExact, "", call)
 		return
 	}
 	idx.addCallerIndexed(graph.Callers, calleeKey, callerKey)
