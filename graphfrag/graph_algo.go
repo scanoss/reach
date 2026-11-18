@@ -198,7 +198,14 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // body that declares a use or an `extern crate` of its own (a match arm's,
 // a branch's, a nested, closure, async or unsafe block), so a reader scopes
 // such a use to its block; a stored rs-11 graph lists none.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "12"
+// graph-algo-rs-13: a Rust graph carries the public paths a crate's `pub use`
+// items re-export its types under (public_type_paths), and its call anchors
+// carry the parser's calls (callee, text, arguments and their provenance) as
+// Java, Python, Go, Node and C ones do. A stored rs-12 graph lacks both:
+// annotate surfaces a rule's api named by its public path only through the
+// first, and rebuilds a call's text and argument provenance only from the
+// second.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "13"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
