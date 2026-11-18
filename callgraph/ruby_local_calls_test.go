@@ -141,3 +141,21 @@ func TestResolveRubyExportsPublicPath(t *testing.T) {
 		t.Errorf("exports[\"(JWT).encode\"] = %q, want lib.(JWT).encode#2 (exports = %v)", got, graph.RubyExports)
 	}
 }
+
+// Every file of a directory owns its top-level statements: a Ruby package is
+// a directory, so one `<module>` key per package would keep a single file's.
+func TestRubyModuleInitIsPerFile(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"a.rb": "Digest::MD5.hexdigest(\"x\")\n",
+		"b.rb": "Digest::SHA256.hexdigest(\"y\")\n",
+	})
+	var files []string
+	for key, fn := range graph.Functions {
+		if BaseFunctionName(fn.ID.Name) == moduleInitMethodName {
+			files = append(files, key+" "+fn.FilePath)
+		}
+	}
+	if len(files) != 2 {
+		t.Errorf("module inits = %q, want one per file", files)
+	}
+}

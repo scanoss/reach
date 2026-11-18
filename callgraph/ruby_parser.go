@@ -421,20 +421,25 @@ func (p *RubyParser) walkCalls(node *sitter.Node, src []byte, filePath, packageP
 // rubyModuleDecl returns the index of the file's `<module>`, creating it when
 // the file has none.
 func rubyModuleDecl(root *sitter.Node, filePath, packagePath string, analysis *FileAnalysis) int {
+	// A Ruby package is a directory, so every file of one would key its
+	// module init the same way and the graph would keep a single file's
+	// top-level code. The file is what `require` names, so it is what keys
+	// the init that owns its statements.
+	modulePath := rubyModulePath(filePath, packagePath)
 	for i := range analysis.Functions {
-		if fn := &analysis.Functions[i]; fn.ID.Name == moduleInitMethodName && fn.ID.Type == "" && fn.ID.Package == packagePath {
+		if fn := &analysis.Functions[i]; fn.ID.Name == moduleInitMethodName && fn.ID.Type == "" && fn.ID.Package == modulePath {
 			return i
 		}
 	}
 	analysis.Functions = append(analysis.Functions, FunctionDecl{
-		ID:           FunctionID{Package: packagePath, Name: moduleInitMethodName},
+		ID:           FunctionID{Package: modulePath, Name: moduleInitMethodName},
 		FilePath:     filePath,
 		StartLine:    int(root.StartPoint().Row) + 1,
 		EndLine:      int(root.EndPoint().Row) + 1,
 		StartCol:     int(root.StartPoint().Column) + 1,
 		EndCol:       int(root.EndPoint().Column) + 1,
 		OwnerType:    "module",
-		OwnerName:    packagePath,
+		OwnerName:    modulePath,
 		FunctionType: functionTypeModuleInit,
 	})
 	return len(analysis.Functions) - 1
@@ -463,4 +468,17 @@ func rubyInstantiatedConstant(node *sitter.Node, src []byte) string {
 		return rubyConstantName(receiver.Content(src))
 	}
 	return ""
+}
+
+// rubyModulePath is the package a file's module init is keyed under: the
+// directory's package plus the file's own name, the one `require` uses.
+func rubyModulePath(filePath, packagePath string) string {
+	stem := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	if stem == "" {
+		return packagePath
+	}
+	if packagePath == "" {
+		return stem
+	}
+	return packagePath + rubyScopeSeparator + stem
 }
