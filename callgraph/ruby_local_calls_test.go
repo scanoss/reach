@@ -280,3 +280,56 @@ func TestRubyCallThroughASuperclass(t *testing.T) {
 		t.Errorf("the superclass does not answer; calls = %q", callsOf(t, graph, "lib.(Caller).run#0"))
 	}
 }
+
+// Every argument says where it came from, in the six kinds the other
+// languages report: a rule asks what an algorithm argument holds, and the
+// answer is rarely written at the call.
+func TestRubyArgumentSources(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"a.rb": "class T\n  def initialize(k)\n    @key = k\n  end\n" +
+			"  def run(param)\n    local = \"literal\"\n" +
+			"    OpenSSL::HMAC.digest(\"SHA256\", @key, param)\n" +
+			"    OpenSSL::HMAC.digest(local, SALT, other())\n  end\nend\n",
+	})
+	var got []string
+	for _, fn := range graph.Functions {
+		for _, c := range fn.Calls {
+			if BaseFunctionName(c.Callee.Name) != "digest" {
+				continue
+			}
+			for _, srcs := range c.ArgumentSources {
+				for _, s := range srcs {
+					got = append(got, s.Type)
+				}
+			}
+		}
+	}
+	sort.Strings(got)
+	want := []string{"CALL_RESULT", "FIELD", "PARAMETER", "VALUE", "VARIABLE", "VARIABLE"}
+	if !slices.Equal(got, want) {
+		t.Errorf("kinds = %q, want %q", got, want)
+	}
+}
+
+// A local bound once to a literal carries it; bound twice it carries none,
+// because two values are no single source.
+func TestRubyArgumentSourceOfAReboundLocal(t *testing.T) {
+	graph := buildRubyGraph(t, map[string]string{
+		"a.rb": "def once\n  d = \"SHA256\"\n  Digest(d)\nend\n" +
+			"def twice\n  d = \"SHA256\"\n  d = \"MD5\"\n  Digest(d)\nend\n",
+	})
+	for _, fn := range graph.Functions {
+		for _, c := range fn.Calls {
+			if BaseFunctionName(c.Callee.Name) != "Digest" || len(c.ArgumentSources) == 0 {
+				continue
+			}
+			inner := c.ArgumentSources[0][0].SourceNodes
+			if BaseFunctionName(fn.ID.Name) == "once" && (len(inner) != 1 || inner[0].Value != `"SHA256"`) {
+				t.Errorf("a local bound once carries no literal: %+v", inner)
+			}
+			if BaseFunctionName(fn.ID.Name) == "twice" && len(inner) != 0 {
+				t.Errorf("a local bound twice carries a literal: %+v", inner)
+			}
+		}
+	}
+}

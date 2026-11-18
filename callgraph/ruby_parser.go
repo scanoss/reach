@@ -142,7 +142,9 @@ func (p *RubyParser) walk(node *sitter.Node, src []byte, filePath, packagePath, 
 				// must not type a same-named parameter of another.
 				scoped := rubyScopeAliases(body, src)
 				for i := 0; i < int(body.ChildCount()); i++ {
-					p.walkCalls(body.Child(i), src, filePath, packagePath, scoped, &decl.Calls)
+					p.walkCalls(body.Child(i), src, filePath, packagePath, scoped,
+						rubyValueScope{literals: rubyBoundLiterals(body, src), params: rubyParameterIndices(decl.Parameters)},
+						&decl.Calls)
 				}
 				decl.Calls = append(decl.Calls,
 					rubyBareSelfCalls(body, src, filePath, packagePath, decl.Parameters)...)
@@ -181,7 +183,7 @@ func (p *RubyParser) walkNested(node *sitter.Node, src []byte, filePath, package
 // parseCall resolves a call's receiver to the constant it names, so the callee
 // carries the type the receiver denotes.
 func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packagePath string,
-	aliases map[string]string) *FunctionCall {
+	aliases map[string]string, values rubyValueScope) *FunctionCall {
 	method := node.ChildByFieldName("method")
 	if method == nil {
 		return nil
@@ -201,6 +203,9 @@ func (p *RubyParser) parseCall(node *sitter.Node, src []byte, filePath, packageP
 		ASTKind:     node.Type(),
 		AssignedVar: rubyAssignedVar(node, src),
 		Arguments:   args,
+		// Where each argument came from, the six kinds every other
+		// language reports.
+		ArgumentSources: rubyArgumentSources(node, src, values.literals, values.params),
 	}
 	receiver := node.ChildByFieldName("receiver")
 	if receiver == nil {
@@ -405,13 +410,14 @@ func rubyAssignedVar(node *sitter.Node, src []byte) string {
 // every top-level statement of the file.
 func (p *RubyParser) collectInto(root *sitter.Node, src []byte, filePath, packagePath string,
 	aliases map[string]string, analysis *FileAnalysis, idx int) {
+	values := rubyValueScope{literals: rubyBoundLiterals(root, src)}
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
 		switch n.Type() {
 		case rubyNodeMethod, rubyNodeSingletonMethod:
 			return // its own declaration already took them
 		case rubyNodeCall:
-			if call := p.parseCall(n, src, filePath, packagePath, aliases); call != nil {
+			if call := p.parseCall(n, src, filePath, packagePath, aliases, values); call != nil {
 				p.anchors.set(call, n)
 				analysis.Functions[idx].Calls = append(analysis.Functions[idx].Calls, *call)
 			}
@@ -424,19 +430,19 @@ func (p *RubyParser) collectInto(root *sitter.Node, src []byte, filePath, packag
 }
 
 func (p *RubyParser) walkCalls(node *sitter.Node, src []byte, filePath, packagePath string,
-	aliases map[string]string, calls *[]FunctionCall) {
+	aliases map[string]string, values rubyValueScope, calls *[]FunctionCall) {
 	switch node.Type() {
 	case rubyNodeMethod, rubyNodeSingletonMethod:
 		return // a nested def owns its own calls
 	}
 	if node.Type() == rubyNodeCall {
-		if call := p.parseCall(node, src, filePath, packagePath, aliases); call != nil {
+		if call := p.parseCall(node, src, filePath, packagePath, aliases, values); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walkCalls(node.Child(i), src, filePath, packagePath, aliases, calls)
+		p.walkCalls(node.Child(i), src, filePath, packagePath, aliases, values, calls)
 	}
 }
 
@@ -577,4 +583,11 @@ func rubyMixedInModule(node *sitter.Node, src []byte) (string, bool) {
 		return rubyConstantName(first.Content(src)), true
 	}
 	return "", false
+}
+
+// rubyValueScope is what a body knows about the names its calls pass: the
+// literal each local holds, and the position of each parameter.
+type rubyValueScope struct {
+	literals map[string]string
+	params   map[string]int
 }
