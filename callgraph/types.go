@@ -301,6 +301,12 @@ type FunctionDecl struct {
 	// nodeReturnClass is the class a Node function declares as its return
 	// type, `function make(): Base`, when that is a plain class of the project.
 	nodeReturnClass FunctionID
+	// nodePropertyOwner is the object a Node function is assigned as a
+	// property of (`hotp` for `hotp.gen = function`), and nodeNested whether
+	// it is declared inside another function: what disambiguateNodeFunctions
+	// reads when two functions of a module share a key.
+	nodePropertyOwner string
+	nodeNested        bool
 	// constructed is what the function's own return statements yield as
 	// objects (see returnedObjects), for resolveConstructedReceivers.
 	constructed returnedObjects

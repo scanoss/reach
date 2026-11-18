@@ -249,7 +249,16 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // its `$N` copies) passes a module through as the other interop helpers do, so
 // `x['default'].init()` and `x.default.CURVE` on its result key as
 // `require('m').default.init()` and its read do (were caller-local).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
+// graph-algo-node-7: two functions of one module that shared a key both stay
+// in the graph (the first one's calls were dropped). A function assigned as
+// a property of a plain identifier is keyed by that object as owner
+// (`hotp.gen = function` and `totp.gen = function` are m.(hotp).gen and
+// m.(totp).gen, were both m.gen), and a member call on the module binding
+// targets it (`hotp.gen(k)` calls m.(hotp).gen, was unbound). Of the others
+// sharing a key, the last module-level one (else the last one) keeps it and
+// each other one takes its start as a suffix (`sign@3:10`). A module without
+// such a pair keys as node-6 did.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
