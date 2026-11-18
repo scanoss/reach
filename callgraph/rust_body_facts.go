@@ -53,28 +53,38 @@ func (f *rustBodyFacts) visit(node *sitter.Node, src []byte) bool {
 	return true
 }
 
-// rustValueParents are the parents under which a one-segment path is read as
-// a value, with the field it must stand in ("" for any child).
-var rustValueParents = map[string]string{
-	"arguments":                     "",
-	"array_expression":              "",
-	"tuple_expression":              "",
-	rustNodeReturnExpression:        "",
-	"reference_expression":          "value",
-	"unary_expression":              "",
-	"binary_expression":             "",
-	rustNodeParenthesizedExpression: "",
-	"type_cast_expression":          "value",
-	"range_expression":              "",
-	"index_expression":              "",
-	"block":                         "",
-	rustNodeLetDeclaration:          "value",
-	rustNodeConstItem:               "value",
-	rustNodeStaticItem:              "value",
-	rustNodeAssignmentExpression:    "right",
-	"compound_assignment_expr":      "right",
-	"field_initializer":             "value",
-	"field_expression":              "value",
+// rustNotValueParents are the parents under which an identifier is not read
+// as a value: a pattern (a binding, a match arm's name, a closure or fn
+// parameter), with the field it stands in ("" for any child), a segment of a
+// longer path, a callee, a macro's name or an attribute.
+var rustNotValueParents = map[string]string{
+	rustNodeLetDeclaration:        "pattern",
+	"let_condition":               "pattern",
+	"for_expression":              "pattern",
+	"parameter":                   "pattern",
+	"closure_parameters":          "",
+	"match_pattern":               "",
+	"tuple_pattern":               "",
+	"tuple_struct_pattern":        "",
+	"struct_pattern":              "",
+	"field_pattern":               "",
+	"slice_pattern":               "",
+	"or_pattern":                  "",
+	"ref_pattern":                 "",
+	"mut_pattern":                 "",
+	"reference_pattern":           "",
+	"captured_pattern":            "",
+	"range_pattern":               "",
+	rustNodeScopedIdentifier:      "",
+	rustNodeCallExpression:        "function",
+	rustNodeGenericFunction:       "function",
+	"macro_invocation":            "macro",
+	"attribute":                   "",
+	"meta_item":                   "",
+	"token_tree":                  "",
+	"shorthand_field_initializer": "",
+	"label":                       "",
+	"lifetime":                    "",
 }
 
 // rustPreludeValues are the prelude's values, never a reference to a crate's.
@@ -83,16 +93,17 @@ var rustPreludeValues = map[string]bool{"None": true, "Some": true, "Ok": true, 
 // rustIsValueName reports whether an identifier is a one-segment path read
 // as a value whose name starts with an upper-case letter: a constant, a unit
 // struct or a variant (`X25519`, `SysRng`), not a local nor a prelude value.
+// Any parent that is not a pattern, a callee or a macro's name reads it.
 func rustIsValueName(node, parent *sitter.Node, src []byte) bool {
 	name := node.Content(src)
 	if name == "" || !unicode.IsUpper([]rune(name)[0]) || rustPreludeValues[name] {
 		return false
 	}
-	field, ok := rustValueParents[parent.Type()]
+	field, ok := rustNotValueParents[parent.Type()]
 	if !ok {
-		return false
+		return true
 	}
-	return field == "" || sameSyntaxNode(parent.ChildByFieldName(field), node)
+	return field != "" && !sameSyntaxNode(parent.ChildByFieldName(field), node)
 }
 
 // rustIsCallee reports whether a path is what a call calls: `a::f(..)`,

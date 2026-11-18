@@ -220,7 +220,8 @@ import (
 // such a rule then cannot tell the two apart.
 //
 // 1.33 widens a Rust fragment's constant_refs: a one-segment path a body
-// reads as a value whose name starts with an upper-case letter (`&X25519`
+// reads as a value (anywhere but a pattern, a callee or a macro's name, since
+// graph-algo-rs-9) whose name starts with an upper-case letter (`&X25519`
 // after `use ring::agreement::X25519`, `SysRng`; the prelude's None, Some,
 // Ok, Err and Self are left out), and the path of every struct literal, of
 // one segment or more, in the position kind struct (`acme::Key { bits: 1 }`).
