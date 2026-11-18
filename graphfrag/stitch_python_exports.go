@@ -78,6 +78,11 @@ func indexPythonPublicNames(closure []ComponentKey, fragments map[ComponentKey]F
 // `__init__` of its own).
 func (p pythonPublicNames) targets(target string, self ComponentKey, deps map[ComponentKey]bool, functionsBySignature map[string][]graphNode, hierarchy *typeHierarchy) []graphNode {
 	var nodes []graphNode
+	// A public name carries no arity: a caller writes `JWT.encode`, not a
+	// count. A Ruby call target does carry one, because the cards matcher
+	// reads a site through a key that must end in "#N", so it is dropped
+	// here. A target with no "#" is unchanged, which is every Python one.
+	target = trimArity(target)
 	for _, d := range p[target] {
 		if !deps[d.component] && d.component != self {
 			continue
@@ -111,4 +116,22 @@ func declarationNodes(key string, component ComponentKey, functionsBySignature m
 		nodes = hierarchy.inheritedTargets(key)
 	}
 	return nodes
+}
+
+// trimArity drops a key's "#N" suffix. A key without one is returned as it
+// is, so a Python target, which never carries an arity, does not move.
+func trimArity(key string) string {
+	i := strings.LastIndex(key, "#")
+	if i < 0 {
+		return key
+	}
+	for _, c := range key[i+1:] {
+		if c < '0' || c > '9' {
+			return key
+		}
+	}
+	if i == len(key)-1 {
+		return key
+	}
+	return key[:i]
 }
