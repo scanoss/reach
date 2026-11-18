@@ -151,6 +151,14 @@ export async function aliases(data) {
   legacy.getRandomValues(data);
 }
 
+// A closure reads an enclosing function's crypto as the global spelling
+// does, whatever the enclosing declaration holds, as before aliases were
+// followed.
+export function create(provider) {
+  const crypto = provider.get();
+  return async function enclosed(data) { return crypto.subtle.digest('SHA-256', data); };
+}
+
 export function notAliases(store, data) {
   const crypto = store.crypto;
   crypto.getRandomValues(data);
@@ -177,6 +185,7 @@ export function notAliases(store, data) {
 		"aliases (SubtleCrypto).digest",
 		"aliases (SubtleCrypto).digest",
 		"aliases (SubtleCrypto).importKey",
+		"enclosed (SubtleCrypto).digest",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("WebCrypto calls:\n got %q\nwant %q", got, want)

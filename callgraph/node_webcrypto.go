@@ -49,6 +49,11 @@ type webCryptoScope struct {
 	// c = nodeCrypto.webcrypto`); declared is false when the name has no
 	// declaration of the file's own, and bound and declared then decide.
 	held func(name *sitter.Node) (path string, ok, declared bool)
+	// heldDecides makes a declaration held does not follow to a route
+	// final; otherwise bound and declared still decide it, as they do
+	// without held (a receiver's locals do not hold an enclosing
+	// function's).
+	heldDecides bool
 }
 
 // nodeWebCryptoInterface returns the WebCrypto interface an expression
@@ -93,7 +98,7 @@ func nodeWebCryptoPath(expr *sitter.Node, src []byte, scope webCryptoScope) (str
 	switch expr.Type() {
 	case goNodeIdentifier:
 		if scope.held != nil {
-			if path, ok, declared := scope.held(expr); declared {
+			if path, ok, declared := scope.held(expr); ok || declared && scope.heldDecides {
 				return path, ok
 			}
 		}
@@ -259,6 +264,7 @@ func (p *NodeParser) webCryptoHeld(imports nodeBindings, name *sitter.Node, dept
 		held: func(name *sitter.Node) (string, bool, bool) {
 			return p.webCryptoHeld(imports, name, depth+1)
 		},
+		heldDecides: true,
 	}
 	switch {
 	case d.from != nil:
