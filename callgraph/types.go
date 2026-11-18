@@ -715,6 +715,9 @@ type FileAnalysis struct {
 	// RustBinaryExprs lists the binary expressions of the file's function
 	// bodies, in source order (Rust only).
 	RustBinaryExprs []RustBinaryExpr
+	// GoImports lists the specs of the file's import declarations, in
+	// source order (Go only).
+	GoImports []GoImport
 	// NodeImports lists the imports, requires, dynamic imports and
 	// re-exports of the file, in source order (Node only).
 	NodeImports []NodeImport
@@ -810,6 +813,9 @@ type CallGraph struct {
 	// function bodies of each Rust source file whose functions the graph
 	// holds, as written (Rust only).
 	RustBinaryExprs map[string][]RustBinaryExpr
+	// GoImports holds the import specs of each project source file, by
+	// file path (Go only), paths and names as written.
+	GoImports map[string][]GoImport
 	// NodeImports holds the imports, requires, dynamic imports and
 	// re-exports of each project source file, by file path (Node only), with
 	// module specifiers as written.

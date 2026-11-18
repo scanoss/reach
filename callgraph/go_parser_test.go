@@ -458,3 +458,31 @@ func (s *S) Run() {
 		}
 	}
 }
+
+// Each import spec is listed as written, in source order, with its span: a
+// rule that binds only an aliased import (`import $P "p"`) tells `x "p"`
+// from `"p"` by it.
+func TestGoParser_ImportSpecs(t *testing.T) {
+	dir := t.TempDir()
+	source := "package p\n\nimport \"example.com/a\"\n\nimport (\n\tx \"example.com/b\"\n\t. \"example.com/c\"\n\t_ \"example.com/d\"\n)\n\nfunc run() { a.F(); x.G() }\n"
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := NewGoParser().ParseFile(path, "example.com/p")
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	want := []GoImport{
+		{Path: "example.com/a", Line: 3, StartCol: 8, EndCol: 23},
+		{Path: "example.com/b", Alias: "x", Line: 6, StartCol: 2, EndCol: 19},
+		{Path: "example.com/c", Alias: ".", Line: 7, StartCol: 2, EndCol: 19},
+		{Path: "example.com/d", Alias: "_", Line: 8, StartCol: 2, EndCol: 19},
+	}
+	if !reflect.DeepEqual(analysis.GoImports, want) {
+		t.Errorf("GoImports = %+v, want %+v", analysis.GoImports, want)
+	}
+	if analysis.Imports["x"] != "example.com/b" || analysis.Imports["a"] != "example.com/a" {
+		t.Errorf("Imports = %v", analysis.Imports)
+	}
+}

@@ -280,13 +280,16 @@ func (p *GoParser) walkImportNode(node *sitter.Node, src []byte, analysis *FileA
 // That name binds only when no import claims it and no other /vN path offers
 // it, as two such paths leave it ambiguous ("").
 func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *FileAnalysis, versionNames map[string]string) {
-	var alias, path string
+	var alias, path, written string
 
 	for i := 0; i < int(spec.ChildCount()); i++ {
 		child := spec.Child(i)
 		switch child.Type() {
 		case "package_identifier":
 			alias = child.Content(src)
+			written = alias
+		case "dot", "blank_identifier":
+			written = child.Content(src)
 		case "interpreted_string_literal":
 			// Remove surrounding quotes
 			path = strings.Trim(child.Content(src), "\"")
@@ -296,6 +299,12 @@ func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *Fi
 	if path == "" {
 		return
 	}
+	start, end := spec.StartPoint(), spec.EndPoint()
+	imp := GoImport{Path: path, Alias: written, Line: int(start.Row) + 1, StartCol: int(start.Column) + 1, EndCol: int(end.Column) + 1}
+	if end.Row != start.Row {
+		imp.EndLine = int(end.Row) + 1
+	}
+	analysis.GoImports = append(analysis.GoImports, imp)
 
 	if alias == "" {
 		alias = GoImplicitImportName(path)
@@ -311,6 +320,15 @@ func (p *GoParser) processImportSpec(spec *sitter.Node, src []byte, analysis *Fi
 	}
 
 	analysis.Imports[alias] = path
+}
+
+// GoImport is one import spec of a Go file, as written: `"p"` (Alias ""),
+// `a "p"` (Alias "a"), `. "p"` (Alias ".") or `_ "p"` (Alias "_"). Line,
+// StartCol and EndCol locate the spec (columns 1-based, end exclusive);
+// EndLine is set only when it spans lines.
+type GoImport struct {
+	Path, Alias                     string
+	Line, StartCol, EndCol, EndLine int
 }
 
 // GoImplicitImportName is the name an unaliased import binds. It is the
