@@ -112,3 +112,49 @@ func TestNodeMemberCallOnInlineRequireBindsTheRequiredModule(t *testing.T) {
 		}
 	}
 }
+
+// A member call nothing binds, whose method a function of the module also
+// names, is a call of the method of a value nothing typed: keyed by the bare
+// name, which no function declares, it stays in the graph (the call was
+// lost with the module function's key) and never reaches the function.
+// Inside the function of that name too: `function sign() { s.sign() }`.
+func TestNodeUnboundMemberSharingAFunctionKeyStaysACall(t *testing.T) {
+	t.Parallel()
+	for _, ext := range []string{"js", "ts"} {
+		graph := buildNodeFiles(t, map[string]string{
+			"m." + ext: unboundMemberModule,
+			"s." + ext: `const acme = require('acme-sig')
+function make(bits) {
+  return function sign(data, key) {
+    const signer = acme.createSigner('x' + bits)
+    return signer.sign({ key, mode: 'pss' }, data)
+  }
+}
+module.exports = { make }
+`,
+			"utils." + ext: unboundMemberUtils,
+		})
+		digest, _ := graphFunction(t, graph, "app/m", "", "digest")
+		for _, name := range []string{"chained", "callResultReceiver", "paramReceiver"} {
+			caller, _ := graphFunction(t, graph, "app/m", "", name)
+			if !hasCaller(graph, "digest", caller) {
+				t.Errorf("%s: Callers[digest] = %v, want %s", ext, graph.Callers["digest"], caller)
+			}
+			if hasCaller(graph, digest, caller) {
+				t.Errorf("%s: %s must not call %s", ext, name, digest)
+			}
+		}
+		signKey, sign := graphFunction(t, graph, "app/s", "", "sign")
+		if !hasCaller(graph, "sign", signKey) || hasCaller(graph, signKey, signKey) {
+			t.Errorf("%s: Callers[sign] = %v, Callers[%s] = %v, want only the bare key called", ext, graph.Callers["sign"], signKey, graph.Callers[signKey])
+		}
+		for _, call := range sign.Calls {
+			if call.Raw == "signer.sign" && (call.Callee.String() != "sign" || call.ReceiverVar != "signer" || len(call.Arguments) != 2) {
+				t.Errorf("%s: signer.sign = %s receiver %q args %q, want sign on signer with 2 arguments", ext, call.Callee, call.ReceiverVar, call.Arguments)
+			}
+		}
+		if _, declared := graph.Functions["sign"]; declared {
+			t.Errorf("%s: the bare key must name no function", ext)
+		}
+	}
+}

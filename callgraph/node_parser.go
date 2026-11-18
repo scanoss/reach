@@ -1391,6 +1391,12 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 		// A field of this holds what the function last assigned it
 		// (`this._dh = createECDH(c); this._dh.generateKeys()`).
 		call.ReceiverVar = nodeThisField(object, src)
+	case object.Type() == goNodeIdentifier && p.scope != nil && p.scope.enclosing.has(objectText):
+		// A name a function around this one declares, which this one
+		// captures: `const ecdh = createECDH(c); return { k() { return
+		// ecdh.computeSecret(p) } }`. Its value is what that function
+		// assigned it.
+		call.ReceiverVar = objectText
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
 	if !importedObject && call.Callee.Type == "" && object.Type() == nodeNewExpression {

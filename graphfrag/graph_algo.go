@@ -297,7 +297,14 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A call written as the fallback operand of `||` or `??` (`const iv = p.iv ||
 // randomBytes(16)`) carries the AssignedVar the whole expression binds (was
 // none).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
+// graph-algo-node-8: a member call on a name a function around the caller
+// declares (a closure's captured `ecdh` in `ecdh.computeSecret(k)`) carries
+// that name as ReceiverVar, as a call on the caller's own local does (was
+// none). A member call no receiver binds whose caller-local key is a
+// function the module declares (`signer.sign(..)` in a file holding a
+// `function sign`, or inside it) is a call of the bare method name, `sign`,
+// which no function declares (it was dropped: no edge, no external call).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "8"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
