@@ -128,6 +128,10 @@ type Builder struct {
 	// nodePackageDirs maps each Node package of the build, by import path, to
 	// its directory, for linkNodePackageCalls.
 	nodePackageDirs map[string]string
+	// nodeRelativeLoaders holds the Node files of the build that require or
+	// re-export a relative module at their top level, for
+	// recordNodePackageExports.
+	nodeRelativeLoaders map[string]bool
 	// pythonDependencyNames are the top-level module names of the build's
 	// versioned (dependency) packages, which a vendored project may not claim.
 	pythonDependencyNames map[string]bool
@@ -299,6 +303,7 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	b.resetPythonBuildState()
 	b.pythonDependencyNames = pythonDependencyTopLevelNames(packages)
 	b.nodePackageDirs = nodePackageDirs(b.ecosystem, packages)
+	b.nodeRelativeLoaders = nil
 	b.artifacts = newArtifactScopeFor(b.ecosystem, b.artifactGraph)
 	graph.artifacts = b.artifacts
 	log.Info().Int("packages", len(packages)).Msg("Parsing source files for call graph")
@@ -444,8 +449,10 @@ func (b *Builder) indexCallers(graph *CallGraph) {
 	pruneGoPredeclaredCalls(graph, b.ecosystem)
 	resolveGoDotImportCalls(graph, b.ecosystem)
 	resolveGoFieldReceiverCalls(graph, b.ecosystem)
+	resolveNodeReExportedCalls(graph)
 	resolveNodeTypedReceivers(graph)
 	b.linkNodePackageCalls(graph)
+	b.recordNodePackageExports(graph)
 	resolveConstructedReceivers(graph)
 	b.buildCallerIndex(graph)
 }
@@ -917,6 +924,12 @@ func (b *Builder) skipSourceFile(analysis *FileAnalysis) bool {
 // into the graph: C++ project-local linkage tracking and Python re-export
 // accumulation.
 func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAnalysis, projectLocal bool) {
+	if b.ecosystem == ecosystemNode && nodeLoadsRelativeModule(analysis.NodeImports) {
+		if b.nodeRelativeLoaders == nil {
+			b.nodeRelativeLoaders = make(map[string]bool)
+		}
+		b.nodeRelativeLoaders[filepath.Clean(analysis.FilePath)] = true
+	}
 	if b.ecosystem == ecosystemCPP {
 		if projectLocal {
 			addCPPProjectDeclarations(graph, analysis)

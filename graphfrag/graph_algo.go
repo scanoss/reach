@@ -249,7 +249,55 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // its `$N` copies) passes a module through as the other interop helpers do, so
 // `x['default'].init()` and `x.default.CURVE` on its result key as
 // `require('m').default.init()` and its read do (were caller-local).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "6"
+// graph-algo-node-7: two functions of one module that shared a key both stay
+// in the graph (the first one's calls were dropped). A function assigned as
+// a property of a plain identifier is keyed by that object as owner
+// (`hotp.gen = function` and `totp.gen = function` are m.(hotp).gen and
+// m.(totp).gen, were both m.gen), and a member call on the module binding
+// targets it (`hotp.gen(k)` calls m.(hotp).gen, was unbound). Of the others
+// sharing a key, the last module-level one (else the last one) keeps it and
+// each other one takes its start as a suffix (`sign@3:10`). A module without
+// such a pair keys as node-6 did. Fragments list in `exports` each key a
+// caller spells through one of the package's specifiers (`acme.sign`,
+// `acme/sub.go`, `@acme/sign.sign`, `acme.default`, `notp.hotp.gen`) that
+// names a function the package declares under another key
+// (`acme/index.sign`), from package.json `exports`, `main` or index, directory
+// indexes and re-exporting files; a stitch joins an application's call into
+// the package through it, where a node-6 fragment has no exports. A package
+// call linked in one build also follows `var o = {}; o.f = function` behind
+// `module.exports = { o }`.
+// Also in node-7: a name the file binds to the WebCrypto object keys its
+// calls on the interface, as the global spelling does: `const { crypto } =
+// globalThis`, `const c = self.crypto`, `const c = nodeCrypto.webcrypto`,
+// `const { webcrypto } = nodeCrypto`, a guarded read with a null, undefined
+// or `{}` fallback (`'crypto' in g ? g.crypto : undefined`), `g.crypto ||
+// g.msCrypto`, and the global object held through a local or returned by a
+// file function that returns only global objects (`getGlobal()`).
+// `c.randomUUID()` is (Crypto).randomUUID and `c.subtle.digest()`
+// (SubtleCrypto).digest (were caller-local, or crypto.webcrypto.subtle.digest).
+// A function nested in a class method, in a class field's value or in the
+// value of a destructuring declaration (`class T { h(xs) { return xs.map((p)
+// => m.f(p)); } }`, `const { a } = f(() => m.g())`) is a function of its own
+// with its calls, as one nested in a top-level function is (its calls were
+// in no function).
+// A call made through a module of the build that re-exports another module's
+// export is keyed as the export: `createHash()` imported from a file holding
+// `export { createHash } from 'crypto'` calls crypto.createHash, and so do
+// `export { crypto }` of `import * as crypto from 'node:crypto'`, `export *
+// as ns from`, a whole re-export (`export * from 'm'`, `module.exports =
+// require('m')`, `__exportStar`) of exactly one module for a name the file
+// does not export itself, and chains of them (were keyed under the
+// re-exporting module).
+// A call in a default parameter value (`function f(a, aux = randomBytes(32))`)
+// is a call of the function (was in no function).
+// A call whose result a function assigns to a field of this (`this._dh =
+// createECDH(c)`) carries AssignedVar `this._dh`, and a call on that field
+// (`this._dh.generateKeys()`) ReceiverVar `this._dh`, so a contract types it
+// as a call on a variable (was no AssignedVar, no ReceiverVar, caller-local).
+// A call written as the fallback operand of `||` or `??` (`const iv = p.iv ||
+// randomBytes(16)`) carries the AssignedVar the whole expression binds (was
+// none).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "7"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

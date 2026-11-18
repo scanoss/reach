@@ -922,6 +922,7 @@ type nodeModuleInstance struct {
 // exports and the properties it writes into the graph.
 func mergeNodeFileFacts(graph *CallGraph, analysis *FileAnalysis) {
 	mergeNodeInstances(graph, analysis)
+	mergeNodeReExports(graph, analysis)
 	for name := range analysis.nodeAssignedProps {
 		if graph.nodeAssignedProps == nil {
 			graph.nodeAssignedProps = make(map[string]bool)

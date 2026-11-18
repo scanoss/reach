@@ -13,7 +13,10 @@ import "strings"
 // `urllib3.util.retry.(Retry).increment`) and its instantiation
 // (`requests.Session(..)` runs `requests.sessions.(Session).<init>`). A
 // Python class is also public at its own path, so its instantiation joins
-// its `__init__` (`nacl.public.PublicKey(..)`).
+// its `__init__` (`nacl.public.PublicKey(..)`). A Node fragment's exports
+// join the same way: a call through a package specifier (`acme-sign.sign`)
+// reaches the function the package declares in its entry module
+// (`acme-sign/index.sign`).
 
 // pythonConstructorName is the method an instantiation runs (`__init__`).
 const pythonConstructorName = "<init>"

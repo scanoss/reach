@@ -183,3 +183,32 @@ async function run(msg) {
 		}
 	}
 }
+
+// A call written as the fallback of `||` or `??` binds the variable the whole
+// expression initializes, which holds the call's result whenever the first
+// operand is unset; a call written as the first operand does not.
+func TestNodeAssignedVarThroughFallbackOperand(t *testing.T) {
+	t.Parallel()
+
+	analysis := parseNodeSource(t, `const crypto = require('crypto');
+function enc(p) {
+  const iv = p.iv || crypto.randomBytes(16);
+  const key = p.key ?? (crypto.randomBytes(32));
+  const nonce = crypto.randomBytes(8) || p.nonce;
+  return [iv, key, nonce];
+}
+`)
+	var got []string
+	for _, call := range analysis.Functions[0].Calls {
+		got = append(got, call.AssignedVar)
+	}
+	want := []string{"iv", "key", ""}
+	if len(got) != len(want) {
+		t.Fatalf("assigned vars %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("call %d assigned %q, want %q", i, got[i], want[i])
+		}
+	}
+}

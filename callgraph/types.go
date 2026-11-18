@@ -301,6 +301,12 @@ type FunctionDecl struct {
 	// nodeReturnClass is the class a Node function declares as its return
 	// type, `function make(): Base`, when that is a plain class of the project.
 	nodeReturnClass FunctionID
+	// nodePropertyOwner is the object a Node function is assigned as a
+	// property of (`hotp` for `hotp.gen = function`), and nodeNested whether
+	// it is declared inside another function: what disambiguateNodeFunctions
+	// reads when two functions of a module share a key.
+	nodePropertyOwner string
+	nodeNested        bool
 	// constructed is what the function's own return statements yield as
 	// objects (see returnedObjects), for resolveConstructedReceivers.
 	constructed returnedObjects
@@ -733,6 +739,9 @@ type FileAnalysis struct {
 	// nodePropertyReads lists the property reads of the file's functions, in
 	// source order, as the parser keyed them (Node only).
 	nodePropertyReads []nodePropertyReadSite
+	// nodeReExports holds what the file re-exports from other modules (Node
+	// only), nil when nothing.
+	nodeReExports *nodeModuleReExports
 	// pythonModule holds the file's module-level assignments and __all__
 	// (Python only), for the exports.
 	pythonModule *pythonModuleFacts
@@ -847,6 +856,13 @@ type CallGraph struct {
 	// (resolvePythonExports): "jwt.encode" -> "jwt.api_jwt.(PyJWT).encode",
 	// "jwt.PyJWT" -> "jwt.api_jwt.(PyJWT)".
 	PythonExports map[string]string
+	// NodePackageExports maps each key a caller spells through a specifier of
+	// one of the build's Node packages to the function the package declares
+	// under another key (recordNodePackageExports): "acme-sign.sign" ->
+	// "acme-sign/index.sign", "notp.hotp.gen" -> "notp/index.(hotp).gen",
+	// "acme-sign.default" -> "acme-sign/index.exports". A domain writes it as
+	// a fragment's `exports`, which the stitch joins a client's call through.
+	NodePackageExports map[string]string
 	// NamedValues merges every parsed file's NamedValues.
 	NamedValues map[string]NamedValue
 	// javaMemberTypes merges every parsed file's JavaMemberTypes ("" when two
@@ -875,6 +891,9 @@ type CallGraph struct {
 	// nodeAssignedProps holds every property name any Node module assigns on
 	// an object other than `this`.
 	nodeAssignedProps map[string]bool
+	// nodeReExports indexes each Node module's re-exports by module path, for
+	// resolveNodeReExportedCalls.
+	nodeReExports map[string]*nodeModuleReExports
 	// nodeClassOwners holds the Node classes whose supertypes the parser
 	// resolved through imports.
 	nodeClassOwners map[string]bool

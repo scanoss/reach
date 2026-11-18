@@ -60,6 +60,9 @@ type NodeParser struct {
 	// reads collects the property reads found there (node_property_read.go).
 	readScope *nodeReadScope
 	reads     []nodePropertyReadSite
+	// keys holds the keys of the file's functions that share one with
+	// another function of the module (node_function_keys.go).
+	keys *nodeFunctionKeys
 }
 
 // NewNodeParser creates a parser for JavaScript, TypeScript, and TSX source files.
@@ -237,6 +240,15 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	analysis.nodeDefaultClass = p.file.defaultClass
 	analysis.nodeAssignedProps = p.file.assignedProps
 	p.extractDeclarations(root, src, filePath, modulePath, bindings, analysis)
+	if keys := disambiguateNodeFunctions(analysis.Functions); keys != nil {
+		// Two functions share a key: declare them again under keys of their
+		// own, so that each one's reads and calls carry it.
+		p.keys = keys
+		defer func() { p.keys = nil }()
+		analysis.Functions, analysis.Supertypes, analysis.nodeSupertypeOwners = nil, nil, nil
+		p.reads = nil
+		p.extractDeclarations(root, src, filePath, modulePath, bindings, analysis)
+	}
 	p.recordNodeNamedValues(root, analysis)
 	if decl := p.moduleInitDecl(root, src, filePath, packagePath, modulePath, bindings); decl != nil {
 		analysis.Functions = append(analysis.Functions, *decl)
@@ -244,6 +256,7 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	analysis.EntryRefs = nodeEntryRefs(root, src, filePath, modulePath, bindings)
 	analysis.NodeObjectLiterals = collectNodeObjectLiterals(root, src, analysis.Functions, modulePath)
 	analysis.nodePropertyReads = p.takeNodePropertyReads()
+	analysis.nodeReExports = collectNodeReExports(root, src, filePath, packagePath, bindings)
 	return analysis, nil
 }
 
@@ -591,7 +604,12 @@ func (p *NodeParser) extractDeclarations(node *sitter.Node, src []byte, filePath
 	case nodeAssignmentExpression:
 		if fn := nodeAssignedFunction(node); fn != nil {
 			if name, owner := nodeAssignmentTarget(node.ChildByFieldName("left"), src); name != "" {
+				first := len(analysis.Functions)
 				p.declareNodeFunction(fn, src, filePath, packagePath, name, owner, bindings, analysis)
+				if first < len(analysis.Functions) && analysis.Functions[first].StartLine == int(fn.StartPoint().Row)+1 &&
+					analysis.Functions[first].StartCol == int(fn.StartPoint().Column)+1 {
+					analysis.Functions[first].nodePropertyOwner = nodePropertyOwner(node.ChildByFieldName("left"), src)
+				}
 				return
 			}
 		}
@@ -696,7 +714,13 @@ func (p *NodeParser) extractAssignedFunctions(node *sitter.Node, src []byte, fil
 		}
 		name := declarator.ChildByFieldName("name")
 		value := declarator.ChildByFieldName("value")
-		if name == nil || name.Type() != goNodeIdentifier || value == nil {
+		if name == nil || value == nil {
+			continue
+		}
+		if name.Type() != goNodeIdentifier {
+			// `const { a } = f(() => ..)`: the value's functions are the
+			// file's all the same.
+			p.extractDeclarations(value, src, filePath, packagePath, bindings, analysis)
 			continue
 		}
 		bound := name.Content(src)
@@ -789,9 +813,13 @@ func (p *NodeParser) extractClassMethods(node *sitter.Node, src []byte, filePath
 			if decl := p.parseNodeFunction(member, src, filePath, packagePath, "", owner, bindings); decl != nil {
 				analysis.Functions = append(analysis.Functions, *decl)
 			}
+			// A callback or a function declared in the method is a function of
+			// its own, as one in a top-level function is.
+			p.extractDeclarations(member.ChildByFieldName("body"), src, filePath, packagePath, bindings, analysis)
 		case nodeFieldDefinition, nodePublicFieldDefinition:
 			if value := member.ChildByFieldName("value"); value != nil {
 				fieldInit = append(fieldInit, value)
+				p.extractDeclarations(value, src, filePath, packagePath, bindings, analysis)
 			}
 		}
 	}
@@ -875,19 +903,26 @@ func (p *NodeParser) parseNodeFunction(node *sitter.Node, src []byte, filePath, 
 		OwnerName:    packagePath,
 		FunctionType: "function",
 		Parameters:   nodeParameters(params, src),
+		nodeNested:   nodeInsideFunction(node),
 	}
 	if owner != "" {
 		decl.OwnerType = ownerTypeClass
 		decl.OwnerName = owner
 		decl.FunctionType = javaFunctionTypeMethod
 	}
+	p.renamedNodeFunction(decl)
 	own := p.scopeLocalNames(node, src)
 	locals := imports.withModuleVariables(own)
 	previousScope := p.scope
 	p.scope = p.scopeFor(params, body, own, src)
 	defer func() { p.scope = previousScope }()
 	p.withReadScope(decl.ID.String(), own, func() {
-		decl.Calls = p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)
+		// A default parameter value is evaluated by the function, on each
+		// call that omits the argument: `auxRand = randomBytes(32)`.
+		if params != nil {
+			decl.Calls = p.extractCalls(params, src, filePath, packagePath, owner, imports, locals)
+		}
+		decl.Calls = append(decl.Calls, p.extractCalls(body, src, filePath, packagePath, owner, imports, locals)...)
 	})
 	decl.ImplicitCalls = nodeImplicitCalls(body, src, filePath, packagePath, imports, locals)
 	decl.ImplicitCalls = append(decl.ImplicitCalls, nodeCallbackReferences(body, src, filePath, packagePath, owner, imports, locals, p.nodeBoundNames(node, own, src))...)
@@ -899,7 +934,7 @@ func (p *NodeParser) parseNodeFunction(node *sitter.Node, src []byte, filePath, 
 	}
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, owner, imports, locals)
 	decl.localBindings = countLocalBindings(body, src, nodeLocalBinders)
-	if owner != "" || !nodeInsideFunction(node) {
+	if owner != "" || !decl.nodeNested {
 		// A function declared inside another one is keyed like a module
 		// function, but no other function can call it by that name.
 		decl.constructed = nodeReturnedObjects(body, src, packagePath, imports, locals)
@@ -1327,7 +1362,7 @@ func (p *NodeParser) parseNodeMemberCall(call *FunctionCall, function *sitter.No
 func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, name string, src []byte, packagePath, owner string, imports nodeBindings, locals map[string]bool) *FunctionCall {
 	objectText := nodeDottedText(object, src)
 	call.Callee = FunctionID{Package: packagePath, Name: name}
-	if iface, ok := nodeWebCryptoCallInterface(object, src, name, imports.webCryptoScope(locals)); ok {
+	if iface, ok := nodeWebCryptoCallInterface(object, src, name, p.webCryptoScope(imports, locals)); ok {
 		// Every spelling reaches the one WebCrypto object, so the interface is
 		// the receiver identity that ties a function's calls on it together
 		// (generateKey, then encrypt), as a variable name does for `subtle.x()`.
@@ -1349,6 +1384,13 @@ func (p *NodeParser) resolveNodeMember(call *FunctionCall, object *sitter.Node, 
 		call.Callee.Type = owner
 	case object.Type() == goNodeIdentifier && locals[objectText]:
 		call.ReceiverVar = objectText
+		if p.objectMethodReceiver(objectText, name) {
+			call.Callee.Type = objectText
+		}
+	case nodeThisField(object, src) != "":
+		// A field of this holds what the function last assigned it
+		// (`this._dh = createECDH(c); this._dh.generateKeys()`).
+		call.ReceiverVar = nodeThisField(object, src)
 	}
 	p.typeNodeReceiver(call, object, src, owner, importedObject)
 	if !importedObject && call.Callee.Type == "" && object.Type() == nodeNewExpression {
@@ -1608,7 +1650,49 @@ func nodeCallChainContext(node *sitter.Node, src []byte) (chainID, assignedVar s
 			chainID = fmt.Sprintf("%d", root.StartByte())
 		}
 	}
-	return chainID, assignedVarFromParent(nodeResolvedValue(root), src)
+	value := nodeFallbackValue(nodeResolvedValue(root))
+	if assignedVar = assignedVarFromParent(value, src); assignedVar == "" {
+		assignedVar = nodeThisFieldAssigned(value, src)
+	}
+	return chainID, assignedVar
+}
+
+// nodeFallbackValue climbs from a value written as the fallback of `||` or
+// `??` (`const iv = opts.iv || randomBytes(16)`) to the whole expression,
+// which a variable bound to it holds whenever the first operand is unset.
+func nodeFallbackValue(value *sitter.Node) *sitter.Node {
+	for {
+		parent := value.Parent()
+		if parent == nil || parent.Type() != "binary_expression" || !sameSyntaxNode(parent.ChildByFieldName("right"), value) {
+			return value
+		}
+		if op := parent.ChildByFieldName("operator"); op == nil || op.Type() != "||" && op.Type() != "??" {
+			return value
+		}
+		value = nodeResolvedValue(parent)
+	}
+}
+
+// nodeThisFieldAssigned names the field `this.<name> = <value>` assigns value
+// to, as `this.<name>`: the receiver a later `this.<name>.m()` reads.
+func nodeThisFieldAssigned(value *sitter.Node, src []byte) string {
+	parent := value.Parent()
+	if parent == nil || parent.Type() != nodeAssignmentExpression || !sameSyntaxNode(parent.ChildByFieldName("right"), value) {
+		return ""
+	}
+	return nodeThisField(parent.ChildByFieldName("left"), src)
+}
+
+// nodeThisField spells `this.<name>` as written, "" for anything else.
+func nodeThisField(node *sitter.Node, src []byte) string {
+	if node == nil || node.Type() != nodeMemberExpression {
+		return ""
+	}
+	object, property := node.ChildByFieldName("object"), node.ChildByFieldName("property")
+	if object == nil || property == nil || object.Type() != nodeThisNode || property.Type() != nodePropertyIdentifier {
+		return ""
+	}
+	return nodeThisNode + "." + property.Content(src)
 }
 
 // nodeResolvedValue climbs from a call to the expression whose value the
