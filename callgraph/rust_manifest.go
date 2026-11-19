@@ -591,7 +591,10 @@ func (index *rustCrateIndex) recordDirAliasesLocked(dir string, aliases map[stri
 
 // rustCrateNameForRoot reads the crate's own name from the manifest above a
 // source root, so the index can record declarations under the module path the
-// resolver will look them up by.
+// resolver will look them up by: the library name code writes (`[lib] name`,
+// else the package name with its dashes as underscores), never the package
+// name, which cargo lets carry a dash (`acme-sign` is `acme_sign::..` in
+// code, and in every function key).
 func rustCrateNameForRoot(root string) string {
 	manifest := rustCrateManifestPath(filepath.Join(root, "x.rs"))
 	if manifest == "" {
@@ -601,6 +604,11 @@ func rustCrateNameForRoot(root string) string {
 	if doc == nil {
 		return ""
 	}
+	if lib, ok := doc["lib"].(map[string]any); ok {
+		if name, isString := lib["name"].(string); isString && name != "" {
+			return rustCrateIdentifier(name)
+		}
+	}
 	pkg, ok := doc["package"].(map[string]any)
 	if !ok {
 		return ""
@@ -609,7 +617,7 @@ func rustCrateNameForRoot(root string) string {
 	if !isString {
 		return ""
 	}
-	return name
+	return rustCrateIdentifier(name)
 }
 
 // rustIndexPackagePath returns the module path a file sits at, so a type the

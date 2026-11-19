@@ -335,6 +335,10 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	if provider, ok := b.parser.(publicTypePathProvider); ok {
 		graph.PublicTypePaths = provider.PublicTypePaths()
 	}
+	if provider, ok := b.parser.(publicPathProvider); ok {
+		paths, globs := provider.PublicPaths()
+		graph.RustExports = rustExports(graph.Functions, paths, globs)
+	}
 	parseSpan.End()
 	sourceParseDuration := time.Since(sourceParseStart)
 
@@ -570,6 +574,12 @@ type parseDirWork struct {
 // ecosystem's re-exports give a declared type.
 type publicTypePathProvider interface {
 	PublicTypePaths() map[string][]string
+}
+
+// publicPathProvider is a parser that knows what its ecosystem's re-exports
+// make public, for every kind of name.
+type publicPathProvider interface {
+	PublicPaths() (paths map[string]string, globs map[string][]string)
 }
 
 // NestedModuleNamer lets a parser re-root the import path when traversal

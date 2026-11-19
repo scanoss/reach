@@ -896,6 +896,19 @@ type CallGraph struct {
 	// carries no arity: optional parameters make a count meaningless to a
 	// caller, which is the same reason Python's keys carry none.
 	RubyExports map[string]string
+	// RustExports maps each public path of the crate's Rust functions, types
+	// and modules, in function-key form, to the declaration behind it
+	// (rustExports): "jsonwebtoken.decode" -> "jsonwebtoken::decoding.decode",
+	// "jsonwebtoken.DecodingKey" -> "jsonwebtoken::decoding.(DecodingKey)",
+	// "ring.hmac" -> "ring::hmac". A `pub use` item (a glob or a module
+	// included) or a `pub type` alias gives a declaration a public path in
+	// another module, and a re-export of a dependency's item names it as that
+	// crate keys it ("rand::rngs.OsRng" -> "rand_core.(OsRng)"); a module is public
+	// at its own path, which joins the key a call through an imported module
+	// gets (`use ring::hmac; hmac::sign(..)` is `ring.(hmac).sign`). A domain
+	// writes it as a fragment's `exports`, which the stitch joins a client's
+	// call through.
+	RustExports map[string]string
 	// NamedValues merges every parsed file's NamedValues.
 	NamedValues map[string]NamedValue
 	// javaMemberTypes merges every parsed file's JavaMemberTypes ("" when two
