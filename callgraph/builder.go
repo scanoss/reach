@@ -1413,32 +1413,63 @@ func (b *Builder) mergeRustTypedMethodCollision(graph *CallGraph, key string, ex
 	return true
 }
 
-// mergeCSharpOverloadCollision unions the calls of two C# declarations that
-// share one key: overloads differ by their parameter types, which a key keyed
-// by name and arity cannot tell apart (`ComputeSHA256(byte[])` and
-// `ComputeSHA256(string)`). Last-write-wins dropped one overload's whole body,
-// and with it every crypto call written in it -- ShareX lost two of its four
-// hash sites that way. Unioning keeps them all, attributed to the declaration
-// that holds the key; the finding's own line is the call site's, so the report
-// is unchanged. mergeRustTypedMethodCollision is the precedent.
+// mergeCSharpOverloadCollision settles two C# declarations that share one
+// key. Overloads differ by their parameter types, not their arity, so
+// `ComputeSHA256(byte[])` and `ComputeSHA256(string)` are one key and
+// last-write-wins dropped one body and every crypto call in it -- ShareX
+// declares four `SHA256.Create()` sites and two were lost that way. Overloads
+// of one file union their calls into the declaration that holds the key; the
+// finding's own line is the call site's, so the report is unchanged, and
+// mergeRustTypedMethodCollision is the precedent.
+//
+// A declaration of ANOTHER file is not an overload: C# spreads a partial
+// class over files, and language-ext writes a `Prelude` in dozens of them.
+// Unioning those would report a call under the file of whichever declaration
+// held the key, so each keeps a key of its own, scoped to its file as C's
+// redefinitions are.
 func (b *Builder) mergeCSharpOverloadCollision(graph *CallGraph, key string, existing, candidate *FunctionDecl) bool {
 	if b.ecosystem != ecosystemCSharp || existing == candidate {
 		return false
+	}
+	if candidate.FilePath != existing.FilePath {
+		return b.rekeyCSharpPartial(graph, candidate)
 	}
 	merged := *existing
 	merged.Calls = appendUnseenCalls(existing.Calls, candidate.Calls)
 	if len(merged.ReturnSources) == 0 {
 		merged.ReturnSources = candidate.ReturnSources
 	}
-	// Declarations and stores carry no file of their own: they are read in the
-	// declaration's file, so only a body of the same file adds its own.
-	if candidate.FilePath == existing.FilePath {
-		merged.Declarations = appendUnseenAt(existing.Declarations, candidate.Declarations,
-			func(d *VarDecl) [2]int { return [2]int{d.Line, d.StartCol} })
-		merged.AttributeStores = appendUnseenAt(existing.AttributeStores, candidate.AttributeStores,
-			func(a *AttributeStore) [2]int { return [2]int{a.Line, a.StartCol} })
-	}
+	merged.Declarations = appendUnseenAt(existing.Declarations, candidate.Declarations,
+		func(d *VarDecl) [2]int { return [2]int{d.Line, d.StartCol} })
+	merged.AttributeStores = appendUnseenAt(existing.AttributeStores, candidate.AttributeStores,
+		func(a *AttributeStore) [2]int { return [2]int{a.Line, a.StartCol} })
 	graph.Functions[key] = &merged
+	return true
+}
+
+// rekeyCSharpPartial keeps a declaration whose key another file's already
+// holds under a key of its own, scoped to its file and, if that is taken too,
+// to its line. Calls to the name still resolve to the declaration that holds
+// the plain key, the first one read.
+func (b *Builder) rekeyCSharpPartial(graph *CallGraph, candidate *FunctionDecl) bool {
+	if candidate.FilePath == "" {
+		return false
+	}
+	id := candidate.ID
+	base := filepath.Base(candidate.FilePath)
+	if id.Package == "" {
+		id.Package = base
+	} else {
+		id.Package += "/" + base
+	}
+	if _, taken := graph.Functions[id.String()]; taken {
+		id.Package += "@" + strconv.Itoa(candidate.StartLine)
+	}
+	if _, taken := graph.Functions[id.String()]; taken {
+		return false
+	}
+	candidate.ID = id
+	graph.Functions[id.String()] = candidate
 	return true
 }
 

@@ -690,3 +690,58 @@ class H { void Run() { Cipher.Create(); } }`), "Run")
 		t.Errorf("callee = %+v, want System.Security.Cryptography.(Aes)", got)
 	}
 }
+
+// Two files of a partial class declare members under one key. Unioning them
+// would report a call under whichever file held the key, so each keeps a key
+// of its own and its calls stay in the file that writes them.
+func TestCSharpPartialClassKeepsItsFile(t *testing.T) {
+	graph := buildCSharpGraph(t, map[string]string{
+		"a.cs": "using System.Security.Cryptography;\nnamespace Acme;\npublic static partial class Prelude { static readonly SHA256 A = SHA256.Create(); }\n",
+		"b.cs": "using System.Security.Cryptography;\nnamespace Acme;\npublic static partial class Prelude { static readonly MD5 B = MD5.Create(); }\n",
+	})
+	files := map[string]string{}
+	for _, fn := range graph.Functions {
+		for _, call := range fn.Calls {
+			files[call.Callee.Type] = fn.FilePath
+		}
+	}
+	if len(files) != 2 {
+		t.Fatalf("calls by type = %v, want one per file", files)
+	}
+	for typeName, file := range files {
+		want := "a.cs"
+		if typeName == "MD5" {
+			want = "b.cs"
+		}
+		if filepath.Base(file) != want {
+			t.Errorf("%s is attributed to %s, want %s", typeName, filepath.Base(file), want)
+		}
+	}
+}
+
+// A raw string literal is newer than the grammar, which loses the structure
+// of the whole file with it. Each is blanked before parsing, so the file
+// parses and every line outside the literal keeps its number.
+func TestCSharpRawStringLiteral(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `using System.Security.Cryptography;
+
+namespace Acme;
+
+public readonly record struct Result(bool Ok);
+
+public static class Helper
+{
+    private const string Advice = """
+        When you upgrade:
+        1. Quit the program.
+        """;
+
+    public static byte[] Hash(byte[] d) { return SHA256.HashData(d); }
+}`), "Hash")
+	if len(calls) != 1 || calls[0].Callee.Type != "SHA256" {
+		t.Fatalf("calls = %+v, want the call after the raw literal", calls)
+	}
+	if calls[0].Line != 14 {
+		t.Errorf("line = %d, want 14: a blanked literal keeps every later line", calls[0].Line)
+	}
+}
