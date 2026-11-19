@@ -208,11 +208,16 @@ func TestCSharpParserNestedType(t *testing.T) {
 	}
 }
 
-// A base list is the type's supertypes, as the source writes them.
+// A base list is the type's supertypes, each qualified with the namespace it
+// is written in and with every namespace a using brings in.
 func TestCSharpParserBaseList(t *testing.T) {
-	a := parseOneCSharp(t, "namespace Acme;\nclass E : IBlockCipher, Base { }\n")
-	if got := a.Supertypes["Acme.E"]; len(got) != 2 || got[0] != "IBlockCipher" || got[1] != "Base" {
-		t.Errorf("supertypes = %q", got)
+	a := parseOneCSharp(t, "using Org.BouncyCastle.Crypto;\nnamespace Acme;\nclass E : IBlockCipher, Base { }\n")
+	want := []string{"Acme.IBlockCipher", "Org.BouncyCastle.Crypto.IBlockCipher", "Acme.Base", "Org.BouncyCastle.Crypto.Base"}
+	if got := a.Supertypes["Acme.E"]; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("supertypes = %q, want %q", got, want)
+	}
+	if got := a.ClassBases["E"]; len(got) != 2 || got[0] != "IBlockCipher" {
+		t.Errorf("class bases = %q, want the names as written", got)
 	}
 }
 
@@ -249,7 +254,7 @@ func TestCSharpParserExpressionBodiedMember(t *testing.T) {
 // A test file is skipped unless the parser is asked for tests.
 func TestCSharpParserSkipsTestFiles(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"a.cs", "b.test.cs", "CryptoTests.cs"} {
+	for _, name := range []string{"a.cs", "b.test.cs"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("class C { void R() { } }"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -260,6 +265,14 @@ func TestCSharpParserSkipsTestFiles(t *testing.T) {
 	}
 	if len(analyses) != 1 {
 		t.Fatalf("analyses = %d, want 1 (tests skipped)", len(analyses))
+	}
+	// A .NET test project names its files without a suffix the scanner can
+	// read, so a `FooTests.cs` is ordinary source.
+	if err := os.WriteFile(filepath.Join(dir, "CryptoTests.cs"), []byte("class C { void R() { } }"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if analyses, err := NewCSharpParser().ParseDirectory(dir, "Acme"); err != nil || len(analyses) != 2 {
+		t.Fatalf("analyses = %d, %v; want a FooTests.cs read as source", len(analyses), err)
 	}
 	withTests, err := NewCSharpParser(WithIncludeTests(true)).ParseDirectory(dir, "Acme")
 	if err != nil {
@@ -517,5 +530,88 @@ class Helpers
 	}
 	if !sha || !md5 {
 		t.Errorf("calls = %q, want both overloads' bodies", calls)
+	}
+}
+
+// A call on an interface reaches the types that implement it, and a call on
+// an abstract member the types that override it: C# writes an abstract class
+// where Java reaches the same overrides through an interface.
+func TestCSharpDispatchesToImplementations(t *testing.T) {
+	graph := buildCSharpGraph(t, map[string]string{
+		"app.cs": `namespace Acme;
+interface IDigest { byte[] Compute(byte[] d); }
+class Sha : IDigest { public byte[] Compute(byte[] d) { return Hashes.Sha256(d); } }
+abstract class Hasher { public abstract byte[] Hash(byte[] d); }
+class Sm3 : Hasher { public override byte[] Hash(byte[] d) { return Hashes.Sm3(d); } }
+static class Hashes { public static byte[] Sha256(byte[] d) { return null; } public static byte[] Sm3(byte[] d) { return null; } }
+class App
+{
+    void Run(byte[] d) { IDigest i = new Sha(); i.Compute(d); Hasher h = new Sm3(); h.Hash(d); }
+}`,
+	})
+	for _, want := range []string{"Acme.(Sha).Compute#1", "Acme.(Sm3).Hash#1"} {
+		if len(graph.Callers[want]) == 0 {
+			t.Errorf("%s has no caller: the call on its interface or abstract member did not dispatch", want)
+		}
+	}
+}
+
+// An instance field's initializer runs in the constructor, so a type that
+// declares none gets the one C# generates; a static field's runs at class
+// load.
+func TestCSharpFieldInitializersRunWhereTheyDo(t *testing.T) {
+	a := parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+class Vault
+{
+    private static readonly SHA256 Shared = SHA256.Create();
+    private readonly Aes _cipher = Aes.Create();
+}`)
+	calls := func(name string) []FunctionCall {
+		for i := range a.Functions {
+			if a.Functions[i].ID.Name == name {
+				return a.Functions[i].Calls
+			}
+		}
+		return nil
+	}
+	if got := calls("<clinit>#0"); len(got) != 1 || got[0].Callee.Type != "SHA256" {
+		t.Errorf("class initializer calls = %+v, want the static field's", got)
+	}
+	if got := calls("<init>#0"); len(got) != 1 || got[0].Callee.Type != "Aes" {
+		t.Errorf("generated constructor calls = %+v, want the instance field's", got)
+	}
+}
+
+// A type that declares a constructor runs its instance field initializers in
+// it, rather than in one C# would have generated.
+func TestCSharpDeclaredConstructorRunsTheFieldInitializers(t *testing.T) {
+	a := parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+class Vault
+{
+    private readonly Aes _cipher = Aes.Create();
+    public Vault(int n) { _cipher.GenerateIV(); }
+}`)
+	var ctor *FunctionDecl
+	for i := range a.Functions {
+		if a.Functions[i].ID.Name == "<init>#1" {
+			ctor = &a.Functions[i]
+		}
+		if a.Functions[i].ID.Name == "<init>#0" {
+			t.Error("a type that declares a constructor needs no generated one")
+		}
+	}
+	if ctor == nil {
+		t.Fatal("no declared constructor")
+	}
+	var created bool
+	for _, c := range ctor.Calls {
+		created = created || c.Callee.Type == "Aes" && BaseFunctionName(c.Callee.Name) == "Create"
+	}
+	if !created {
+		t.Errorf("declared constructor calls = %+v, want the field initializer's call", ctor.Calls)
 	}
 }

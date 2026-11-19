@@ -245,6 +245,9 @@ func csharpIsName(text string) bool {
 // that type writes them with: their literal value and their declared type.
 type csharpFields struct {
 	values, types map[string]string
+	// staticCalls are the calls the type's static field initializers make,
+	// instanceCalls those of its instance fields.
+	staticCalls, instanceCalls []FunctionCall
 }
 
 func (f *csharpFields) literals() map[string]string {
@@ -297,9 +300,6 @@ func csharpFieldFacts(node *sitter.Node, src []byte) *csharpFields {
 				out.types[name.Content(src)] = declared
 			}
 		}
-	}
-	if len(out.values) == 0 && len(out.types) == 0 {
-		return nil
 	}
 	return out
 }
