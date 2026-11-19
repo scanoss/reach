@@ -205,6 +205,25 @@ function run(name, d) { return table[name](d); }
 			want: []string{"app/m.run -> app/m.sha", "app/m.run -> app/m.md"},
 		},
 		{
+			// The member the table's entries are read for names the function,
+			// whatever the function itself is called.
+			name: "a table held in a member of an object, read through a variable",
+			files: map[string]string{"m.js": `const Encryption = {};
+Encryption.encryptDes = function (d) { return d; };
+Encryption.encryptAes = function (d) { return d; };
+Encryption.other = function (d) { return d; };
+Encryption.algorithms = {};
+Encryption.algorithms[1] = { encrypt: Encryption.encryptDes };
+Encryption.algorithms[2] = { encrypt: Encryption.encryptAes };
+Encryption.encrypt = function (kind, d) {
+  var fn = Encryption.algorithms[kind].encrypt;
+  return fn(d);
+};
+`},
+			want: []string{"app/m.encrypt -> app/m.encryptDes", "app/m.encrypt -> app/m.encryptAes"},
+			not:  []string{"app/m.encrypt -> app/m.other"},
+		},
+		{
 			name: "a member declared under the key that reads it",
 			files: map[string]string{"m.js": `const kResume = Symbol('resume');
 const kClose = Symbol('close');

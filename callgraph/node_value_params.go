@@ -520,19 +520,33 @@ func nodeEnclosingClassBody(n *sitter.Node) *sitter.Node {
 
 // sameTable reports whether the table a computed write names is the one read
 // at table, both spelled alike: a field of this in the same class or the
-// same constructor function's module, or a name the same scope declares.
+// same constructor function's module, a name the same scope declares, or a
+// member path of such a name (`Encryption.algorithms`).
 func (m *nodeShapeModule) sameTable(table, written *sitter.Node) bool {
 	switch table.Type() {
 	case goNodeIdentifier:
 		scope := m.declaringScope(table, table.Content(m.src))
 		return scope != nil && sameSyntaxNode(scope, m.declaringScope(written, table.Content(m.src)))
 	case nodeMemberExpression:
-		if nodeThisField(table, m.src) == "" {
-			return false
+		if nodeThisField(table, m.src) != "" {
+			return sameOptionalNode(nodeEnclosingClassBody(table), nodeEnclosingClassBody(written))
 		}
-		return sameOptionalNode(nodeEnclosingClassBody(table), nodeEnclosingClassBody(written))
+		head, writtenHead := nodeMemberPathHead(table), nodeMemberPathHead(written)
+		return head != nil && writtenHead != nil && m.sameTable(head, writtenHead)
 	}
 	return false
+}
+
+// nodeMemberPathHead is the name a path of plain member reads starts at
+// (`Encryption` for `Encryption.algorithms`), nil for any other expression.
+func nodeMemberPathHead(n *sitter.Node) *sitter.Node {
+	for n != nil && n.Type() == nodeMemberExpression {
+		n = n.ChildByFieldName("object")
+	}
+	if n == nil || n.Type() != goNodeIdentifier {
+		return nil
+	}
+	return n
 }
 
 // nodeComputedKey spells the key of `table[key]` as a member declared under
