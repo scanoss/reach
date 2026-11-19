@@ -745,3 +745,48 @@ public static class Helper
 		t.Errorf("line = %d, want 14: a blanked literal keeps every later line", calls[0].Line)
 	}
 }
+
+// A constructor runs its initializer before its body, so a call written
+// there is a call of the constructor.
+func TestCSharpConstructorInitializer(t *testing.T) {
+	a := parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+class Vault
+{
+    public Vault() : this(RandomNumberGenerator.Create()) { }
+    public Vault(RandomNumberGenerator rng) { }
+}`)
+	var found bool
+	for i := range a.Functions {
+		for _, c := range a.Functions[i].Calls {
+			found = found || c.Callee.Type == "RandomNumberGenerator" && BaseFunctionName(c.Callee.Name) == "Create"
+		}
+	}
+	if !found {
+		t.Errorf("no call of the initializer: %+v", a.Functions)
+	}
+}
+
+// A field a preprocessor conditional wraps is a field of the type: `#if`
+// leaves its members a level deeper in the tree.
+func TestCSharpFieldInsideAPreprocessorConditional(t *testing.T) {
+	a := parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+static class Tools
+{
+#if !SILVERLIGHT
+    private static readonly RandomNumberGenerator Rng = RandomNumberGenerator.Create();
+#endif
+}`)
+	var found bool
+	for i := range a.Functions {
+		for _, c := range a.Functions[i].Calls {
+			found = found || c.Callee.Type == "RandomNumberGenerator"
+		}
+	}
+	if !found {
+		t.Errorf("the field inside #if was not read: %+v", a.Functions)
+	}
+}
