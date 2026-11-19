@@ -43,6 +43,8 @@ const (
 	csharpNodeLocalDeclaration    = "local_declaration_statement"
 	csharpNodeArrowClause         = "arrow_expression_clause"
 	csharpNodeUsingStatement      = "using_statement"
+	csharpNodeGlobalStatement     = "global_statement"
+	csharpNodeLocalFunction       = "local_function_statement"
 	csharpNodeStringLiteral       = "string_literal"
 	csharpNodeVerbatimString      = "verbatim_string_literal"
 	csharpNodeImplicitType        = "implicit_type"
@@ -149,6 +151,9 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	// The walk starts on the directory's path: a file that declares no
 	// namespace keeps it, and the first declaration replaces it.
 	p.walk(root, src, filePath, packagePath, "", "", false, nil, analysis)
+	if decl := p.parseTopLevelProgram(root, src, filePath, analysis.PackagePath, analysis); decl != nil {
+		analysis.Functions = append(analysis.Functions, *decl)
+	}
 	recordCSharpOwnerAlternatives(analysis)
 	return analysis, nil
 }
@@ -435,6 +440,7 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		FunctionType: "method",
 		Static:       csharpHasModifier(node, src, "static"),
 		Abstract:     ownerType == ownerTypeInterface || csharpHasModifier(node, src, "abstract"),
+		EntryKind:    csharpEntryKind(name, csharpHasModifier(node, src, "static")),
 		Parameters:   parameters,
 		ReturnType:   csharpReturnType(node, src),
 	}
@@ -489,6 +495,53 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 // into one synthetic declaration, as Java's class initializer does: a
 // `private static readonly SHA256 H = SHA256.Create();` is a call of the type,
 // made outside any method body.
+// parseTopLevelProgram reads a file written as top-level statements, which
+// C# compiles into the entry point of the program: the statements become the
+// body of a `Main` the compiler generates on a `Program` class. Without it
+// every call of such a file is invisible, and a console program written this
+// way is all of them.
+func (p *CSharpParser) parseTopLevelProgram(root *sitter.Node, src []byte, filePath, namespace string, analysis *FileAnalysis) *FunctionDecl {
+	var statements []*sitter.Node
+	for i := 0; i < int(root.ChildCount()); i++ {
+		if child := root.Child(i); child.Type() == csharpNodeGlobalStatement {
+			statements = append(statements, child)
+		}
+	}
+	if len(statements) == 0 {
+		return nil
+	}
+	decl := &FunctionDecl{
+		ID:           FunctionID{Package: namespace, Type: "Program", Name: csharpMethodWithArity("Main", 1)},
+		FilePath:     filePath,
+		StartLine:    int(statements[0].StartPoint().Row) + 1,
+		EndLine:      int(statements[len(statements)-1].EndPoint().Row) + 1,
+		StartCol:     int(statements[0].StartPoint().Column) + 1,
+		EndCol:       int(statements[len(statements)-1].EndPoint().Column) + 1,
+		OwnerType:    "class",
+		OwnerName:    csharpJoin(namespace, "Program"),
+		FunctionType: "method",
+		Static:       true,
+		EntryKind:    RootKindMain,
+		Parameters:   []FunctionParameter{{Name: "args", Type: "string[]"}},
+	}
+	values := newCSharpValues(nil, nil)
+	variableTypes := map[string]string{}
+	for _, statement := range statements {
+		// A local function declared among the statements owns its own body.
+		if statement.NamedChildCount() == 1 && statement.NamedChild(0).Type() == csharpNodeLocalFunction {
+			if local := p.parseFunction(statement.NamedChild(0), src, filePath, namespace, "Program", "class", nil, analysis); local != nil {
+				analysis.Functions = append(analysis.Functions, *local)
+			}
+			continue
+		}
+		values.countWrites(statement, src)
+		p.walkCalls(statement, src, filePath, namespace, "Program", variableTypes, values, analysis, &decl.Calls)
+		decl.Declarations = append(decl.Declarations, csharpDeclarations(statement, src)...)
+		decl.AttributeStores = append(decl.AttributeStores, csharpAttributeStores(statement, src)...)
+	}
+	return decl
+}
+
 // readFieldInitializers records the calls a type's field initializers make,
 // kept apart by whether the field is static: a static field runs once at
 // class load, an instance field once per construction.
@@ -580,6 +633,15 @@ func csharpSeenBefore(nodes []*sitter.Node, node *sitter.Node) bool {
 		}
 	}
 	return false
+}
+
+// csharpEntryKind marks the program's entry point: C# spells it `Main`, and
+// the shared main detection reads the lowercase name Java and Go use.
+func csharpEntryKind(name string, static bool) RootKind {
+	if static && name == "Main" {
+		return RootKindMain
+	}
+	return ""
 }
 
 // csharpMethodWithArity is the key spelling of a method: every function key
