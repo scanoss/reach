@@ -124,6 +124,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: csharp parser: read %s: %w", filePath, err)
 	}
+	src, _ = csharpRewriteRawStrings(src)
 	tree, err := p.parser.ParseCtx(context.TODO(), nil, src)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: csharp parser: parse %s: %w", filePath, err)
