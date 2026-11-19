@@ -4,8 +4,10 @@
 package callgraph
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -34,7 +36,7 @@ const (
 	// nodeValueBudget bounds the expressions one question follows.
 	nodeValueBudget = 4096
 	// nodeValueFanout bounds the values one expression yields.
-	nodeValueFanout = 12
+	nodeValueFanout = 32
 )
 
 // nodeShapeValue is one value the source builds.
@@ -48,6 +50,11 @@ type nodeShapeValue struct {
 	// external is a value of another package, spelled as the steps from its
 	// import (node_value_access.go); m and n are nil.
 	external *nodeValueAccess
+	// passed marks a function a caller passed as an argument, read from the
+	// parameter that received it: the caller already reaches it for handing
+	// it over (nodeValueFlow.handOver), so calling it draws no second edge
+	// from a callee that every other caller shares.
+	passed bool
 }
 
 func (v nodeShapeValue) same(o nodeShapeValue) bool {
@@ -105,6 +112,11 @@ func (v nodeShapeValue) step(step nodeAccessStep) []nodeShapeValue {
 type nodeValueQuery struct {
 	s      *NodeShapes
 	budget int
+	// active holds the parameters the question is reading; see enter
+	// (node_value_params.go).
+	active map[nodeParamKey]bool
+	// cut is set when the question ran out of budget.
+	cut bool
 }
 
 func (s *NodeShapes) query() *nodeValueQuery {
@@ -113,6 +125,9 @@ func (s *NodeShapes) query() *nodeValueQuery {
 
 func (q *nodeValueQuery) spend() bool {
 	q.budget--
+	if q.budget < 0 {
+		q.cut = true
+	}
 	return q.budget >= 0
 }
 
@@ -167,6 +182,9 @@ func (q *nodeValueQuery) values(m *nodeShapeModule, n *sitter.Node, depth int) [
 	case nodeMemberExpression, nodeSubscriptExpression:
 		object, name, ok := nodeReadMember(n, m.src)
 		if !ok {
+			if n.Type() == nodeSubscriptExpression {
+				return q.elementValues(m, n, depth)
+			}
 			return nil
 		}
 		if n.Content(m.src) == nodeModuleExportsTarget {
@@ -219,7 +237,7 @@ func (q *nodeValueQuery) nameValues(m *nodeShapeModule, n *sitter.Node, depth in
 					// The parameter an IIFE receives module.exports as.
 					return []nodeShapeValue{{m: m, n: m.root, module: true}}
 				}
-				return nil
+				return q.parameterValues(m, scope, name)
 			}
 			if own := scope.ChildByFieldName(nodeFieldName); own != nil && scope.Type() == nodeFunctionExpression && own.Content(m.src) == name {
 				return []nodeShapeValue{{m: m, n: scope}}
@@ -599,8 +617,11 @@ func (q *nodeValueQuery) callValues(m *nodeShapeModule, call *sitter.Node, depth
 		return nil
 	}
 	if text := fn.Content(m.src); text == nodeRequireFunction || fn.Type() == "import" {
-		if args.NamedChildCount() != 1 || args.NamedChild(0).Type() != nodeStringNode {
+		if args.NamedChildCount() != 1 {
 			return nil
+		}
+		if args.NamedChild(0).Type() != nodeStringNode {
+			return q.loaded(m, args.NamedChild(0), depth)
 		}
 		spec := unquoteNodeString(args.NamedChild(0).Content(m.src))
 		if target := q.s.local(m, spec); target != nil {
@@ -896,7 +917,9 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 		return v.step(nodeAccessStep{name: name})
 	}
 	if v.class() {
-		if member := nodeClassMember(v.m, v.n, name, false); member != nil {
+		// A field declared without a value (`adapter: Adapter;`) holds what
+		// the constructor or a method assigns it.
+		if member := nodeClassMember(v.m, v.n, name, false); member != nil && (member.Type() == nodeMethodDefinition || member.ChildByFieldName("value") != nil) {
 			return q.classMemberValues(v.m, member, depth)
 		}
 	}
@@ -1114,7 +1137,8 @@ func (m *nodeShapeModule) inherited() map[string][]*sitter.Node {
 // nodeMemberNameCap bounds the member names listed for one value.
 const nodeMemberNameCap = 256
 
-// memberNames lists the members v is known to have, in source order: the
+// memberNames lists the members v is known to have, in a stable order (a
+// source's as written, a set's sorted): the
 // keys of an object literal and the properties assigned to it, the methods
 // and fields of an instance with those it inherits, the static members of a
 // class. A module's are its export names.
@@ -1137,7 +1161,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 		return
 	}
 	assigned := func(prefixes ...string) {
-		for target := range v.m.assignments().byTarget {
+		for _, target := range slices.Sorted(maps.Keys(v.m.assignments().byTarget)) {
 			for _, prefix := range prefixes {
 				if rest, ok := strings.CutPrefix(target, prefix); ok && rest != "" && !strings.ContainsAny(rest, ".[(") && rest != nodePrototypeMember {
 					add(rest)
@@ -1147,7 +1171,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 	}
 	switch {
 	case v.module:
-		for name := range nodeExportedNames(v.m.path, map[string]bool{}, 0) {
+		for _, name := range slices.Sorted(maps.Keys(nodeExportedNames(v.m.path, map[string]bool{}, 0))) {
 			add(name)
 		}
 	case v.instance:
@@ -1170,7 +1194,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 				}
 			}
 		}
-		for name := range v.m.thisAssignments(nodeConstructorBody(v)) {
+		for _, name := range slices.Sorted(maps.Keys(v.m.thisAssignments(nodeConstructorBody(v)))) {
 			add(name)
 		}
 		for _, base := range q.bases(v, depth) {
@@ -1199,7 +1223,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 		}
 		for _, base := range nodeValueNames(v) {
 			assigned(base + ".")
-			for name := range v.m.definedMembers()[base] {
+			for _, name := range slices.Sorted(maps.Keys(v.m.definedMembers()[base])) {
 				add(name)
 			}
 		}

@@ -4,7 +4,6 @@
 package callgraph
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +40,9 @@ type NodeShapes struct {
 	modules map[string]*nodeShapeModule
 	// exports remembers what exportValue answered; see node_export_memo.go.
 	exports nodeExportMemo
+	// sites holds the call sites the value flow recorded, nil outside it;
+	// see node_value_params.go.
+	sites *nodeCallSites
 }
 
 type nodeShapeModule struct {
@@ -71,6 +73,9 @@ type nodeShapeModule struct {
 	defined      map[string]map[string]*sitter.Node
 	// rebound is built on first use; see reassigned (node_value_shapes.go).
 	rebound map[nodeScopedName][]*sitter.Node
+	// elements is built on first use; see elementWrites
+	// (node_value_params.go).
+	elements map[string][]nodeElementWrite
 }
 
 // topLevel lists the module's top-level statements. Reading the i-th child
@@ -342,15 +347,14 @@ func (s *NodeShapes) module(path string) *nodeShapeModule {
 		return m
 	}
 	s.modules[path] = nil
-	parser := s.parser.parserForFile(path)
-	if parser == nil {
+	if s.parser.parserForFile(path) == nil {
 		return nil
 	}
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := s.parser.parseSource(path, src)
 	if err != nil {
 		return nil
 	}
@@ -866,15 +870,15 @@ func nodeWalkSkippingFunctions(n *sitter.Node, visit func(*sitter.Node)) {
 // NodeCodeNames returns the identifiers a JavaScript or TypeScript file's code
 // names, leaving out comments and strings.
 func NodeCodeNames(path string) (map[string]bool, error) {
-	parser := NewNodeParser().parserForFile(path)
-	if parser == nil {
+	parser := NewNodeParser()
+	if parser.parserForFile(path) == nil {
 		return nil, fmt.Errorf("callgraph: node names: unsupported source file %s", path)
 	}
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node names: read %s: %w", path, err)
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := parser.parseSource(path, src)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node names: parse %s: %w", path, err)
 	}

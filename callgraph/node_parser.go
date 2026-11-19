@@ -193,11 +193,10 @@ func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, err
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node parser: read %s: %w", filePath, err)
 	}
-	parser := p.parserForFile(filePath)
-	if parser == nil {
+	if p.parserForFile(filePath) == nil {
 		return nil, fmt.Errorf("callgraph: node parser: unsupported source file %s", filePath)
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := p.parseSource(filePath, src)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node parser: parse %s: %w", filePath, err)
 	}
@@ -271,6 +270,33 @@ func (p *NodeParser) parserForFile(path string) *sitter.Parser {
 	default:
 		return nil
 	}
+}
+
+// parseSource parses src with the grammar its file's extension names. A
+// JavaScript file that grammar cannot read and the TSX grammar reads whole
+// is JavaScript with type annotations (Flow: `function load<T>(a: A): T`,
+// `adapter: any;` in a class), which the TSX grammar spells the same way; it
+// is read as TSX. The JavaScript grammar drops such a function, or the class
+// members after an annotation, into an error node, and with them every call
+// they make. A nil tree with no error is a file of no supported extension.
+func (p *NodeParser) parseSource(path string, src []byte) (*sitter.Tree, error) {
+	parser := p.parserForFile(path)
+	if parser == nil {
+		return nil, nil
+	}
+	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	if err != nil || parser != p.javascript || !tree.RootNode().HasError() {
+		return tree, err
+	}
+	typed, err := p.tsx.ParseCtx(context.TODO(), nil, src)
+	if err != nil || typed.RootNode().HasError() {
+		if typed != nil {
+			typed.Close()
+		}
+		return tree, nil
+	}
+	tree.Close()
+	return typed, nil
 }
 
 // nodeBinding is what a module-level name refers to: the module it was
