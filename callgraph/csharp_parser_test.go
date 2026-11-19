@@ -319,3 +319,46 @@ class H { void Run() { var e = new BC.SM4Engine(); } }`), "Run")
 		t.Errorf("callee = %+v, want the alias expanded to its namespace", got)
 	}
 }
+
+// The file's using directives are scope facts of the graph, with the span
+// each directive is written at.
+func TestCSharpParserUsingsAreScopeFacts(t *testing.T) {
+	a := parseOneCSharp(t, `using System.Security.Cryptography;
+using BC = Org.BouncyCastle.Crypto.Engines;
+using static System.Math;
+global using System.Text;
+class C { }`)
+	if len(a.CSharpUsings) != 4 {
+		t.Fatalf("usings = %+v, want 4", a.CSharpUsings)
+	}
+	want := []CSharpUsing{
+		{Namespace: "System.Security.Cryptography", Kind: "using", Line: 1},
+		{Namespace: "Org.BouncyCastle.Crypto.Engines", Alias: "BC", Kind: "alias", Line: 2},
+		{Namespace: "System.Math", Kind: "static", Line: 3},
+		{Namespace: "System.Text", Kind: "using", Global: true, Line: 4},
+	}
+	for i, w := range want {
+		got := a.CSharpUsings[i]
+		if got.Namespace != w.Namespace || got.Alias != w.Alias || got.Kind != w.Kind || got.Global != w.Global || got.Line != w.Line {
+			t.Errorf("using %d = %+v, want %+v", i, got, w)
+		}
+		if got.StartCol != 1 || got.EndCol <= got.StartCol || got.Text == "" {
+			t.Errorf("using %d span = %d..%d %q", i, got.StartCol, got.EndCol, got.Text)
+		}
+	}
+}
+
+// A graph of C# sources carries each file's usings.
+func TestCSharpGraphCarriesUsings(t *testing.T) {
+	graph := buildCSharpGraph(t, map[string]string{
+		"app.cs": "using System.Security.Cryptography;\nnamespace Acme;\nclass A { void R() { SHA256.Create(); } }\n",
+	})
+	if len(graph.CSharpUsings) != 1 {
+		t.Fatalf("graph usings = %+v, want one file", graph.CSharpUsings)
+	}
+	for _, usings := range graph.CSharpUsings {
+		if len(usings) != 1 || usings[0].Namespace != "System.Security.Cryptography" {
+			t.Errorf("usings = %+v", usings)
+		}
+	}
+}

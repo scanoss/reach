@@ -534,8 +534,10 @@ type GraphFragmentExport struct {
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
 	// optional with no schema bump; Go import specs from 1.32; C and C++
 	// #include directives from 1.37; C++ using directives and declarations
-	// from graph-algo-cpp-3, optional with no schema bump). A rule that names an import, or reads
-	// an argument through an import alias, needs them without the source.
+	// from graph-algo-cpp-3 and C# using directives from graph-algo-cs-1,
+	// both optional with no schema bump). A rule that names an import, or
+	// reads an argument through an import alias, needs them without the
+	// source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
 	// expressions and field stores of each scanned Go file in source order
