@@ -734,10 +734,23 @@ func (p *RustParser) qualifyCrateFacts(facts *rustFileFacts, root *sitter.Node, 
 	}
 	for key, target := range facts.reExports {
 		facts.reExports[key] = rustReExportTarget{
-			pkg: resolveRustTypePackage(target.pkg, staging),
+			pkg: facts.qualifyReExportPackage(target.pkg, modulePath, staging),
 			typ: target.typ,
 		}
 	}
+	facts.qualifyAssocTypes(staging)
+}
+
+// qualifyReExportPackage makes a re-export's path absolute. Under the 2018
+// paths a `pub use identity::Identity;` next to `mod identity;` names the
+// child module, which the file's imports do not hold: left as written, the
+// re-exported type was keyed `identity.(Identity)`, a crate nobody declares.
+func (f *rustFileFacts) qualifyReExportPackage(pkg, modulePath string, staging *FileAnalysis) string {
+	first, _, _ := strings.Cut(pkg, "::")
+	if modulePath != "" && rustEditionUsesUniformPaths(f.edition) && f.localModules[rustQualifyFactKey(modulePath, first)] {
+		return modulePath + "::" + pkg
+	}
+	return resolveRustTypePackage(pkg, staging)
 }
 
 // rustQualifyFactType expands a bare type name into the path its declaring file

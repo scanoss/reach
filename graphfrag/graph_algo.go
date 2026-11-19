@@ -217,7 +217,26 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // its library name (`acme_sign::..`, the name its function keys carry), not
 // the package name. A stored rs-13 graph has no exports, and a dashed crate's
 // re-exported types resolved nowhere.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "14"
+// graph-algo-rs-15: a crate's calls reach what its trait machinery runs. The
+// trait hierarchy is the fragment's supertypes (`impl Trait for Type` makes
+// Trait a supertype of Type, `trait A: B` makes B one of A, and a blanket
+// `impl<G: Bound> Trait for G` makes the parameter's owner one of Bound), a
+// trait's required method is an abstract function, and the stitch reads a
+// Rust type's method as an implementation of its traits' (age-core's
+// `ChaCha20Poly1305::encrypt` runs aead's blanket `Aead::encrypt`, and the
+// default `encrypt_in_place` dispatches to the cipher's
+// `encrypt_in_place_detached`). `<Type as Trait>::Assoc::f(..)` is keyed f
+// on the type the crate's own impl, else the knowledge base's
+// trait_associated_types, names for Assoc; the variable of a `for` over an
+// `impl Iterator<Item = T>` holds T (age's `for recipient in recipients`
+// calls `Recipient::wrap_file_key`); `s.parse::<T>()` also calls
+// `T::from_str`; a function passed as a value is reached by the function
+// that passes it, unless a framework registration makes it an entry point;
+// and a call the crate makes to its own item through a public path
+// (`crate::ssh::Identity::from_buffer` under `pub use identity::Identity;`)
+// also reaches the declaration. A stored rs-14 graph has none of these
+// edges.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "15"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.

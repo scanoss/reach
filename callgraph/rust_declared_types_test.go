@@ -130,6 +130,10 @@ impl Runner for MyCipher {
 	declared := map[string]bool{}
 	for _, analysis := range analyses {
 		for i := range analysis.Functions {
+			if analysis.Functions[i].Abstract {
+				// The trait's own required method, not the impl's body.
+				continue
+			}
 			id := analysis.Functions[i].ID
 			declared[id.Package+"."+id.Type+"."+id.Name] = true
 		}

@@ -1694,6 +1694,7 @@ func (b *Builder) buildCallerIndex(graph *CallGraph) {
 		for i := range fn.Calls {
 			b.indexCallDispatch(graph, callerKey, &fn.Calls[i], idx)
 		}
+		joinRustPublicPathCalls(graph, callerKey, fn, idx)
 		for i := range fn.ImplicitCalls {
 			if call := &fn.ImplicitCalls[i]; call.pythonImport || call.pythonClassValue {
 				calleeKey := call.Callee.String()
