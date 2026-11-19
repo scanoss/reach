@@ -790,3 +790,49 @@ static class Tools
 		t.Errorf("the field inside #if was not read: %+v", a.Functions)
 	}
 }
+
+// A verbatim interpolated string writes a quote as two, which the grammar
+// reads as a close and a reopen: the second such string in a file used to
+// lose every call after it.
+func TestCSharpVerbatimInterpolatedString(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `using System;
+using System.Security.Cryptography;
+
+namespace Acme;
+
+public class Runner
+{
+    public void A(string p) { Console.WriteLine(@$"-c ""{p}"""); }
+
+    public void B(string p) { Console.WriteLine(@$"-d ""{p}"""); }
+
+    public byte[] Hash(byte[] d) { return SHA256.HashData(d); }
+}`), "Hash")
+	if len(calls) != 1 || calls[0].Callee.Type != "SHA256" {
+		t.Fatalf("calls = %+v, want the call after the second verbatim interpolated string", calls)
+	}
+	if calls[0].Line != 12 {
+		t.Errorf("line = %d, want 12: blanking the escaped quotes keeps every later line", calls[0].Line)
+	}
+}
+
+// Dereferencing a pointer cast is the one unsafe form the grammar does not
+// read, and it loses the file it is written in.
+func TestCSharpPointerCastDereference(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `using System.Security.Cryptography;
+
+namespace Acme;
+
+public unsafe class Reader
+{
+    public ulong Read(nint p) { return *(ulong*)p; }
+
+    public byte[] Hash(byte[] d) { return SHA256.HashData(d); }
+}`), "Hash")
+	if len(calls) != 1 || calls[0].Callee.Type != "SHA256" {
+		t.Fatalf("calls = %+v, want the call after the dereferenced cast", calls)
+	}
+	if calls[0].Line != 9 {
+		t.Errorf("line = %d, want 9: a blanked dereference keeps every later line", calls[0].Line)
+	}
+}
