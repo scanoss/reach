@@ -80,7 +80,9 @@ function d() {}
 			want: []string{"app/main.<module> -> app/main.a"},
 		},
 		{
-			name: "unknown registrar",
+			// A function handed to any call is reached by the function that
+			// hands it over: whoever receives it may call it.
+			name: "any call a function is handed to",
 			source: `function reg(f: any, g: any) { f(); }
 
 function start(api: any) {
@@ -89,7 +91,7 @@ function start(api: any) {
   api.register(c);
 }
 `,
-			not: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b", "app/main.start -> app/main.c"},
+			want: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b", "app/main.start -> app/main.c"},
 		},
 		{
 			name: "ipcMain that is not electron's",
@@ -97,7 +99,7 @@ function start(api: any) {
   ipcMain.handle('ch', a);
 }
 `,
-			not: []string{"app/main.start -> app/main.a"},
+			want: []string{"app/main.start -> app/main.a"},
 		},
 		{
 			name: "call result and inline function arguments",
@@ -124,18 +126,16 @@ function viaLocal(get: any) {
 			not: []string{"app/main.viaParam -> app/main.a", "app/main.viaLocal -> app/main.b"},
 		},
 		{
-			name: "methods too likely a domain method to match",
+			name: "methods of a receiver nothing types",
 			source: `function start(repo: any) {
   repo.find(a);
   repo.findIndex(a);
-  repo.findLast(a);
-  repo.findLastIndex(a);
   repo.some(b);
   repo.every(b);
   repo.sort(c);
 }
 `,
-			not: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b", "app/main.start -> app/main.c"},
+			want: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b", "app/main.start -> app/main.c"},
 		},
 		{
 			name: "name bound by an enclosing function",
@@ -229,7 +229,7 @@ function shadow(setTimeout: any) {
   setTimeout(b, 1);
 }
 `,
-			not: []string{"app/main.start -> app/main.a", "app/main.shadow -> app/main.b"},
+			want: []string{"app/main.start -> app/main.a", "app/main.shadow -> app/main.b"},
 		},
 		{
 			name: "name that resolves to nothing",
@@ -241,13 +241,13 @@ function shadow(setTimeout: any) {
 			not: []string{"app/main.start -> app/main.ghost"},
 		},
 		{
-			name: "argument position that takes no callback",
+			name: "any argument position",
 			source: `function start(emitter: any) {
   emitter.on(a, 1);
   setTimeout(1, b);
 }
 `,
-			not: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b"},
+			want: []string{"app/main.start -> app/main.a", "app/main.start -> app/main.b"},
 		},
 	}
 	for _, tc := range tests {

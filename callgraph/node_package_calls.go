@@ -83,6 +83,8 @@ type nodePackageCalls struct {
 	// name the contract is keyed by.
 	contracted map[string]bool
 	entries    map[string]string
+	// modules maps a file to the key of its <module> function.
+	modules map[string]string
 }
 
 // linkNodePackageCalls retargets the Node calls made through a package name to
@@ -129,8 +131,12 @@ func newNodePackageCalls(graph *CallGraph, dirs map[string]string) *nodePackageC
 		decls:   make(map[nodeDeclSite]string),
 		starts:  make(map[nodeDeclStart]string, len(graph.Functions)),
 		entries: make(map[string]string),
+		modules: make(map[string]string),
 	}
 	for key, decl := range graph.Functions {
+		if decl.FunctionType == functionTypeModuleInit {
+			r.modules[filepath.Clean(decl.FilePath)] = key
+		}
 		r.starts[nodeDeclStart{file: filepath.Clean(decl.FilePath), line: decl.StartLine, col: decl.StartCol}] = key
 		site := nodeDeclSite{file: filepath.Clean(decl.FilePath), line: decl.StartLine}
 		if _, taken := r.decls[site]; taken {

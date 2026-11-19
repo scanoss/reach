@@ -41,7 +41,8 @@ var nodeElectronIPCAPIs = map[string]callbackAPI{
 
 // nodeCallbackReferences returns a reference to each declared function the
 // body hands to a callback-invoking API: a bare name, `module.fn` of an
-// imported module, or `this.method`. Functions written inline are
+// imported module, or `this.method`. The value-flow pass draws the same edge
+// for a function handed to any other call (node_value_flow.go). Functions written inline are
 // declarations of their own, reached by nodeImplicitCalls, and a name the
 // function itself binds (a parameter, a local) names no declared function.
 func nodeCallbackReferences(body *sitter.Node, src []byte, filePath, packagePath, owner string, imports nodeBindings, locals map[string]bool, own nodeNameSet) []FunctionCall {

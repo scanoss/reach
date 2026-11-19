@@ -28,7 +28,7 @@ func TestBuilder_NodeModuleImportEdges(t *testing.T) {
 		{"only import in the file", "import './dep';\n", true, 1},
 		{"package import", "import 'dep';\nimport x from 'dep/sub';\nrequire('dep');\ninit();\n", false, 0},
 		{"unresolved relative path", "import './nowhere';\ninit();\n", false, 0},
-		{"dynamic import", "import('./dep');\ninit();\n", false, 0},
+		{"dynamic import at the top level", "import('./dep');\ninit();\n", true, 1},
 		{"dynamic import in a function", "function f() { return import('./dep'); }\ninit(f);\n", false, 0},
 		{"require in a function", "function f() { return require('./dep'); }\ninit(f);\n", false, 0},
 		{"require in an arrow", "const f = () => require('./dep');\ninit(f);\n", false, 0},

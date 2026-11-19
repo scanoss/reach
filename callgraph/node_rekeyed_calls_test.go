@@ -81,6 +81,11 @@ await csr.verify();
 		"acme-pki.(Crl).verify 5:7-48 crl.verify",
 		"acme-pki.(Csr).<init> 6:13-27 new acme.Csr",
 		"acme-pki.(Csr).verify 7:7-19 csr.verify",
+		// The build's own edges, beside the calls: the package the module
+		// loads, and the method of what fromBER returned, which no contract
+		// types and the package's exports resolve.
+		"acme-pki.<module> 1:14-33 stale",
+		"acme-pki.Certificate.(fromBER()).verify 3:18-39 stale",
 		"acme-pki.Certificate.fromBER 2:16-45 acme.Certificate.fromBER",
 		"app.verify 3:18-39 parsed.verify",
 	}
@@ -122,6 +127,10 @@ const b = h.create().digest();
 	got := nodeExportedSites(graph, "app.<module>")
 	want := []string{
 		"acme-h.(Hasher).digest 3:11-30 h.create().digest",
+		// The build's own edges, drawn before this test applied the KB: the
+		// link by its access path, and the package the module loads.
+		"acme-h.(create()).digest 3:11-30 stale",
+		"acme-h.<module> 1:11-28 stale",
 		"acme-h.create 3:11-21 h.create",
 		"app.digest 2:11-25 other.digest",
 	}

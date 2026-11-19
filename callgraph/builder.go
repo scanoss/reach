@@ -420,6 +420,8 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	// after inference so both declared and KB-inferred return types are
 	// available. See resolveParameterPassthroughDispatch for the full contract.
 	perf.Time("callgraph.build.passthrough_dispatch", func() { resolveParameterPassthroughDispatch(graph) })
+	perf.Time("callgraph.build.node_value_flow", func() { b.linkNodeValueFlow(graph) })
+	perf.Time("callgraph.build.node_package_exports", func() { b.recordNodePackageExports(graph) })
 	finishNodePropertyReads(graph, kb)
 	inferenceDuration := time.Since(inferenceStart)
 
@@ -465,7 +467,6 @@ func (b *Builder) indexCallers(graph *CallGraph) {
 	resolveNodeReExportedCalls(graph)
 	resolveNodeTypedReceivers(graph)
 	b.linkNodePackageCalls(graph)
-	b.recordNodePackageExports(graph)
 	resolveConstructedReceivers(graph)
 	b.buildCallerIndex(graph)
 }
