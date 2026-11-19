@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -142,11 +143,14 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 			f.modules[file] = decl.ID.Package
 		}
 	}
+	f.addRequiredModules()
 	files := make([]string, 0, len(f.modules))
 	for file, module := range f.modules {
 		files = append(files, file)
 		f.packages[module] = true
 	}
+	sort.Strings(files)
+	f.shapes.indexForeignWrites(files)
 	for _, decl := range graph.Functions {
 		for i := range decl.Calls {
 			// `mod.a.b()` is keyed with package `<module>.a`.
@@ -782,4 +786,54 @@ func (f *nodeValueFlow) load(m *nodeShapeModule, n *sitter.Node, spec string, fn
 	}
 	id := FunctionID{Package: spec, Name: moduleInitMethodName}
 	f.edge(fn, id.String(), id, n, moduleInitMethodName)
+}
+
+// nodeRequiredModuleCap bounds the modules addRequiredModules adds.
+const nodeRequiredModuleCap = 4096
+
+// addRequiredModules adds to the modules the files the graph's modules load
+// by a relative specifier and that declare no function, transitively: a
+// module holding only data (`module.exports = { options: {} }`, node-forge's
+// shared namespace that every other module writes its functions into) is
+// still the receiver of the calls made through it, `forge.pkcs5.pbkdf2(..)`.
+func (f *nodeValueFlow) addRequiredModules() {
+	queue := make([]string, 0, len(f.modules))
+	for file := range f.modules {
+		queue = append(queue, file)
+	}
+	sort.Strings(queue)
+	for len(queue) > 0 && len(f.modules) < nodeRequiredModuleCap {
+		file := queue[0]
+		queue = queue[1:]
+		m := f.shapes.module(file)
+		if m == nil {
+			continue
+		}
+		module := f.modules[file]
+		nodeWalk(m.root, func(n *sitter.Node) {
+			spec := nodeRequireSource(n, m.src)
+			if spec == "" && n.Type() == "import_statement" {
+				if source := n.ChildByFieldName("source"); source != nil {
+					spec = unquoteNodeString(source.Content(m.src))
+				}
+			}
+			if !isNodeRelativeSpecifier(spec) {
+				return
+			}
+			target := f.shapes.relative(m, spec)
+			if target == nil {
+				return
+			}
+			path := filepath.Clean(target.path)
+			if _, known := f.modules[path]; known {
+				return
+			}
+			dir := pathpkg.Dir(module)
+			if rel, err := filepath.Rel(filepath.Dir(filepath.Clean(m.path)), filepath.Dir(path)); err == nil {
+				dir = pathpkg.Join(dir, filepath.ToSlash(rel))
+			}
+			f.modules[path] = nodeModulePath(dir, path)
+			queue = append(queue, path)
+		})
+	}
 }

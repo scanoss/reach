@@ -43,6 +43,70 @@ type NodeShapes struct {
 	// sites holds the call sites the value flow recorded, nil outside it;
 	// see node_value_params.go.
 	sites *nodeCallSites
+	// foreign holds, by the file of a module and member name, what other
+	// modules assign to that member of what it exports (indexForeignWrites).
+	foreign map[string]map[string][]nodeForeignWrite
+}
+
+// nodeForeignWrite is the value one module assigns to a member of another
+// module's exports.
+type nodeForeignWrite struct {
+	m     *nodeShapeModule
+	value *sitter.Node
+}
+
+// nodeForeignWriteCap bounds the writes indexed for one member.
+const nodeForeignWriteCap = 16
+
+// indexForeignWrites indexes, over the modules files, each assignment
+// `x.name = value` whose x is a module-level name bound to the require of a
+// relative module: the member name of what that module exports holds value.
+func (s *NodeShapes) indexForeignWrites(files []string) {
+	s.foreign = make(map[string]map[string][]nodeForeignWrite)
+	for _, file := range files {
+		m := s.module(file)
+		if m == nil {
+			continue
+		}
+		required := make(map[string]string)
+		m.walk(func(n *sitter.Node) {
+			if n.Type() != nodeAssignmentExpression {
+				return
+			}
+			left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+			if left == nil || right == nil || left.Type() != nodeMemberExpression {
+				return
+			}
+			object, property := left.ChildByFieldName("object"), left.ChildByFieldName("property")
+			if object == nil || property == nil || object.Type() != goNodeIdentifier || property.Type() != nodePropertyIdentifier {
+				return
+			}
+			base := object.Content(m.src)
+			target, seen := required[base]
+			if !seen {
+				if decl := nodeShapeDeclaration(m.root, base, m.src); decl != nil {
+					if spec := nodeRequireSource(decl, m.src); isNodeRelativeSpecifier(spec) {
+						if tm := s.relative(m, spec); tm != nil {
+							target = filepath.Clean(tm.path)
+						}
+					}
+				}
+				required[base] = target
+			}
+			if target == "" || target == filepath.Clean(m.path) {
+				return
+			}
+			byName := s.foreign[target]
+			if byName == nil {
+				byName = make(map[string][]nodeForeignWrite)
+				s.foreign[target] = byName
+			}
+			name := property.Content(m.src)
+			if len(byName[name]) < nodeForeignWriteCap {
+				byName[name] = append(byName[name], nodeForeignWrite{m: m, value: right})
+			}
+		})
+	}
 }
 
 type nodeShapeModule struct {

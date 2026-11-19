@@ -277,3 +277,31 @@ function start() { return lt(1, 2, 3); }
 		},
 	})
 }
+
+// A module holding only data that every other module of the package writes
+// its functions into (node-forge's forge.js) is the receiver of the calls
+// made through it: a member read on what it exports holds what the modules
+// requiring it assign to that member.
+func TestNodeValueFlow_NamespaceFilledByOtherModules(t *testing.T) {
+	t.Parallel()
+	runNodeFlowCases(t, []nodeFlowCase{{
+		name: "a namespace object filled by the modules requiring it",
+		files: map[string]string{
+			"forge.js": "module.exports = { options: {} };\n",
+			"pbkdf2.js": `var forge = require('./forge');
+var pkcs5 = forge.pkcs5 = forge.pkcs5 || {};
+module.exports = forge.pbkdf2 = pkcs5.pbkdf2 = function (p, s) { return p + s; };
+`,
+			"md5.js": `var forge = require('./forge');
+forge.md5 = { create: function create() { return 1; } };
+`,
+			"pbe.js": `var forge = require('./forge');
+require('./pbkdf2');
+require('./md5');
+function derive(p) { return forge.pkcs5.pbkdf2(p, 's') + forge.md5.create(); }
+module.exports = { derive };
+`,
+		},
+		want: []string{"app/pbe.derive -> app/pbkdf2.exports", "app/pbe.derive -> app/md5.create"},
+	}})
+}

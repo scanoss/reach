@@ -789,9 +789,21 @@ func nodeValueNames(v nodeShapeValue) []string {
 		}
 	}
 	holder := v.n.Parent()
-	for holder != nil && holder.Type() == goNodeParenExpr {
+	// The value of a default (`ns.x = ns.x || {}`) and of a chain of
+	// assignments (`var x = ns.x = ns.x || {}`) is named by each target.
+	for holder != nil {
+		switch {
+		case holder.Type() == goNodeParenExpr:
+		case holder.Type() == "binary_expression" && nodeDefaultOperator(holder, v.m.src):
+		case holder.Type() == nodeAssignmentExpression && holder.ChildByFieldName("left") != nil &&
+			holder.ChildByFieldName("left").Type() == nodeMemberExpression:
+			add(holder.ChildByFieldName("left").Content(v.m.src))
+		default:
+			goto named
+		}
 		holder = holder.Parent()
 	}
+named:
 	if holder == nil {
 		return names
 	}
@@ -806,6 +818,13 @@ func nodeValueNames(v nodeShapeValue) []string {
 		}
 	}
 	return names
+}
+
+// nodeDefaultOperator reports whether the binary expression n is `a || b`
+// or `a ?? b`, which hold the value of either operand.
+func nodeDefaultOperator(n *sitter.Node, src []byte) bool {
+	op := n.ChildByFieldName("operator")
+	return op != nil && (op.Content(src) == "||" || op.Content(src) == "??")
 }
 
 // member is what the member name of v is.
@@ -832,7 +851,10 @@ func (q *nodeValueQuery) member(v nodeShapeValue, name string, depth int) []node
 				return q.values(v.m, value, depth+1)
 			}
 		}
-		return q.assignedMember(v, name, depth)
+		if values := q.assignedMember(v, name, depth); len(values) > 0 {
+			return values
+		}
+		return q.foreignMember(v, name, depth)
 	case v.callable() && v.n.Type() != nodeMethodDefinition:
 		if name == nodePrototypeMember {
 			return []nodeShapeValue{{m: v.m, n: v.n, instance: true}}
@@ -864,6 +886,25 @@ func (q *nodeValueQuery) moduleMember(v nodeShapeValue, name string, depth int) 
 		return q.values(v.m, q.s.followExportAlias(v.m, value, 0), depth+1)
 	}
 	return nil
+}
+
+// foreignMember is what other modules of the package assign to the member
+// name of the object a module exports, through the name they require it
+// under: node-forge's forge.js exports `{ options }`, and pbkdf2.js writes
+// `forge.pkcs5 = forge.pkcs5 || {}` into it with `forge = require('./forge')`.
+func (q *nodeValueQuery) foreignMember(v nodeShapeValue, name string, depth int) []nodeShapeValue {
+	writes := q.s.foreign[filepath.Clean(v.m.path)][name]
+	if len(writes) == 0 {
+		return nil
+	}
+	if exported, em := q.s.exportValue(v.m, nodeDefaultExport, depth); exported == nil || em != v.m || !sameSyntaxNode(nodeUnfrozen(exported, v.m.src), v.n) {
+		return nil
+	}
+	var out []nodeShapeValue
+	for _, w := range writes {
+		out = appendNodeValues(out, q.values(w.m, w.value, depth+1)...)
+	}
+	return out
 }
 
 // assignedMember is the value the module assigns to `<v>.name` after v is

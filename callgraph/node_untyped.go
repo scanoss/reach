@@ -127,7 +127,7 @@ func (f *nodeValueFlow) noteMemberCall(m *nodeShapeModule, n, callee *sitter.Nod
 		return
 	}
 	f.untyped[call] = ""
-	if field := nodeWrittenProperty(object, m.src); field != "" {
+	if field := nodeWrittenProperty(object, m.src); field != "" && nodeThisField(object, m.src) != "" {
 		f.fieldCalls[call] = nodeFieldCall{fn: fn, field: field}
 	}
 }

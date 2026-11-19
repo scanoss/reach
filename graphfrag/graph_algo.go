@@ -417,6 +417,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A package's exports list what parameters hold too: `module.exports = new
 // PG(Client)` with `this.Client = clientConstructor` publishes
 // pg.(Client).connect.
+// A member read on what a module exports also holds what the modules
+// requiring it assign to that member (node-forge's `forge.pkcs5.pbkdf2`,
+// written by pbkdf2.js into forge.js's exported object), and a module that
+// holds only data is followed when another requires it.
 //
 // A function a caller passed is called by the caller that hands it over,
 // not by the function that receives it. JavaScript with type annotations
