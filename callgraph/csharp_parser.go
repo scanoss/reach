@@ -428,6 +428,7 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 	values.countWrites(body, src)
 	p.walkCalls(body, src, filePath, namespace, typePath, variableTypes, values, analysis, &decl.Calls)
 	decl.Declarations = csharpDeclarations(body, src)
+	decl.AttributeStores = csharpAttributeStores(body, src)
 	return decl
 }
 
