@@ -615,3 +615,66 @@ class Vault
 		t.Errorf("declared constructor calls = %+v, want the field initializer's call", ctor.Calls)
 	}
 }
+
+// A file written as top-level statements is the program's entry point: C#
+// compiles the statements into a `Main` it generates, and without it every
+// call of such a file is invisible.
+func TestCSharpTopLevelProgram(t *testing.T) {
+	a := parseOneCSharp(t, `using System.Security.Cryptography;
+
+if (args.Length > 0)
+{
+    var h = SHA256.HashData(File.ReadAllBytes(args[0]));
+}
+
+static string Hash(string v) => Convert.ToHexString(MD5.HashData(null));
+`)
+	var main, local *FunctionDecl
+	for i := range a.Functions {
+		switch a.Functions[i].ID.Name {
+		case "Main#1":
+			main = &a.Functions[i]
+		case "Hash#1":
+			local = &a.Functions[i]
+		}
+	}
+	if main == nil {
+		t.Fatalf("no generated Main: %+v", a.Functions)
+	}
+	if main.EntryKind != RootKindMain || !main.Static {
+		t.Errorf("generated Main = %+v, want a static entry point", main.ID)
+	}
+	var sha bool
+	for _, c := range main.Calls {
+		sha = sha || c.Callee.Type == "SHA256"
+	}
+	if !sha {
+		t.Errorf("Main calls = %+v, want the statements' call", main.Calls)
+	}
+	if local == nil {
+		t.Fatal("a local function among the statements owns its own body")
+	}
+	for _, c := range main.Calls {
+		if c.Callee.Type == "MD5" {
+			t.Error("the local function's call belongs to it, not to Main")
+		}
+	}
+}
+
+// An explicit `static Main` is the entry point under its own name: C# spells
+// it with a capital, which the shared main detection does not read.
+func TestCSharpExplicitMainIsAnEntryPoint(t *testing.T) {
+	a := parseOneCSharp(t, "namespace Acme;\nclass Program { static void Main(string[] args) { } void Run() { } }\n")
+	for i := range a.Functions {
+		switch BaseFunctionName(a.Functions[i].ID.Name) {
+		case "Main":
+			if a.Functions[i].EntryKind != RootKindMain {
+				t.Errorf("Main entry kind = %q, want main", a.Functions[i].EntryKind)
+			}
+		case "Run":
+			if a.Functions[i].EntryKind != "" {
+				t.Errorf("Run entry kind = %q, want none", a.Functions[i].EntryKind)
+			}
+		}
+	}
+}
