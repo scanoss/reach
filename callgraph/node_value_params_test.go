@@ -305,3 +305,48 @@ module.exports = { derive };
 		want: []string{"app/pbe.derive -> app/pbkdf2.exports", "app/pbe.derive -> app/md5.create"},
 	}})
 }
+
+// `this` in a method holds the instances its calls are made on, a subclass's
+// included, and a field a method sets to what calling it returns holds each
+// state such a machine steps through (mysql2's Command.execute runs
+// `this.next = this.next(packet)` over a ClientHandshake's states).
+func TestNodeValueFlow_ReceiverAndStateMachineFields(t *testing.T) {
+	t.Parallel()
+	runNodeFlowCases(t, []nodeFlowCase{{
+		name: "a command whose states return the next one",
+		files: map[string]string{
+			"command.js": `class Command {
+  constructor() { this.next = null; }
+  execute(packet) {
+    if (!this.next) { this.next = this.start; }
+    this.next = this.next(packet);
+    return !this.next;
+  }
+}
+module.exports = Command;
+`,
+			"handshake.js": `const Command = require('./command');
+class ClientHandshake extends Command {
+  start(p) { return ClientHandshake.prototype.handshakeInit; }
+  handshakeInit(p) { return ClientHandshake.prototype.handshakeResult; }
+  handshakeResult(p) { return null; }
+  unused(p) { return p; }
+}
+module.exports = ClientHandshake;
+`,
+			"conn.js": `const ClientHandshake = require('./handshake');
+class Conn {
+  constructor() { this._command = new ClientHandshake(); }
+  handle(p) { return this._command.execute(p); }
+}
+module.exports = Conn;
+`,
+		},
+		want: []string{
+			"app/command.(Command).execute -> app/handshake.(ClientHandshake).start",
+			"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeInit",
+			"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeResult",
+		},
+		not: []string{"app/command.(Command).execute -> app/handshake.(ClientHandshake).unused"},
+	}})
+}

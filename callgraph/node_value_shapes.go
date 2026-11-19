@@ -719,7 +719,11 @@ func (q *nodeValueQuery) thisValues(m *nodeShapeModule, n *sitter.Node, depth in
 	for fn := n.Parent(); fn != nil; fn = fn.Parent() {
 		switch fn.Type() {
 		case nodeMethodDefinition:
-			return nodeMethodOwner(m, fn)
+			owner := nodeMethodOwner(m, fn)
+			if hasNodeToken(fn, "static") {
+				return owner
+			}
+			return appendNodeValues(owner, q.receiverValues(m, fn)...)
 		case nodeFieldDefinition, nodePublicFieldDefinition:
 			if body := fn.Parent(); body != nil && body.Parent() != nil {
 				return []nodeShapeValue{{m: m, n: body.Parent(), instance: !hasNodeToken(fn, "static")}}
@@ -979,7 +983,11 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 		}
 	}
 	if value := v.m.thisAssignments(nodeConstructorBody(v))[name]; value != nil {
-		return q.values(v.m, value, depth+1)
+		if found := q.values(v.m, value, depth+1); len(found) > 0 {
+			return found
+		}
+		// A field the constructor empties (`this.next = null`) holds what
+		// the methods assign it.
 	}
 	if found := q.fieldValues(v, name, depth); len(found) > 0 {
 		return found
@@ -1003,26 +1011,83 @@ func (q *nodeValueQuery) fieldValues(v nodeShapeValue, name string, depth int) [
 		return nil
 	}
 	var out []nodeShapeValue
-	unknown, count := false, 0
+	unknown, count, steps := false, 0, false
 	nodeEachNamedChild(body, func(member *sitter.Node) {
 		if member.Type() != nodeMethodDefinition || unknown {
 			return
 		}
-		value := v.m.thisAssignments(member.ChildByFieldName("body"))[name]
-		if value == nil || nodeIsNothing(value) {
-			return
+		for _, value := range v.m.thisAssignmentsOf(member.ChildByFieldName("body"), name) {
+			if nodeIsNothing(value) {
+				continue
+			}
+			if nodeCallsThisField(value, name, v.m.src) {
+				steps = true // `this.next = this.next(p)`: read below
+				continue
+			}
+			count++
+			held := q.values(v.m, value, depth+1)
+			if len(held) == 0 || count > nodeAssignmentFanout {
+				unknown = true
+				return
+			}
+			out = appendNodeValues(out, held...)
 		}
-		count++
-		held := q.values(v.m, value, depth+1)
-		if len(held) == 0 || count > nodeAssignmentFanout {
-			unknown = true
-			return
-		}
-		out = appendNodeValues(out, held...)
 	})
 	if unknown {
 		return nil
 	}
+	if steps {
+		// A field a method sets to what calling it returns (a state
+		// machine: each state returns the next) holds the functions the
+		// others assign and what calling those returns, to a fixed point.
+		for round := 0; round < nodeAssignmentFanout; round++ {
+			grown := false
+			for _, state := range slices.Clone(out) {
+				for _, next := range q.results(state, depth+1) {
+					if next.callable() && !next.class() && !slices.ContainsFunc(out, next.same) {
+						out = appendNodeValues(out, next)
+						grown = true
+					}
+				}
+			}
+			if !grown {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// nodeCallsThisField reports whether value calls the field name of this:
+// `this.next(p)` or `this.next.call(this, p)`.
+func nodeCallsThisField(value *sitter.Node, name string, src []byte) bool {
+	value = nodeUnwrapValue(value)
+	if value == nil || value.Type() != nodeCallExpression {
+		return false
+	}
+	callee := value.ChildByFieldName("function")
+	if callee != nil && callee.Type() == nodeMemberExpression && nodeCallsThrough(callee, src) {
+		callee = callee.ChildByFieldName("object")
+	}
+	return callee != nil && strings.TrimPrefix(nodeThisField(callee, src), nodeThisNode+".") == name
+}
+
+// thisAssignmentsOf lists every value body assigns to the field name of
+// this, outside nested functions, in source order.
+func (m *nodeShapeModule) thisAssignmentsOf(body *sitter.Node, name string) []*sitter.Node {
+	if body == nil {
+		return nil
+	}
+	var out []*sitter.Node
+	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+		if n.Type() != nodeAssignmentExpression {
+			return
+		}
+		field := nodeThisField(n.ChildByFieldName("left"), m.src)
+		if strings.TrimPrefix(strings.TrimPrefix(field, nodeThisNode+"."), "#") == name {
+			out = append(out, n.ChildByFieldName("right"))
+		}
+	})
 	return out
 }
 

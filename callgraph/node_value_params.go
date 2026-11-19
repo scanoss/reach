@@ -616,3 +616,66 @@ func (q *nodeValueQuery) elementValues(m *nodeShapeModule, n *sitter.Node, depth
 	}
 	return out
 }
+
+// nodeReceiverName keys what `this` holds in a method among its
+// parameters: no parameter can be called so.
+const nodeReceiverName = "this"
+
+// receiverValues is what `this` holds in the method fn beyond its own
+// class: the instances its recorded calls are made on (`cmd.execute(p)`
+// with cmd a ClientHandshake runs Command's execute with this a
+// ClientHandshake), so a member of this that only a subclass declares or
+// assigns is found. A call through `call` passes its first argument.
+func (q *nodeValueQuery) receiverValues(m *nodeShapeModule, fn *sitter.Node) []nodeShapeValue {
+	c := q.s.sites
+	if c == nil {
+		return nil
+	}
+	c.reads++
+	if !c.enabled {
+		return nil
+	}
+	at := nodeFunctionStart(m, fn)
+	key := nodeParamKey{fn: at, name: nodeReceiverName}
+	if held, ok := c.values[key]; ok {
+		return held
+	}
+	if !q.enter(key) {
+		return c.previous[key]
+	}
+	sub := q.parameterQuery()
+	if c.shared {
+		sub.budget = q.budget
+		defer func() {
+			q.budget = sub.budget
+			q.cut = q.cut || sub.cut
+		}()
+	}
+	var out []nodeShapeValue
+	for _, site := range q.sites(at) {
+		var receiver *sitter.Node
+		switch {
+		case site.shift == 1:
+			receiver = site.argument(-1)
+		case site.shift == 0 && site.n.Type() == nodeCallExpression:
+			if callee := site.n.ChildByFieldName("function"); callee != nil && callee.Type() == nodeMemberExpression {
+				receiver = callee.ChildByFieldName("object")
+			}
+		}
+		if receiver == nil || receiver.Type() == nodeThisNode {
+			continue // this calling its own method holds what this holds
+		}
+		for _, v := range sub.values(site.m, receiver, 0) {
+			if v.instance && v.external == nil {
+				out = appendNodeValues(out, v)
+			}
+		}
+	}
+	delete(q.active, key)
+	if sub.cut {
+		return out
+	}
+	c.values[key] = out
+	c.grew = c.grew || len(out) > len(c.previous[key])
+	return out
+}
