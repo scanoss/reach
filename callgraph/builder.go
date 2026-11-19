@@ -1004,6 +1004,12 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 		}
 		graph.GoBlocks[analysis.FilePath] = analysis.GoBlocks
 	}
+	if b.ecosystem == ecosystemCSharp && projectLocal && len(analysis.CSharpUsings) > 0 {
+		if graph.CSharpUsings == nil {
+			graph.CSharpUsings = make(map[string][]CSharpUsing)
+		}
+		graph.CSharpUsings[analysis.FilePath] = analysis.CSharpUsings
+	}
 	if b.ecosystem == ecosystemGo && projectLocal && len(analysis.GoImports) > 0 {
 		if graph.GoImports == nil {
 			graph.GoImports = make(map[string][]GoImport)

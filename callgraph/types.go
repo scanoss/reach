@@ -737,6 +737,10 @@ type FileAnalysis struct {
 	// RustBinaryExprs lists the binary expressions of the file's function
 	// bodies, in source order (Rust only).
 	RustBinaryExprs []RustBinaryExpr
+	// CSharpUsings lists the file's using directives in source order: the
+	// scope facts that say which namespace an unqualified type name can come
+	// from.
+	CSharpUsings []CSharpUsing
 	// GoImports lists the specs of the file's import declarations, in
 	// source order (Go only).
 	GoImports []GoImport
@@ -850,6 +854,9 @@ type CallGraph struct {
 	// function bodies of each Rust source file whose functions the graph
 	// holds, as written (Rust only).
 	RustBinaryExprs map[string][]RustBinaryExpr
+	// CSharpUsings holds the using directives of each project source file,
+	// by file path (C# only), paths and aliases as written.
+	CSharpUsings map[string][]CSharpUsing
 	// GoImports holds the import specs of each project source file, by
 	// file path (Go only), paths and names as written.
 	GoImports map[string][]GoImport

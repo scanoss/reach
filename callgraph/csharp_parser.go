@@ -191,13 +191,15 @@ func csharpUsing(node *sitter.Node, src []byte, analysis *FileAnalysis) {
 	if name := node.ChildByFieldName("name"); name != nil {
 		alias = name.Content(src)
 	}
-	isStatic := false
+	isStatic, isGlobal := false, false
 	var path string
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		switch child.Type() {
 		case "static":
 			isStatic = true
+		case "global":
+			isGlobal = true
 		case csharpNodeQualifiedName, csharpNodeIdentifier, "alias_qualified_name", csharpNodeGenericName:
 			if node.FieldNameForChild(i) == "name" {
 				continue
@@ -208,15 +210,46 @@ func csharpUsing(node *sitter.Node, src []byte, analysis *FileAnalysis) {
 	if path == "" {
 		return
 	}
+	kind := csharpUsingNamespace
 	switch {
 	case alias != "":
+		kind = csharpUsingAlias
 		analysis.ImportAliases[alias] = path
 		analysis.Imports[alias] = path
 	case isStatic:
+		kind = csharpUsingStatic
 		analysis.StaticWildcardImports = append(analysis.StaticWildcardImports, path)
 	default:
 		analysis.WildcardImports = append(analysis.WildcardImports, path)
 	}
+	start, end := node.StartPoint(), node.EndPoint()
+	using := CSharpUsing{
+		Namespace: path, Alias: alias, Kind: kind, Global: isGlobal,
+		Line: int(start.Row) + 1, StartCol: int(start.Column) + 1, EndCol: int(end.Column) + 1,
+		Text: node.Content(src),
+	}
+	if end.Row != start.Row {
+		using.EndLine = int(end.Row) + 1
+	}
+	analysis.CSharpUsings = append(analysis.CSharpUsings, using)
+}
+
+// The kinds of using directive a C# file writes. A matcher reads them to
+// qualify a type the source writes unqualified, the way the reference
+// matcher resolves a using.
+const (
+	csharpUsingNamespace = "using"
+	csharpUsingAlias     = "alias"
+	csharpUsingStatic    = "static"
+)
+
+// CSharpUsing is one using directive of a C# file, with the span of the
+// directive as written. Namespace is the path it brings in: the namespace of
+// a plain using, the path an alias stands for, the type a static using opens.
+type CSharpUsing struct {
+	Namespace, Alias, Kind, Text    string
+	Global                          bool
+	Line, StartCol, EndCol, EndLine int
 }
 
 func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, typePath string, declared bool, analysis *FileAnalysis) {
