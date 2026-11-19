@@ -42,6 +42,7 @@ const (
 	csharpNodeProperty            = "property_declaration"
 	csharpNodeLocalDeclaration    = "local_declaration_statement"
 	csharpNodeArrowClause         = "arrow_expression_clause"
+	csharpNodeUsingStatement      = "using_statement"
 	csharpNodeStringLiteral       = "string_literal"
 	csharpNodeVerbatimString      = "verbatim_string_literal"
 	csharpNodeImplicitType        = "implicit_type"
@@ -410,25 +411,38 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 			variableTypes[parameter.Name] = parameter.Type
 		}
 	}
+	// A member's calls are in its block; an expression-bodied one has an
+	// arrow clause instead, and a property has its accessors and, when it is
+	// declared with one, its initializer
+	// (`public byte[] Key { get; } = RandomNumberGenerator.GetBytes(16);`).
+	bodies := []*sitter.Node{body}
 	if body == nil {
-		// An expression-bodied member (`=> SHA256.Create()`) has no block; its
-		// arrow clause holds the calls, and a property its accessor list.
-		body = csharpChildByType(node, csharpNodeArrowClause)
-	}
-	if body == nil {
-		body = csharpChildByType(node, "accessor_list")
-	}
-	if body == nil {
-		return decl
+		bodies = []*sitter.Node{
+			csharpChildByType(node, csharpNodeArrowClause),
+			csharpChildByType(node, "accessor_list"),
+			node.ChildByFieldName("value"),
+		}
 	}
 	values := newCSharpValues(fields.literals(), fields.declaredTypes())
 	for _, parameter := range parameters {
 		values.declare(parameter.Name, parameter.Type)
 	}
-	values.countWrites(body, src)
-	p.walkCalls(body, src, filePath, namespace, typePath, variableTypes, values, analysis, &decl.Calls)
-	decl.Declarations = csharpDeclarations(body, src)
-	decl.AttributeStores = csharpAttributeStores(body, src)
+	read := false
+	for i, part := range bodies {
+		// An arrow-bodied member is both the arrow clause and the value, so
+		// the same node is listed twice; read each node once.
+		if part == nil || csharpSeenBefore(bodies[:i], part) {
+			continue
+		}
+		read = true
+		values.countWrites(part, src)
+		p.walkCalls(part, src, filePath, namespace, typePath, variableTypes, values, analysis, &decl.Calls)
+		decl.Declarations = append(decl.Declarations, csharpDeclarations(part, src)...)
+		decl.AttributeStores = append(decl.AttributeStores, csharpAttributeStores(part, src)...)
+	}
+	if !read {
+		return decl
+	}
 	return decl
 }
 
@@ -480,6 +494,16 @@ func csharpFunctionName(node *sitter.Node, src []byte) string {
 		return ""
 	}
 	return name.Content(src)
+}
+
+// csharpSeenBefore reports a node already in the list.
+func csharpSeenBefore(nodes []*sitter.Node, node *sitter.Node) bool {
+	for _, seen := range nodes {
+		if seen != nil && sameSyntaxNode(seen, node) {
+			return true
+		}
+	}
+	return false
 }
 
 // csharpMethodWithArity is the key spelling of a method: every function key
@@ -599,7 +623,7 @@ func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namesp
 		variableTypes = maps.Clone(variableTypes)
 		values = values.clone()
 	}
-	if node.Type() == csharpNodeLocalDeclaration {
+	if node.Type() == csharpNodeLocalDeclaration || node.Type() == csharpNodeUsingStatement {
 		csharpRecordDeclaredTypes(node, src, variableTypes)
 	}
 	values.record(node, src)
@@ -622,7 +646,7 @@ func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namesp
 
 func csharpIntroducesScope(kind string) bool {
 	switch kind {
-	case csharpNodeBlock, "if_statement", "switch_statement", "for_statement", "for_each_statement", "while_statement", "do_statement", "catch_clause", "using_statement", lambdaExpressionNode:
+	case csharpNodeBlock, "if_statement", "switch_statement", "for_statement", "for_each_statement", "while_statement", "do_statement", "catch_clause", csharpNodeUsingStatement, lambdaExpressionNode:
 		return true
 	default:
 		return false

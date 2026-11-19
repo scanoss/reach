@@ -466,3 +466,56 @@ class H { void Run() { var aes = Aes.Create(); aes.KeySize = 256; aes.GenerateKe
 		t.Errorf("store span = line %d, %d..%d", got.Line, got.StartCol, got.EndCol)
 	}
 }
+
+// A property declared with an initializer holds its calls in the value, not
+// in an accessor.
+func TestCSharpParserPropertyInitializer(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+class H { public byte[] Key { get; } = RandomNumberGenerator.GetBytes(16); }`), "Key")
+	if len(calls) != 1 || BaseFunctionName(calls[0].Callee.Name) != "GetBytes" {
+		t.Fatalf("calls = %+v, want the initializer's one call", calls)
+	}
+}
+
+// The resource of a `using (T v = f())` statement types v, as a declaration
+// does, so a call on it is keyed by the type.
+func TestCSharpParserUsingStatementResource(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+using System.Security.Cryptography;
+namespace Acme;
+class H { void Run(byte[] d) { using (HashAlgorithm h = SHA256.Create()) { h.ComputeHash(d); } } }`), "Run")
+	var compute *FunctionCall
+	for i := range calls {
+		if BaseFunctionName(calls[i].Callee.Name) == "ComputeHash" {
+			compute = &calls[i]
+		}
+	}
+	if compute == nil || compute.Callee.Type != "HashAlgorithm" {
+		t.Fatalf("ComputeHash call = %+v, want it typed by the using resource", compute)
+	}
+}
+
+// Two overloads share one key, which is keyed by name and arity: their calls
+// are unioned rather than one body replacing the other.
+func TestCSharpOverloadsKeepBothBodies(t *testing.T) {
+	graph := buildCSharpGraph(t, map[string]string{
+		"h.cs": `using System.Security.Cryptography;
+namespace Acme;
+class Helpers
+{
+    public static byte[] Hash(byte[] data) { return SHA256.Create().ComputeHash(data); }
+    public static byte[] Hash(string data) { return MD5.Create().ComputeHash(null); }
+}`,
+	})
+	calls := callsOf(t, graph, "Acme.(Helpers).Hash#1")
+	var sha, md5 bool
+	for _, c := range calls {
+		sha = sha || strings.Contains(c, "(SHA256).Create")
+		md5 = md5 || strings.Contains(c, "(MD5).Create")
+	}
+	if !sha || !md5 {
+		t.Errorf("calls = %q, want both overloads' bodies", calls)
+	}
+}

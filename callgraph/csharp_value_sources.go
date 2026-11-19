@@ -83,7 +83,7 @@ func (v *csharpValues) countWrites(body *sitter.Node, src []byte) {
 // csharpWrittenNames are the names a declaration or an assignment writes.
 func csharpWrittenNames(node *sitter.Node, src []byte) []string {
 	switch node.Type() {
-	case csharpNodeLocalDeclaration:
+	case csharpNodeLocalDeclaration, csharpNodeUsingStatement:
 		declaration := csharpChildByType(node, csharpNodeVariableDeclaration)
 		if declaration == nil {
 			return nil
@@ -110,7 +110,7 @@ func csharpWrittenNames(node *sitter.Node, src []byte) []string {
 // record reads the literals a declaration or an assignment binds.
 func (v *csharpValues) record(node *sitter.Node, src []byte) {
 	switch node.Type() {
-	case csharpNodeLocalDeclaration:
+	case csharpNodeLocalDeclaration, csharpNodeUsingStatement:
 		declaration := csharpChildByType(node, csharpNodeVariableDeclaration)
 		if declaration == nil {
 			return
