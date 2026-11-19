@@ -1302,6 +1302,9 @@ func (b *Builder) mergeAnalysisFunctions(graph *CallGraph, analysis *FileAnalysi
 			if b.mergeGoBuildTagCollision(graph, key, existing, fn) {
 				continue
 			}
+			if b.mergeCSharpOverloadCollision(graph, key, existing, fn) {
+				continue
+			}
 			if b.mergePythonRedefinition(graph, key, existing, fn) {
 				continue
 			}
@@ -1405,6 +1408,35 @@ func (b *Builder) mergeRustTypedMethodCollision(graph *CallGraph, key string, ex
 			func(r *ConstantRef) [2]int { return [2]int{r.Line, r.StartCol} })
 		merged.Declarations = appendUnseenAt(existing.Declarations, candidate.Declarations,
 			func(d *VarDecl) [2]int { return [2]int{d.Line, d.StartCol} })
+	}
+	graph.Functions[key] = &merged
+	return true
+}
+
+// mergeCSharpOverloadCollision unions the calls of two C# declarations that
+// share one key: overloads differ by their parameter types, which a key keyed
+// by name and arity cannot tell apart (`ComputeSHA256(byte[])` and
+// `ComputeSHA256(string)`). Last-write-wins dropped one overload's whole body,
+// and with it every crypto call written in it -- ShareX lost two of its four
+// hash sites that way. Unioning keeps them all, attributed to the declaration
+// that holds the key; the finding's own line is the call site's, so the report
+// is unchanged. mergeRustTypedMethodCollision is the precedent.
+func (b *Builder) mergeCSharpOverloadCollision(graph *CallGraph, key string, existing, candidate *FunctionDecl) bool {
+	if b.ecosystem != ecosystemCSharp || existing == candidate {
+		return false
+	}
+	merged := *existing
+	merged.Calls = appendUnseenCalls(existing.Calls, candidate.Calls)
+	if len(merged.ReturnSources) == 0 {
+		merged.ReturnSources = candidate.ReturnSources
+	}
+	// Declarations and stores carry no file of their own: they are read in the
+	// declaration's file, so only a body of the same file adds its own.
+	if candidate.FilePath == existing.FilePath {
+		merged.Declarations = appendUnseenAt(existing.Declarations, candidate.Declarations,
+			func(d *VarDecl) [2]int { return [2]int{d.Line, d.StartCol} })
+		merged.AttributeStores = appendUnseenAt(existing.AttributeStores, candidate.AttributeStores,
+			func(a *AttributeStore) [2]int { return [2]int{a.Line, a.StartCol} })
 	}
 	graph.Functions[key] = &merged
 	return true
