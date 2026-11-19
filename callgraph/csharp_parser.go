@@ -911,13 +911,11 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 		if declared, ok := variableTypes[text]; ok {
 			call.ReceiverVar = text
 			call.Callee.Type = declared
-			call.Callee.Package = csharpOwnerNamespace(declared, namespace, analysis)
-			call.Callee.Type = csharpSimpleName(declared)
+			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
 			return
 		}
 		call.StaticReceiver = true
-		call.Callee.Type = text
-		call.Callee.Package = csharpOwnerNamespace(text, namespace, analysis)
+		call.Callee.Package, call.Callee.Type = csharpOwner(text, namespace, analysis)
 	case "this_expression":
 		call.Callee.Type = typePath
 		call.Callee.Package = namespace
@@ -929,17 +927,14 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 		if head, _, ok := strings.Cut(written, csharpSeparator); ok {
 			if declared, isLocal := variableTypes[head]; isLocal {
 				call.ReceiverVar = head
-				call.Callee.Type = csharpSimpleName(declared)
-				call.Callee.Package = csharpOwnerNamespace(declared, namespace, analysis)
+				call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
 				return
 			}
 		}
 		call.StaticReceiver = true
-		call.Callee.Type = csharpSimpleName(written)
-		call.Callee.Package = csharpOwnerNamespace(written, namespace, analysis)
+		call.Callee.Package, call.Callee.Type = csharpOwner(written, namespace, analysis)
 	case csharpNodeObjectCreation:
-		call.Callee.Type = csharpSimpleName(csharpTypeName(receiver.ChildByFieldName("type"), src))
-		call.Callee.Package = csharpOwnerNamespace(csharpTypeName(receiver.ChildByFieldName("type"), src), namespace, analysis)
+		call.Callee.Package, call.Callee.Type = csharpOwner(csharpTypeName(receiver.ChildByFieldName("type"), src), namespace, analysis)
 	case csharpNodeInvocation:
 		// A fluent link keeps the caller's namespace and no owner: the type
 		// resolver binds it from what the previous link returns.
@@ -956,11 +951,12 @@ func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePa
 	}
 	arguments := csharpArguments(node.ChildByFieldName("arguments"), src)
 	line := int(node.StartPoint().Row) + 1
+	pkg, name := csharpOwner(written, namespace, analysis)
 	return &FunctionCall{
 		ArgumentSources: csharpArgumentSources(arguments, values, filePath, line),
 		Callee: FunctionID{
-			Package: csharpOwnerNamespace(written, namespace, analysis),
-			Type:    csharpSimpleName(written),
+			Package: pkg,
+			Type:    name,
 			Name:    csharpMethodWithArity(constructorMethodName, len(arguments)),
 		},
 		Raw:            node.Content(src),
@@ -975,25 +971,15 @@ func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePa
 	}
 }
 
-// csharpSimpleName is a written type's last segment: the name the graph keys a
-// type with, its namespace held in the callee's package.
-func csharpSimpleName(written string) string {
-	if idx := strings.LastIndex(written, csharpSeparator); idx >= 0 {
-		return written[idx+1:]
-	}
-	return written
-}
-
-// csharpOwnerNamespace is the namespace a written type name belongs to: the
-// qualifier it carries, the path an alias stands for, or the caller's own
-// namespace when the name is unqualified. An unqualified name resolved through
-// an on-demand using is settled graph-wide from OwnerAlternatives.
-func csharpOwnerNamespace(written, namespace string, analysis *FileAnalysis) string {
+// csharpOwner splits a written type name into the namespace and the name the
+// graph keys it with, expanding a using alias at its head: `using Cipher =
+// N.Aes;` makes `Cipher` the type `Aes` of `N`, not a type called Cipher.
+func csharpOwner(written, namespace string, analysis *FileAnalysis) (pkg, name string) {
 	expanded := csharpExpandAlias(written, analysis)
 	if idx := strings.LastIndex(expanded, csharpSeparator); idx >= 0 {
-		return expanded[:idx]
+		return expanded[:idx], expanded[idx+1:]
 	}
-	return namespace
+	return namespace, expanded
 }
 
 // csharpExpandAlias substitutes the path a `using A = N.M;` alias stands for
