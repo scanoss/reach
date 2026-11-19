@@ -469,6 +469,11 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 			node.ChildByFieldName("value"),
 		}
 	}
+	// A constructor runs its initializer before its body: `: this(f())` and
+	// `: base(f())` are calls of the constructor, written outside it.
+	if initializer := csharpChildByType(node, "constructor_initializer"); initializer != nil {
+		bodies = append(bodies, initializer)
+	}
 	values := newCSharpValues(fields.literals(), fields.declaredTypes())
 	for _, parameter := range parameters {
 		values.declare(parameter.Name, parameter.Type)
@@ -553,11 +558,7 @@ func (p *CSharpParser) readFieldInitializers(node *sitter.Node, src []byte, file
 	}
 	variableTypes := map[string]string{}
 	values := newCSharpValues(fields.literals(), fields.declaredTypes())
-	for i := 0; i < int(body.NamedChildCount()); i++ {
-		field := body.NamedChild(i)
-		if field.Type() != csharpNodeFieldDeclaration {
-			continue
-		}
+	for _, field := range csharpTypeFields(body) {
 		var calls []FunctionCall
 		p.walkCalls(field, src, filePath, namespace, typePath, variableTypes, values, analysis, &calls)
 		if csharpHasModifier(field, src, "static") || csharpHasModifier(field, src, "const") {
@@ -605,12 +606,45 @@ func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, file
 
 // csharpDeclaresConstructor reports a type body that declares one.
 func csharpDeclaresConstructor(body *sitter.Node) bool {
-	for i := 0; i < int(body.NamedChildCount()); i++ {
-		if body.NamedChild(i).Type() == csharpNodeConstructor {
-			return true
+	found := false
+	csharpWalkTypeBody(body, func(node *sitter.Node) {
+		found = found || node.Type() == csharpNodeConstructor
+	})
+	return found
+}
+
+// csharpTypeFields are the field declarations of a type's own body, those a
+// preprocessor conditional wraps included: a `#if` leaves its members a level
+// deeper, and a field of one is a field of the type all the same.
+func csharpTypeFields(body *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	csharpWalkTypeBody(body, func(node *sitter.Node) {
+		if node.Type() == csharpNodeFieldDeclaration {
+			out = append(out, node)
+		}
+	})
+	return out
+}
+
+// csharpWalkTypeBody visits the members a type's body declares, descending
+// through the nodes that only group them (a preprocessor conditional) and
+// stopping at a member or a nested type, whose body is its own.
+func csharpWalkTypeBody(body *sitter.Node, visit func(*sitter.Node)) {
+	var walk func(node *sitter.Node)
+	walk = func(node *sitter.Node) {
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			visit(child)
+			switch child.Type() {
+			case csharpNodeClass, csharpNodeStruct, csharpNodeInterface, csharpNodeRecord,
+				csharpNodeRecordStruct, csharpNodeMethod, csharpNodeConstructor, csharpNodeProperty,
+				csharpNodeFieldDeclaration:
+				continue
+			}
+			walk(child)
 		}
 	}
-	return false
+	walk(body)
 }
 
 // csharpFunctionName is the declared name, or the constructor name the graph

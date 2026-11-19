@@ -271,11 +271,7 @@ func csharpFieldFacts(node *sitter.Node, src []byte) *csharpFields {
 		return nil
 	}
 	out := &csharpFields{values: map[string]string{}, types: map[string]string{}}
-	for i := 0; i < int(body.NamedChildCount()); i++ {
-		field := body.NamedChild(i)
-		if field.Type() != csharpNodeFieldDeclaration {
-			continue
-		}
+	for _, field := range csharpTypeFields(body) {
 		declaration := csharpChildByType(field, csharpNodeVariableDeclaration)
 		if declaration == nil {
 			continue
