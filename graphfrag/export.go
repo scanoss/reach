@@ -582,6 +582,13 @@ type GraphFragmentExport struct {
 	// path (`cryptography.x509.CertificateBuilder.<init>`) surfaces the
 	// declaration as an entry point through it, as a scan does.
 	PublicPaths map[string]string `json:"public_paths,omitempty"`
+	// PublicTypePaths maps a type's declaring path to the public paths a
+	// `pub use` re-exports it under (Rust; optional, no schema bump):
+	// "rsa::pkcs1v15::signing_key::SigningKey" ->
+	// ["rsa::pkcs1v15::SigningKey"], the call graph's PublicTypePaths. A
+	// rule whose api names a public path (`rsa::pkcs1v15::SigningKey::new`)
+	// surfaces the declaration as an entry point through it, as a scan does.
+	PublicTypePaths map[string][]string `json:"public_type_paths,omitempty"`
 	// AttributeStores are the assignments to an attribute of an object the
 	// scanned functions make (Python; optional, no schema bump), ordered by
 	// function, line and column. A rule that names one
