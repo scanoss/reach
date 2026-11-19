@@ -2317,6 +2317,18 @@ func (a interfaceDispatchAlias) kind() EdgeKind {
 // reach any one of them and the edges are recorded as name_only instead.
 const goCrossPackageDispatchCap = 8
 
+// dispatchesToOverrides reports a declaration whose call site dispatches to
+// the types that implement it: an interface method anywhere, and in C# an
+// abstract method of a class too. C# writes an abstract class where Java
+// reaches the same overrides through an interface, and its abstract members
+// are the dispatch of the hierarchy as much as an interface's.
+func (b *Builder) dispatchesToOverrides(decl *FunctionDecl) bool {
+	if decl.OwnerType == ownerTypeInterface {
+		return true
+	}
+	return b.ecosystem == ecosystemCSharp && decl.Abstract
+}
+
 // expandInterfaceDispatch links an interface method call site to the
 // implementations in the graph: methods of the same name and arity declared by
 // a type that really implements the interface. Java and the other dotted-name
@@ -2342,7 +2354,7 @@ func (b *Builder) expandInterfaceDispatch(
 	hierarchy *dispatchHierarchy,
 ) []interfaceDispatchAlias {
 	calleeDecl, ok := graph.Functions[calleeKey]
-	if !ok || calleeDecl.OwnerType != ownerTypeInterface {
+	if !ok || !b.dispatchesToOverrides(calleeDecl) {
 		return nil
 	}
 
