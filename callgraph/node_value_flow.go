@@ -80,6 +80,15 @@ type nodeValueFlow struct {
 	pending []nodePendingCall
 	// recording is set during the first walk, which fills pending.
 	recording bool
+	// untyped holds the member calls the receiver's values named no function
+	// for, by the caller's key; "" once a round resolved the call. See
+	// node_untyped.go.
+	untyped map[*FunctionCall]string
+	// fieldCalls holds the resolved member calls whose receiver is a
+	// property, and foreign the properties the package writes on another
+	// object than this; see node_untyped.go.
+	fieldCalls map[*FunctionCall]nodeFieldCall
+	foreign    map[string]bool
 }
 
 // nodePendingCall is a call or `new` expression of the function fn whose
@@ -101,16 +110,19 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 		return
 	}
 	f := &nodeValueFlow{
-		b:        b,
-		graph:    graph,
-		shapes:   NewNodeShapes(),
-		starts:   make(map[nodeDeclStart]string, len(graph.Functions)),
-		clinits:  make(map[nodeDeclStart]string),
-		callers:  make(map[string]map[string]bool),
-		sites:    make(map[string]map[nodeCallSite]*FunctionCall),
-		bindings: make(map[*nodeShapeModule]nodeBindings),
-		modules:  make(map[string]string),
-		packages: make(map[string]bool),
+		b:          b,
+		graph:      graph,
+		shapes:     NewNodeShapes(),
+		starts:     make(map[nodeDeclStart]string, len(graph.Functions)),
+		clinits:    make(map[nodeDeclStart]string),
+		callers:    make(map[string]map[string]bool),
+		sites:      make(map[string]map[nodeCallSite]*FunctionCall),
+		bindings:   make(map[*nodeShapeModule]nodeBindings),
+		modules:    make(map[string]string),
+		packages:   make(map[string]bool),
+		untyped:    make(map[*FunctionCall]string),
+		fieldCalls: make(map[*FunctionCall]nodeFieldCall),
+		foreign:    make(map[string]bool),
 	}
 	defer f.shapes.Close()
 	f.shapes.sites = newNodeCallSites()
@@ -182,6 +194,7 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 	}
 	f.recording = false
 	f.resolvePending()
+	f.markUntyped()
 	for _, key := range added {
 		if len(graph.Functions[key].ImplicitCalls) == 0 {
 			delete(graph.Functions, key)
@@ -260,6 +273,8 @@ func (f *nodeValueFlow) walk(m *nodeShapeModule, n *sitter.Node, fn string) {
 		f.call(m, n, fn)
 	case nodeNewExpression:
 		f.construct(m, n, fn)
+	case nodeAssignmentExpression:
+		f.noteWrite(m, n)
 	case nodeReturnStatement:
 		if n.NamedChildCount() > 0 && !nodeImmediatelyInvoked(nodeEnclosingFunction(n)) {
 			f.handOver(m, n.NamedChild(0), fn, nodeHandReturn)
@@ -408,20 +423,7 @@ type nodeCallSite struct {
 // another package (a call through an import, or on a receiver a contract
 // typed). Such a call keeps the one target it has.
 func (f *nodeValueFlow) bound(m *nodeShapeModule, n *sitter.Node, fn string) bool {
-	decl := f.graph.Functions[fn]
-	if decl == nil {
-		return false
-	}
-	sites := f.sites[fn]
-	if sites == nil {
-		sites = make(map[nodeCallSite]*FunctionCall, len(decl.Calls))
-		for i := range decl.Calls {
-			call := &decl.Calls[i]
-			sites[nodeCallSite{call.Line, call.StartCol, call.EndCol}] = call
-		}
-		f.sites[fn] = sites
-	}
-	call := sites[nodeCallSite{nodeLine(n), int(n.StartPoint().Column) + 1, int(n.EndPoint().Column) + 1}]
+	call := f.parsedCall(n, fn)
 	if call == nil {
 		return false
 	}
@@ -494,7 +496,9 @@ func (f *nodeValueFlow) callee(m *nodeShapeModule, call *sitter.Node, fn string)
 		return found
 	case nodeMemberExpression, nodeSubscriptExpression:
 		if nodeCallsThrough(callee, m.src) || !f.bound(m, call, fn) {
-			return f.memberCall(m, q, call, callee, fn)
+			found := f.memberCall(m, q, call, callee, fn)
+			f.noteMemberCall(m, call, callee, fn, found)
+			return found
 		}
 		return true
 	}

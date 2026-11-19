@@ -528,6 +528,10 @@ type FunctionCall struct {
 	// no function of the module: while Callee.Type stays empty the caller index
 	// draws no edge to a same-named module function.
 	nodeUnboundMember bool
+	// nodeUnresolved marks a Node member call nothing typed: no import,
+	// class or contract bound it and the value flow found no function its
+	// receiver's values name (NodeCallUntyped, node_untyped.go).
+	nodeUnresolved bool
 	// pythonOwner is the caller's own class (qualified, in the callee's
 	// module) for a Python call the method resolution order settles:
 	// `self.m()` and `cls.m()` (callee `(Class).m`), `cls(...)` (callee

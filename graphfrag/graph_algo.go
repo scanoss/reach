@@ -397,7 +397,43 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // manifest's. A package whose manifest entry points lie in dist/ or build/
 // has that directory in its graph even when it ships other source
 // (skip.NodeEntryBuiltOutput).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "10"
+// graph-algo-node-11: a parameter holds what the calls of its function pass,
+// as a union over the call sites the graph resolved to that function, read
+// again for up to four rounds so a value crosses one more function each
+// round. A function now also reaches:
+//   - the function a method called on a parameter, on a member of it or on
+//     what is built from it names (`deps.Client` of `module.exports =
+//     function (deps)`, `this.adapter.send()` with adapter a constructor
+//     argument), the argument after the receiver for `f.call(self, a)`;
+//   - the module a `require(x)` or `import(x)` loads when x is a string
+//     constant, its own or one a caller passes (`loadModule('@acme/push')`),
+//     and what is built from the loaded value, keyed by its access;
+//   - what `table[key]` holds: the member declared under that very key
+//     (`[kResume]() {..}`), else each member of the table and each value the
+//     module writes into it through a computed key (`this.senders[type] =
+//     new Web()`, `Encryption.algorithms[kind] = {..}`);
+//   - what a class field declared without a value is assigned.
+//
+// A function a caller passed is called by the caller that hands it over,
+// not by the function that receives it. JavaScript with type annotations
+// (Flow) that the JavaScript grammar cannot read is parsed with the TSX
+// grammar (its functions and the class members after an annotation were in
+// no function).
+// A member call nothing typed is exported name_only, not exact: its receiver
+// is a value of the program (a parameter, a field, what a call returned;
+// not a global of the language, a literal, `call`/`apply` or a computed
+// key), no import, class or contract bound it, and no value the graph
+// follows names the method (`sink.write(d)` on a parameter no call fills,
+// `this.cipher.update(b)`, `this.compute()` that no class of the receiver
+// declares), or it is resolved on a receiver that is a property the package
+// also writes on another object than this (`this._cipher.allocPacket(n)`
+// with `this._protocol._cipher = createCipher(c)` elsewhere), which keeps
+// the edges it has. Its target stays the key the parser gave it, which no
+// function has; a stitch gives it the functions of that name in the
+// component and in scope as name_only candidates (stitch_node_untyped.go),
+// so a finding reached only across one reads unknown (unresolved_dispatch),
+// where it read unreachable.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "11"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

@@ -758,6 +758,14 @@ func buildAdjacency(
 			}
 			resolve = pythonNameOnlyCandidates(pythonUnresolvedAsNameOnly(resolve, key, modules, byMethodArity), key, fragment, modules, byMethodArity, scope)
 		}
+		if fragmentEcosystem(fragment) == "node" {
+			scope := targetSet
+			if closureTargets(key) {
+				scope = componentSet(closure)
+				delete(scope, key)
+			}
+			resolve = nodeNameOnlyCandidates(resolve, key, byMethodArity, scope)
+		}
 
 		immediate, unresolved := fallback.tracking(resolve)
 		dispatchGroups := applyImmediateEdgePolicy(key, edges, immediate, adjacency, suppressed, dispatchSurfaces, ownerTypes, fragments, functionsByNode, ambiguous, nameOnly)
