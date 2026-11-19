@@ -678,3 +678,15 @@ func TestCSharpExplicitMainIsAnEntryPoint(t *testing.T) {
 		}
 	}
 }
+
+// A using alias of a type is that type: `using Cipher = N.Aes;` makes
+// `Cipher.Create()` a call of N's Aes, not of a type called Cipher.
+func TestCSharpParserTypeAlias(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+using Cipher = System.Security.Cryptography.Aes;
+namespace Acme;
+class H { void Run() { Cipher.Create(); } }`), "Run")
+	if got := calls[0].Callee; got.Package != "System.Security.Cryptography" || got.Type != "Aes" {
+		t.Errorf("callee = %+v, want System.Security.Cryptography.(Aes)", got)
+	}
+}
