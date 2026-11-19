@@ -85,6 +85,18 @@ func wantUnreachable(t *testing.T, trace CondensedTrace) {
 }
 
 // wantNoCallersRoot asserts a chain rooted at name, a function nothing calls.
+func wantChainThrough(t *testing.T, trace CondensedTrace, name string) {
+	t.Helper()
+	for _, chain := range trace.Chains {
+		for _, step := range chain.Steps {
+			if BaseFunctionName(step.Function.Name) == name {
+				return
+			}
+		}
+	}
+	t.Fatalf("chains rooted at %v, want one through %s", rootNames(trace), name)
+}
+
 func wantNoCallersRoot(t *testing.T, trace CondensedTrace, name string) {
 	t.Helper()
 	for _, chain := range trace.Chains {
@@ -332,7 +344,9 @@ fn digest(data: &[u8]) -> Vec<u8> {
 ` + body,
 		}
 	}
-	wantNoCallersRoot(t, scopeCase{ecosystem: ecosystemRust, parser: rustParser, target: "digest", dirs: []string{"src"}, files: crate(`
+	// Without the framework's import the catalog marks no entry: the handler
+	// passed as a value is an edge, and main reaches it.
+	wantChainThrough(t, scopeCase{ecosystem: ecosystemRust, parser: rustParser, target: "digest", dirs: []string{"src"}, files: crate(`
 async fn handler() -> Vec<u8> {
     digest(b"x")
 }

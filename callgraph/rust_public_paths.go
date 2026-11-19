@@ -373,3 +373,63 @@ func rustExports(functions map[string]*FunctionDecl, paths map[string]string, gl
 	}
 	return out
 }
+
+// joinRustPublicPathCalls joins a call the crate makes to one of its own
+// items through a public path to the declaration that path names. age writes
+// `crate::ssh::Identity::from_buffer(..)` against `pub use identity::Identity;`
+// in src/ssh.rs: the parser keys the call `age::ssh.(Identity).from_buffer`,
+// which nothing declares, while the method is
+// `age::ssh::identity.(Identity).from_buffer`. The call keeps the key it was
+// written with, which is the one a detector reads; the declaration is added as
+// a callee of the caller. A call whose key is declared already, or whose
+// public path names nothing the crate declares, joins nothing more.
+func joinRustPublicPathCalls(graph *CallGraph, callerKey string, fn *FunctionDecl, idx dispatchIndexes) {
+	if len(graph.RustExports) == 0 {
+		return
+	}
+	join := func(calls []FunctionCall) {
+		for i := range calls {
+			if calls[i].Reference {
+				continue
+			}
+			if id, ok := rustPublicPathDeclaration(graph, calls[i].Callee); ok {
+				key := id.String()
+				idx.addCallerIndexed(graph.Callers, key, callerKey)
+				recordCallEdgeResolution(graph, callerKey, key, EdgeKindExact, "", &calls[i])
+			}
+		}
+	}
+	join(fn.Calls)
+	join(fn.ImplicitCalls)
+}
+
+// rustPublicPathDeclaration is the declared function a callee written through
+// a public path names: a method of a type at a public path, or a function at
+// one.
+func rustPublicPathDeclaration(graph *CallGraph, callee FunctionID) (FunctionID, bool) {
+	if callee.Package == "" || callee.Name == "" {
+		return FunctionID{}, false
+	}
+	if _, declared := graph.Functions[callee.String()]; declared {
+		return FunctionID{}, false
+	}
+	var key string
+	if callee.Type != "" {
+		owner, ok := graph.RustExports[callee.Package+"."+callee.Type]
+		if !ok {
+			return FunctionID{}, false
+		}
+		key = owner + "." + callee.Name
+	} else {
+		decl, ok := graph.RustExports[callee.Package+"."+callee.Name]
+		if !ok {
+			return FunctionID{}, false
+		}
+		key = decl
+	}
+	fn, declared := graph.Functions[key]
+	if !declared || fn == nil {
+		return FunctionID{}, false
+	}
+	return fn.ID, true
+}

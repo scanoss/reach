@@ -236,7 +236,12 @@ func StitchWithOptions(root ComponentKey, deps DependencyGraph, fragments map[Co
 			copied[k] = v
 		}
 		if opts.SupertypeDispatch {
-			addSupertypeCompatibility(closure, copied, h)
+			addSupertypeCompatibility(closure, copied, h, nil)
+		} else {
+			// A Rust supertype is an `impl Trait for Type` the crate writes,
+			// so the methods of the block implement the trait's: dispatch
+			// through it is proven, not guessed.
+			addSupertypeCompatibility(closure, copied, h, isRustFragment)
 		}
 		if opts.ServiceProviderDispatch {
 			addServiceProviderCompatibility(closure, copied, h)

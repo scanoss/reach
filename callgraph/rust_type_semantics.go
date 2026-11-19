@@ -232,6 +232,14 @@ type rustFileFacts struct {
 	// table below: their Deref impl lives in the standard library, whose
 	// source this parser never reads.
 	derefTransparent map[string]bool
+	// assocTypes maps an `impl Trait for Type { type Assoc = T; }` item to T:
+	// rustAssocTypeKey(Type, Trait, Assoc), both bare, to T as the impl's file
+	// names it, qualified (qualifyCrateFacts) when the crate index merges it.
+	// It answers a call through `<Type as Trait>::Assoc::f(..)`: age writes
+	// `<Kem as hpke::Kem>::PublicKey::from_bytes(..)`, and its own
+	// `impl hpke::Kem for MlKem768P256` says PublicKey is its kem::PublicKey.
+	// Two impls naming different types for one key drop it (conflicting).
+	assocTypes map[string]rustAssocType
 	// conflicting names are declared more than once in the crate with
 	// DIFFERENT types. They resolve to nothing: an ambiguous answer here would
 	// name one algorithm where another is used, which is the failure mode this
@@ -386,6 +394,7 @@ func (f *rustFileFacts) mergeCrateFacts(other *rustFileFacts) {
 	for name := range other.derefTransparent {
 		f.derefTransparent[name] = true
 	}
+	f.mergeAssocTypes(other)
 }
 
 // mergeReExports folds in another file's re-export targets, dropping a key two
@@ -477,6 +486,7 @@ func newRustFileFacts() *rustFileFacts {
 		publicPaths:      make(map[string]string),
 		publicGlobs:      make(map[string][]string),
 		derefTransparent: make(map[string]bool),
+		assocTypes:       make(map[string]rustAssocType),
 	}
 }
 
@@ -619,6 +629,7 @@ func (f *rustFileFacts) recordTypeOwner(node *sitter.Node, src []byte, modulePat
 			typeName = rustTypeHead(t.Content(src))
 		}
 		f.recordDerefTransparentWrapper(node, src)
+		f.recordAssocTypes(node, src, typeName, modulePath)
 		f.walkImplBody(node.ChildByFieldName("body"), src, typeName, modulePath)
 	}
 }
@@ -2350,6 +2361,9 @@ func rustElementType(container string) string {
 	if container == "" {
 		return ""
 	}
+	if item, ok := rustIteratorItemType(container); ok {
+		return item
+	}
 	if inner, ok := rustGenericArgument(container); ok {
 		return inner
 	}
@@ -2364,6 +2378,53 @@ func rustElementType(container string) string {
 		return t
 	}
 	return ""
+}
+
+// rustIteratorItemType returns T of an iterator written by its trait,
+// `impl Iterator<Item = T>` or `impl IntoIterator<Item = T>` (also `dyn` and
+// boxed): age's `with_recipients(recipients: impl Iterator<Item = &'a dyn
+// Recipient>)` iterates Recipients, which the first generic argument, the
+// binding text `Item = ..`, does not say.
+func rustIteratorItemType(container string) (string, bool) {
+	t := strings.TrimSpace(container)
+	for _, prefix := range []string{"&", "mut ", "impl ", "dyn "} {
+		t = strings.TrimSpace(strings.TrimPrefix(t, prefix))
+	}
+	open := strings.Index(t, "<")
+	if open < 0 || !strings.HasSuffix(t, ">") {
+		return "", false
+	}
+	switch rustTypeHead(t[:open]) {
+	case "Iterator", "IntoIterator", "DoubleEndedIterator", "ExactSizeIterator":
+	default:
+		return "", false
+	}
+	inner := t[open+1 : len(t)-1]
+	depth, start := 0, 0
+	for i := 0; i <= len(inner); i++ {
+		if i < len(inner) {
+			switch inner[i] {
+			case '<', '(', '[':
+				depth++
+				continue
+			case '>', ')', ']':
+				depth--
+				continue
+			case ',':
+				if depth != 0 {
+					continue
+				}
+			default:
+				continue
+			}
+		}
+		arg := strings.TrimSpace(inner[start:i])
+		start = i + 1
+		if name, value, found := strings.Cut(arg, "="); found && strings.TrimSpace(name) == "Item" {
+			return strings.TrimSpace(value), true
+		}
+	}
+	return "", false
 }
 
 // rustGenericArgument returns a generic type's first type argument.

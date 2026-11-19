@@ -266,7 +266,8 @@ func (p *RustParser) collectRustItemInit(node *sitter.Node, src []byte, filePath
 		return
 	}
 	ctx := p.newRustTypeCtx(nil, nil, src, scope, selfType, generics)
-	p.itemInitCalls = append(p.itemInitCalls, p.extractCalls(value, ctx, filePath, &p.itemInit)...)
+	calls, _ := p.extractCalls(value, ctx, filePath, &p.itemInit)
+	p.itemInitCalls = append(p.itemInitCalls, calls...)
 }
 
 // appendRustVarinit adds the file's synthetic <varinit:file> declaration,

@@ -201,8 +201,9 @@ func (h typeHierarchy) resolveInherited(target string) []graphNode {
 // same method (same local key) declared by any supertype of its type, by
 // adding that declaration's canonical signature to its
 // CompatibleCanonicalSignatures. indexFunctions then builds the dispatch
-// surface from it.
-func addSupertypeCompatibility(closure []ComponentKey, fragments map[ComponentKey]Fragment, h typeHierarchy) {
+// surface from it. only, when not nil, picks the components whose functions
+// are marked.
+func addSupertypeCompatibility(closure []ComponentKey, fragments map[ComponentKey]Fragment, h typeHierarchy, only func(Fragment) bool) {
 	canonical := make(map[graphNode]string)
 	for _, key := range closure {
 		for i := range fragments[key].Functions {
@@ -212,6 +213,9 @@ func addSupertypeCompatibility(closure []ComponentKey, fragments map[ComponentKe
 	}
 	for _, key := range closure {
 		fragment := fragments[key]
+		if only != nil && !only(fragment) {
+			continue
+		}
 		changed := false
 		functions := fragment.Functions
 		for i := range functions {
@@ -247,4 +251,9 @@ func containsString(values []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// isRustFragment reports whether a fragment is a Rust graph.
+func isRustFragment(fragment Fragment) bool {
+	return strings.HasPrefix(fragment.GraphAlgoVersion, rustGraphAlgoPrefix)
 }

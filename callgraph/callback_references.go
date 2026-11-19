@@ -83,6 +83,14 @@ func appendCallbackReference(out []FunctionCall, ref *FunctionCall) []FunctionCa
 // nothing: a reference never expands to overloads, subtypes or name matches.
 func (b *Builder) indexCallbackReference(graph *CallGraph, callerKey string, call *FunctionCall, idx dispatchIndexes) {
 	key := call.Callee.String()
+	if decl, declared := graph.Functions[key]; declared && b.ecosystem == ecosystemRust && decl.EntryKind != "" {
+		// A Rust function handed to a framework's registration
+		// (`get(handler)`, `.to(handler)`) is that framework's entry point, a
+		// root of its own: an edge from the function that registers it would
+		// make it one more callee, and a registration in code nothing calls
+		// would read it unreachable.
+		return
+	}
 	if _, declared := graph.Functions[key]; !declared {
 		if b.ecosystem != ecosystemPython {
 			return

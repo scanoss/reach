@@ -145,6 +145,7 @@ func (p *RustParser) CloneParser() Parser {
 	// The crate index is shared, not copied: it is keyed by crate root and its
 	// contents do not depend on which worker asked for them.
 	clone.crateIndex = p.crateIndex
+	clone.kb = p.kb
 	return clone
 }
 
@@ -853,6 +854,7 @@ func (p *RustParser) extractDeclarations(root *sitter.Node, src []byte, filePath
 			if body := child.ChildByFieldName("body"); body != nil {
 				traitName := nodeFieldText(child, "name", src)
 				traitScope := p.rustChildImportScope(body, src, scope, packagePath)
+				p.recordRustTraitSupertypes(child, src, traitScope, packagePath, traitName, analysis)
 				p.processRustTraitDefaults(body, src, filePath, packagePath, traitName, analysis, traitScope)
 			}
 		}
@@ -971,6 +973,16 @@ func (p *RustParser) processRustTraitDefaults(body *sitter.Node, src []byte, fil
 			p.collectRustItemInit(child, src, filePath, scope, traitName, nil)
 			continue
 		}
+		if child.Symbol() == rustSyms.functionSignature {
+			// A required method: no body, so no calls, but a declaration a
+			// call through the trait joins and dispatches from.
+			if decl := p.parseFunctionItem(child, src, filePath, packagePath, traitName, scope); decl != nil {
+				decl.Abstract = true
+				decl.ReturnType = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(decl.ReturnType), ";"))
+				analysis.Functions = append(analysis.Functions, *decl)
+			}
+			continue
+		}
 		if child.Type() != rustNodeFunctionItem {
 			continue
 		}
@@ -1053,7 +1065,7 @@ func (p *RustParser) parseFunctionItemWithGenerics(node *sitter.Node, src []byte
 	if body != nil {
 		ctx := p.newRustTypeCtx(node, paramsNode, src, analysis, selfType, outerGenerics)
 		var facts rustBodyFacts
-		decl.Calls = p.extractCalls(body, ctx, filePath, &facts)
+		decl.Calls, decl.ImplicitCalls = p.extractCalls(body, ctx, filePath, &facts)
 		decl.ConstantRefs, decl.Declarations = facts.sorted()
 		decl.ReturnSources = p.extractReturnSources(body, ctx, filePath)
 		decl.constructed = rustReturnedObjects(body, ctx)
@@ -1275,6 +1287,7 @@ func (p *RustParser) processImplBlock(node *sitter.Node, src []byte, filePath, p
 	if qualifiedPkg, _, ok := splitQualifiedRustType(selfType); ok && qualifiedPkg != "" {
 		declPackage = qualifiedPkg
 	}
+	p.recordRustImplSupertypes(implScope, declPackage, typeName, implTraits, implGenerics, analysis)
 	// An attribute on the impl block, as #[tonic::async_trait] on a service
 	// implementation, makes every method of the block a framework entry.
 	implMark, implIsEntry := p.rustAttributeEntryMark(node, src, scope, filePath)
@@ -1428,8 +1441,7 @@ func rustBoxedSelfType(node *sitter.Node, src []byte) string {
 // extractCalls walks a function body to find all call expressions.
 // extractCalls walks a body for its calls, and records its constant
 // references and let declarations into facts when it is not nil.
-func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string, facts *rustBodyFacts) []FunctionCall {
-	var calls []FunctionCall
+func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath string, facts *rustBodyFacts) (calls, implicit []FunctionCall) {
 	// The call walk also traces argument values: a scope of its own under
 	// the declaration's root holds the parameters' positions, so the types
 	// the other walks resolve are unchanged.
@@ -1454,10 +1466,11 @@ func (p *RustParser) extractCalls(body *sitter.Node, ctx *rustTypeCtx, filePath 
 			// returns rather than in each of its seventeen constructors.
 			call.ChainID, call.AssignedVar = rustCallChainContext(node, nodeCtx.src)
 			calls = append(calls, *call)
+			implicit = append(implicit, p.rustImplicitCalls(node, nodeCtx, filePath, call)...)
 		}
 		return true
 	})
-	return calls
+	return calls, implicit
 }
 
 // rustNonEvaluatingMacros are the macros whose arguments parse as expressions
@@ -1575,7 +1588,9 @@ func (p *RustParser) parseCallExpr(node *sitter.Node, ctx *rustTypeCtx, filePath
 	switch funcNode.Type() {
 	case javaNodeScopedIdentifier:
 		// e.g., `ring::aead::Aead::new(...)` or `Aead::new(...)`
-		if ufcs := p.parseUFCSCall(node, funcNode, ctx, filePath, line, args); ufcs != nil {
+		if assoc := p.parseQualifiedAssocCall(funcNode, ctx, filePath, line, args); assoc != nil {
+			call = assoc
+		} else if ufcs := p.parseUFCSCall(node, funcNode, ctx, filePath, line, args); ufcs != nil {
 			call = ufcs
 		} else {
 			call = p.parseScopedCall(funcNode, src, filePath, line, args, analysis, ctx.selfType, ctx.generics)

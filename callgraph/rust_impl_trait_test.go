@@ -97,7 +97,7 @@ impl MyKey {
 			}
 			found := false
 			for _, fn := range graph.Functions {
-				if fn.ID.Name != tc.method {
+				if fn.ID.Name != tc.method || fn.Abstract {
 					continue
 				}
 				found = true
