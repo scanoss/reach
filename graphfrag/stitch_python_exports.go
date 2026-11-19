@@ -25,6 +25,9 @@ const pythonConstructorName = "<init>"
 type pythonPublicDecl struct {
 	component ComponentKey
 	decl      string
+	// rust marks a Rust crate's export, whose declaration may be another
+	// crate's (declared).
+	rust bool
 }
 
 // pythonPublicNames indexes the closure's Python public paths.
@@ -36,8 +39,9 @@ func indexPythonPublicNames(closure []ComponentKey, fragments map[ComponentKey]F
 	out := make(pythonPublicNames)
 	for _, key := range closure {
 		fragment := fragments[key]
+		rust := strings.HasPrefix(fragment.GraphAlgoVersion, rustGraphAlgoPrefix)
 		for public, decl := range fragment.Exports {
-			out[public] = append(out[public], pythonPublicDecl{component: key, decl: decl})
+			out[public] = append(out[public], pythonPublicDecl{component: key, decl: decl, rust: rust})
 		}
 		if !strings.HasPrefix(fragment.GraphAlgoVersion, pythonGraphAlgoPrefix) {
 			continue
@@ -91,13 +95,49 @@ func (p pythonPublicNames) targets(target string, self ComponentKey, deps map[Co
 		if strings.HasSuffix(key, ")") {
 			key += "." + pythonConstructorName
 		}
-		nodes = append(nodes, declarationNodes(key, d.component, functionsBySignature, hierarchy)...)
+		nodes = append(nodes, p.declared(key, d, functionsBySignature, hierarchy, 0)...)
 	}
 	if owner, local, ok := splitFunctionKey(target); ok {
 		for _, d := range p[owner] {
 			if deps[d.component] {
-				nodes = append(nodes, declarationNodes(d.decl+"."+local, d.component, functionsBySignature, hierarchy)...)
+				nodes = append(nodes, p.declared(d.decl+"."+local, d, functionsBySignature, hierarchy, 0)...)
 			}
+		}
+	}
+	return nodes
+}
+
+// maxForeignExportHops bounds how many components' exports one public path
+// may pass through (a crate re-exporting a crate that re-exports another).
+const maxForeignExportHops = 3
+
+// declared is the function key names in the component that exports it, else
+// the declaration it inherits. A Rust crate may name another crate's item: it
+// re-exports a dependency's type (`pub use rand_core::OsRng;` in rand) under
+// the key that dependency gives it, so a key its own crate does not declare is
+// looked up in the closure, directly or through the exports of the crate that
+// declares it. Python and Node exports always name their own component's
+// declarations, and stay there.
+func (p pythonPublicNames) declared(key string, from pythonPublicDecl, functionsBySignature map[string][]graphNode, hierarchy *typeHierarchy, hops int) []graphNode {
+	nodes := declarationNodes(key, from.component, functionsBySignature, hierarchy)
+	if len(nodes) > 0 || !from.rust || hops >= maxForeignExportHops {
+		return nodes
+	}
+	for _, node := range functionsBySignature[key] {
+		if node.Component != from.component {
+			nodes = append(nodes, node)
+		}
+	}
+	if len(nodes) > 0 {
+		return nodes
+	}
+	owner, local, ok := splitFunctionKey(key)
+	if !ok {
+		return nil
+	}
+	for _, d := range p[owner] {
+		if d.rust && d.component != from.component {
+			nodes = append(nodes, p.declared(d.decl+"."+local, d, functionsBySignature, hierarchy, hops+1)...)
 		}
 	}
 	return nodes

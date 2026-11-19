@@ -214,6 +214,13 @@ type rustFileFacts struct {
 	// resolveRustPublicTypeChains has followed it through the crate. Crate
 	// index only; see rustPublicTypePaths.
 	publicTypePaths map[string]string
+	// publicPaths maps the public path every plain `pub use` gives a name
+	// (type, function, module or constant) to the path it names, as written:
+	// chains are followed by rustExports. publicGlobs maps a module to the
+	// paths its `pub use path::*;` items re-export. Crate index only; see
+	// recordRustPublicUse.
+	publicPaths map[string]string
+	publicGlobs map[string][]string
 	// derefTransparent records a wrapper's bare name when the crate's own
 	// source declares `impl<T> Deref for Wrapper<T> { type Target = T; }` (or
 	// DerefMut) for it: a single type parameter, applied to the impl target
@@ -467,6 +474,8 @@ func newRustFileFacts() *rustFileFacts {
 		crateAliases:     make(map[string]string),
 		reExports:        make(map[string]rustReExportTarget),
 		publicTypePaths:  make(map[string]string),
+		publicPaths:      make(map[string]string),
+		publicGlobs:      make(map[string][]string),
 		derefTransparent: make(map[string]bool),
 	}
 }

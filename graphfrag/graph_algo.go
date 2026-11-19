@@ -205,7 +205,19 @@ const pythonGraphAlgoPrefix = "graph-algo-py-"
 // annotate surfaces a rule's api named by its public path only through the
 // first, and rebuilds a call's text and argument provenance only from the
 // second.
-const GraphAlgoVersionRust = rustGraphAlgoPrefix + "13"
+// graph-algo-rs-14: a fragment's exports map the public paths a crate gives
+// its functions, types and modules (CallGraph.RustExports: `pub use` items,
+// renames, globs and re-exported modules followed to the declaring module,
+// `pub type` aliases, a dependency's re-exported item under that crate's own
+// key, and each module at its own path) to their declarations, so the stitch
+// joins a consumer's call written with them (`jsonwebtoken::decode`,
+// `ring::signature::RsaKeyPair`, `use ring::hmac; hmac::sign`,
+// `age::scrypt::Identity`, `MlKem768::generate`, `rand::rngs::OsRng`); and a
+// crate whose package name carries a dash records its crate-wide facts under
+// its library name (`acme_sign::..`, the name its function keys carry), not
+// the package name. A stored rs-13 graph has no exports, and a dashed crate's
+// re-exported types resolved nowhere.
+const GraphAlgoVersionRust = rustGraphAlgoPrefix + "14"
 
 // rustGraphAlgoPrefix starts every Rust graph algorithm id: a fragment
 // stamped with one is a Rust graph.
