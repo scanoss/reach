@@ -510,7 +510,7 @@ const cppGraphAlgoPrefix = "graph-algo-cpp-"
 
 // GraphAlgoVersionRuby is the Ruby call graph algorithm id. It moves when a
 // Ruby graph changes, and re-mines Ruby graphs alone.
-const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "9"
+const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "10"
 
 // rubyGraphAlgoPrefix starts every Ruby graph algorithm id: a fragment stamped
 // with one is a Ruby graph.
