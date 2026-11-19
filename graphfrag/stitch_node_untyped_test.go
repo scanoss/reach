@@ -119,3 +119,23 @@ func TestStitch_NodeExactRouteWinsOverUntypedCall(t *testing.T) {
 		t.Fatalf("got %q %q, want %q", fg.Reachability, fg.UnresolvedReason, ReachabilityReachable)
 	}
 }
+
+// An exact call into a dependency that no function or export of it
+// resolves (`acme.(Signer).sign` on a class the package exports through a
+// value it builds) runs some code of acme the fragments do not name: acme's
+// functions of the called name read unknown, not unreachable.
+func TestStitch_NodeUnresolvedCallIntoADependency(t *testing.T) {
+	t.Parallel()
+	exact := func(target, method string) ExternalCall {
+		return ExternalCall{TargetSignature: target, Resolution: ResolutionExact, MethodName: method, CallSite: 7}
+	}
+	fg := nodeUntypedVerdict(t, "acme/lib/sign.(Signer).sign", []ExternalCall{exact("acme.(Signer).sign", "sign")}, nil)
+	if fg.Reachability != ReachabilityUnknown || fg.UnresolvedReason != UnresolvedReasonDispatch {
+		t.Fatalf("into acme: %q %q, want %q %q", fg.Reachability, fg.UnresolvedReason, ReachabilityUnknown, UnresolvedReasonDispatch)
+	}
+	// A module of the runtime is no dependency: its call names no candidate.
+	fg = nodeUntypedVerdict(t, "acme/lib/sign.(Signer).sign", []ExternalCall{exact("crypto.sign", "sign")}, nil)
+	if fg.Reachability == ReachabilityReachable || fg.UnresolvedReason != "" {
+		t.Fatalf("into crypto: %q %q, want no route and no reason", fg.Reachability, fg.UnresolvedReason)
+	}
+}

@@ -734,6 +734,7 @@ func buildAdjacency(
 	byMethodArity := indexFunctionsByMethodArity(functionsByNode)
 	public := indexPythonPublicNames(closure, fragments)
 	modules := indexPythonModules(closure, fragments)
+	nodePkgs := indexNodePackages(closure, fragments)
 
 	for _, key := range closure {
 		fragment := fragments[key]
@@ -764,7 +765,7 @@ func buildAdjacency(
 				scope = componentSet(closure)
 				delete(scope, key)
 			}
-			resolve = nodeNameOnlyCandidates(resolve, key, byMethodArity, scope)
+			resolve = nodeNameOnlyCandidates(nodeUnresolvedAsNameOnly(resolve, key, nodePkgs, byMethodArity, scope), key, byMethodArity, scope)
 		}
 
 		immediate, unresolved := fallback.tracking(resolve)

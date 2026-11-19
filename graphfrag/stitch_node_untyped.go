@@ -3,7 +3,10 @@
 
 package graphfrag
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // stitch_node_untyped.go gives a Node component's name_only calls their
 // candidates. The producer marks a member call name_only when nothing typed
@@ -73,3 +76,119 @@ var nodeBuiltinMethods = func() map[string]bool {
 	}
 	return out
 }()
+
+// nodeUnresolvedAsNameOnly wraps resolve for a Node component: an external
+// exact call it leaves without a target, whose target names a dependency
+// (`bcryptjs.hash` into a bundle whose exports the producer could not list,
+// `pg.(Client).connect` on a class the package exports through a value it
+// builds), runs some code of that dependency the fragments do not name. It
+// takes as name_only candidates the functions of the called name in the
+// dependencies in scope the target names, and the constructors of the class
+// it names for a `new`, as Python's unresolved calls do
+// (pythonUnresolvedAsNameOnly): a finding it may reach reads unknown, never
+// reachable.
+func nodeUnresolvedAsNameOnly(resolve edgeResolver, self ComponentKey, packages nodePackages, byMethodArity map[string][]graphNode, scope map[ComponentKey]bool) edgeResolver {
+	return func(e callEdge) edgeTargets {
+		targets := resolve(e)
+		if len(targets.nodes) > 0 || e.internal || e.resolution != ResolutionExact || e.method == "" || e.method == pythonModuleInitName {
+			return targets
+		}
+		owners := packages.owners(e.target, self, scope)
+		if len(owners) == 0 {
+			return targets
+		}
+		method, class := e.method, ""
+		if e.method == pythonConstructorName {
+			owner, _, ok := splitFunctionKey(e.target)
+			if !ok {
+				return targets
+			}
+			method, class = "constructor", pythonSimpleClass(owner)
+		}
+		var nodes []graphNode
+		for _, n := range byMethodArity[arityFreeMethodKey(method)] {
+			if !owners[n.Component] {
+				continue
+			}
+			if owner, _, ok := splitFunctionKey(n.Function); class != "" && (!ok || pythonSimpleClass(owner) != class) {
+				continue
+			}
+			nodes = append(nodes, n)
+		}
+		if len(nodes) == 0 {
+			return targets
+		}
+		return edgeTargets{nodes: nodes, nameOnly: true}
+	}
+}
+
+// nodePackages maps each Node package name of the closure (`pg`,
+// `@azure/msal-node`) to the components that are a version of it.
+type nodePackages map[string][]ComponentKey
+
+func indexNodePackages(closure []ComponentKey, fragments map[ComponentKey]Fragment) nodePackages {
+	out := make(nodePackages)
+	for _, key := range closure {
+		fragment := fragments[key]
+		if fragmentEcosystem(fragment) != "node" {
+			continue
+		}
+		name := fragment.Module
+		if name == "" {
+			name = nodePurlName(key.Purl)
+		}
+		if name != "" {
+			out[name] = append(out[name], key)
+		}
+	}
+	return out
+}
+
+// nodePurlName is the package name an npm purl names: `@azure/msal-node`
+// for pkg:npm/%40azure/msal-node.
+func nodePurlName(purl string) string {
+	name, ok := strings.CutPrefix(purl, "pkg:npm/")
+	if !ok {
+		return ""
+	}
+	if at := strings.LastIndex(name, "@"); at > 0 {
+		name = name[:at]
+	}
+	if unescaped, err := url.PathUnescape(name); err == nil {
+		name = unescaped
+	}
+	return name
+}
+
+// owners returns, as a set, the components in scope of the package a call
+// target names: the longest package name the target starts with, followed by
+// a `.` or a `/` (`pg` for `pg/lib.(Client).connect`, `socket.io` for
+// `socket.io.(Server).listen`). None for a target of self's own package or
+// of no package of the closure (a module of the runtime).
+func (p nodePackages) owners(target string, self ComponentKey, scope map[ComponentKey]bool) map[ComponentKey]bool {
+	if open := strings.Index(target, ".("); open >= 0 {
+		target = target[:open+1]
+	}
+	best := ""
+	for i := 0; i < len(target); i++ {
+		if target[i] != '.' && target[i] != '/' {
+			continue
+		}
+		if _, ok := p[target[:i]]; ok {
+			best = target[:i]
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	out := make(map[ComponentKey]bool)
+	for _, k := range p[best] {
+		if k == self {
+			return nil
+		}
+		if scope[k] {
+			out[k] = true
+		}
+	}
+	return out
+}
