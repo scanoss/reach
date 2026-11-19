@@ -76,7 +76,12 @@ type nodeCallSites struct {
 	// being read answers with (a function that passes its parameter on to
 	// itself, or two that pass theirs to each other), so the rounds grow
 	// such a value to a fixed point where one read alone would loop.
-	values, previous   map[nodeParamKey][]nodeShapeValue
+	values, previous map[nodeParamKey][]nodeShapeValue
+	// shared is set once the value flow is done: a parameter read then
+	// spends the budget of the question that asked for it, so the reads one
+	// question nests stay within that question's budget (the exports of a
+	// package are listed by many questions, each over every member).
+	shared             bool
 	strings, previousS map[nodeParamKey][]string
 	// grew is set when a parameter holds more than the round before.
 	grew bool
@@ -275,6 +280,13 @@ func (q *nodeValueQuery) parameterValues(m *nodeShapeModule, fn *sitter.Node, na
 		return c.previous[key]
 	}
 	sub := q.parameterQuery()
+	if c.shared {
+		sub.budget = q.budget
+		defer func() {
+			q.budget = sub.budget
+			q.cut = q.cut || sub.cut
+		}()
+	}
 	// An argument is read where the caller writes it, as a question of its
 	// own, from depth 0.
 	out := sub.values(m, param.value, 0)

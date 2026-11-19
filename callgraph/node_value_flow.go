@@ -208,6 +208,7 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 	}
 	// The exports read with these shapes see every call site recorded.
 	f.shapes.sites.round()
+	f.shapes.sites.shared = true
 	return f.shapes
 }
 
