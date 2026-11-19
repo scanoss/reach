@@ -362,3 +362,83 @@ func TestCSharpGraphCarriesUsings(t *testing.T) {
 		}
 	}
 }
+
+// A constant the caller passes by name is traced to its value: a local
+// assigned a literal once, and a field of the enclosing type.
+func TestCSharpParserArgumentValueSources(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+namespace Acme;
+class H
+{
+    const string Mode = "SM4/CTR/NoPadding";
+    void Run()
+    {
+        string local = "SEED/GCM/NoPadding";
+        Cipher.Get(Mode);
+        Cipher.Get(local);
+    }
+}`), "Run")
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	for i, want := range []struct{ kind, name, value string }{
+		{sourceNodeField, "Mode", `"SM4/CTR/NoPadding"`},
+		{sourceNodeVariable, "local", `"SEED/GCM/NoPadding"`},
+	} {
+		sources := calls[i].ArgumentSources
+		if len(sources) != 1 || len(sources[0]) != 1 {
+			t.Fatalf("call %d sources = %+v", i, sources)
+		}
+		got := sources[0][0]
+		if got.Type != want.kind || got.Name != want.name {
+			t.Errorf("call %d source = %+v, want a %s named %s", i, got, want.kind, want.name)
+		}
+		if len(got.SourceNodes) != 1 || got.SourceNodes[0].Value != want.value {
+			t.Errorf("call %d value = %+v, want %s", i, got.SourceNodes, want.value)
+		}
+	}
+}
+
+// A local written twice holds no single constant: its type is still known,
+// its value is not.
+func TestCSharpParserReboundLocalHasNoValue(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+namespace Acme;
+class H { void Run() { string a = "x"; a = "y"; Cipher.Get(a); } }`), "Run")
+	for _, call := range calls {
+		for _, sources := range call.ArgumentSources {
+			for _, source := range sources {
+				if len(source.SourceNodes) != 0 {
+					t.Errorf("rebound local traced to %+v", source.SourceNodes)
+				}
+				if source.DeclaredType != "string" {
+					t.Errorf("declared type = %q, want string", source.DeclaredType)
+				}
+			}
+		}
+	}
+}
+
+// A parameter and a field carry the type they are declared with, the
+// evidence a rule that selects an overload by argument type reads.
+func TestCSharpParserArgumentDeclaredTypes(t *testing.T) {
+	calls := csharpCallsOf(t, parseOneCSharp(t, `
+namespace Acme;
+class H
+{
+    private int _size = 2048;
+    void Run(int bits) { RSA.Create(bits); RSA.Create(_size); }
+}`), "Run")
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	for i, want := range []struct{ kind, name string }{{sourceNodeVariable, "bits"}, {sourceNodeField, "_size"}} {
+		sources := calls[i].ArgumentSources
+		if len(sources) != 1 || len(sources[0]) != 1 {
+			t.Fatalf("call %d sources = %+v", i, sources)
+		}
+		if got := sources[0][0]; got.Type != want.kind || got.Name != want.name || got.DeclaredType != "int" {
+			t.Errorf("call %d source = %+v, want a %s named %s declared int", i, got, want.kind, want.name)
+		}
+	}
+}
