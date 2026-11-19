@@ -7,6 +7,7 @@ import "github.com/scanoss/reach/javaruntime"
 
 const (
 	ecosystemCPP         = "cpp"
+	ecosystemCSharp      = "csharp"
 	ecosystemGo          = "go"
 	ecosystemJava        = "java"
 	lambdaExpressionNode = "lambda_expression"
@@ -20,6 +21,8 @@ func NewParserForEcosystem(ecosystem string, opts ...ParserOption) Parser {
 		return NewCParser(opts...)
 	case ecosystemCPP, "c++":
 		return NewCPPParser(opts...)
+	case ecosystemCSharp, "c#":
+		return NewCSharpParser(opts...)
 	case "go":
 		return NewGoParser(opts...)
 	case "java":
@@ -45,6 +48,8 @@ func NewTypeResolverForEcosystem(ecosystem string, javaRuntime javaruntime.Confi
 		return NewCContractTypeResolverFromSource()
 	case ecosystemCPP, "c++":
 		return NewCPPContractTypeResolverFromSource()
+	case ecosystemCSharp, "c#":
+		return NewCSharpContractTypeResolverFromSource()
 	case "go":
 		return NewGoContractTypeResolverFromSource()
 	case "java":

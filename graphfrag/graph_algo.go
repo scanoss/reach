@@ -516,6 +516,14 @@ const GraphAlgoVersionRuby = rubyGraphAlgoPrefix + "10"
 // with one is a Ruby graph.
 const rubyGraphAlgoPrefix = "graph-algo-rb-"
 
+// GraphAlgoVersionCSharp is the C# call graph algorithm id. It moves when a
+// C# graph changes, and re-mines C# graphs alone.
+const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "1"
+
+// csharpGraphAlgoPrefix starts every C# graph algorithm id: a fragment stamped
+// with one is a C# graph.
+const csharpGraphAlgoPrefix = "graph-algo-cs-"
+
 // GraphAlgoVersionFor is the graph algorithm id a fragment of ecosystem
 // (crypto-finder's ecosystem name, as scan_metadata.ecosystem holds it) is
 // stamped with and checked against. Java and every ecosystem without an id
@@ -537,6 +545,8 @@ func GraphAlgoVersionFor(ecosystem string) string {
 		return GraphAlgoVersionCPP
 	case "ruby":
 		return GraphAlgoVersionRuby
+	case "csharp":
+		return GraphAlgoVersionCSharp
 	}
 	return GraphAlgoVersion
 }
@@ -559,6 +569,8 @@ func ecosystemOfGraphAlgo(id string) string {
 		return "c"
 	case strings.HasPrefix(id, rubyGraphAlgoPrefix):
 		return "ruby"
+	case strings.HasPrefix(id, csharpGraphAlgoPrefix):
+		return "csharp"
 	}
 	return ""
 }
@@ -584,6 +596,8 @@ func EcosystemForPurl(purl string) string {
 		return "node"
 	case strings.HasPrefix(purl, "pkg:gem/"):
 		return "ruby"
+	case strings.HasPrefix(purl, "pkg:nuget/"):
+		return "csharp"
 	default:
 		return ""
 	}
