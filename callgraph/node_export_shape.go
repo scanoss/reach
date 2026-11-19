@@ -39,6 +39,8 @@ const (
 type NodeShapes struct {
 	parser  *NodeParser
 	modules map[string]*nodeShapeModule
+	// exports remembers what exportValue answered; see node_export_memo.go.
+	exports nodeExportMemo
 }
 
 type nodeShapeModule struct {
@@ -50,6 +52,31 @@ type nodeShapeModule struct {
 	assigned *nodeAssignments
 	// walks counts the walks of the whole tree, which tests bound.
 	walks int
+	// statements is built on first use; see topLevel.
+	statements []*sitter.Node
+}
+
+// topLevel lists the module's top-level statements. Reading the i-th child
+// of a node costs i steps, so a loop over the children of a bundle's program
+// by index is quadratic; every export lookup reads this list instead.
+func (m *nodeShapeModule) topLevel() []*sitter.Node {
+	if m.statements == nil {
+		count := int(m.root.NamedChildCount())
+		m.statements = make([]*sitter.Node, 0, count)
+		cursor := sitter.NewTreeCursor(m.root)
+		defer cursor.Close()
+		if cursor.GoToFirstChild() {
+			for {
+				if node := cursor.CurrentNode(); node.IsNamed() {
+					m.statements = append(m.statements, node)
+				}
+				if !cursor.GoToNextSibling() {
+					break
+				}
+			}
+		}
+	}
+	return m.statements
 }
 
 // nodeAssignments is what Definition reads from a module on every call, kept
@@ -527,11 +554,20 @@ func (s *NodeShapes) importedBinding(m *nodeShapeModule, program *sitter.Node, n
 // exportValue returns the value a module exports as name ("default" for the
 // module's own value), following re-exports.
 func (s *NodeShapes) exportValue(m *nodeShapeModule, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	s.exports.reached(depth)
 	if m == nil || depth > nodeShapeDepth {
 		return nil, nil
 	}
-	for i := 0; i < int(m.root.NamedChildCount()); i++ {
-		stmt := m.root.NamedChild(i)
+	return s.exports.resolve(nodeExportRef{module: m, name: name}, depth, func() (*sitter.Node, *nodeShapeModule) {
+		return s.exportValueUncached(m, name, depth)
+	})
+}
+
+// exportValueUncached reads the module for exportValue, which remembers the
+// answer.
+func (s *NodeShapes) exportValueUncached(m *nodeShapeModule, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	statements := m.topLevel()
+	for _, stmt := range statements {
 		switch stmt.Type() {
 		case nodeExportKind:
 			if value, vm := s.esExportValue(m, stmt, name, depth); value != nil {
@@ -543,8 +579,7 @@ func (s *NodeShapes) exportValue(m *nodeShapeModule, name string, depth int) (*s
 			}
 		}
 	}
-	for i := 0; i < int(m.root.NamedChildCount()); i++ {
-		stmt := m.root.NamedChild(i)
+	for _, stmt := range statements {
 		if stmt.Type() != nodeExportKind || name == nodeDefaultExport {
 			continue
 		}
