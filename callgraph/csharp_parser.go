@@ -107,15 +107,14 @@ func (p *CSharpParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis,
 	return analyses, nil
 }
 
-// csharpIsTestFile reports the .NET naming conventions for a test file, and
-// the `.test.cs` spelling the rule fixtures use.
+// csharpIsTestFile reports a file named as a test, the `.test.cs` spelling
+// the rule fixtures use. A `FooTests.cs` is not one: .NET puts its tests in a
+// project of their own rather than in a suffix, the name is ordinary source
+// to every other scanner, and skipping it lost real findings on the
+// real-code corpus.
 func csharpIsTestFile(name string) bool {
 	lower := strings.ToLower(name)
-	if strings.Contains(lower, ".test.") || strings.Contains(lower, ".tests.") {
-		return true
-	}
-	base := strings.TrimSuffix(lower, ".cs")
-	return strings.HasSuffix(base, "test") || strings.HasSuffix(base, "tests")
+	return strings.Contains(lower, ".test.") || strings.Contains(lower, ".tests.")
 }
 
 func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, error) {
@@ -149,7 +148,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	}
 	// The walk starts on the directory's path: a file that declares no
 	// namespace keeps it, and the first declaration replaces it.
-	p.walk(root, src, filePath, packagePath, "", false, nil, analysis)
+	p.walk(root, src, filePath, packagePath, "", "", false, nil, analysis)
 	recordCSharpOwnerAlternatives(analysis)
 	return analysis, nil
 }
@@ -253,7 +252,7 @@ type CSharpUsing struct {
 	Line, StartCol, EndCol, EndLine int
 }
 
-func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, typePath string, declared bool, fields *csharpFields, analysis *FileAnalysis) {
+func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, typePath, ownerType string, declared bool, fields *csharpFields, analysis *FileAnalysis) {
 	switch node.Type() {
 	case csharpNodeNamespace:
 		// A declaration is absolute unless it nests inside another: C# nests
@@ -269,14 +268,20 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 	case csharpNodeClass, csharpNodeStruct, csharpNodeInterface, csharpNodeRecord, csharpNodeRecordStruct:
 		if name := node.ChildByFieldName("name"); name != nil {
 			typePath = csharpJoin(typePath, name.Content(src))
+			// An interface's methods are the dispatch the graph expands to
+			// the types that implement them, so the kind is kept.
+			ownerType = "class"
+			if node.Type() == csharpNodeInterface {
+				ownerType = ownerTypeInterface
+			}
 			csharpRecordBases(node, src, namespace, typePath, analysis)
 			fields = csharpFieldFacts(node, src)
-			if decl := p.parseClassInitializer(node, src, filePath, namespace, typePath, fields, analysis); decl != nil {
-				analysis.Functions = append(analysis.Functions, *decl)
-			}
+			p.readFieldInitializers(node, src, filePath, namespace, typePath, fields, analysis)
+			analysis.Functions = append(analysis.Functions,
+				p.parseClassInitializer(node, src, filePath, namespace, typePath, fields, analysis)...)
 		}
 	case csharpNodeMethod, csharpNodeConstructor, csharpNodeProperty:
-		if decl := p.parseFunction(node, src, filePath, namespace, typePath, fields, analysis); decl != nil {
+		if decl := p.parseFunction(node, src, filePath, namespace, typePath, ownerType, fields, analysis); decl != nil {
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
 		return
@@ -294,7 +299,7 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 			}
 			continue
 		}
-		p.walk(child, src, filePath, childNamespace, typePath, childDeclared, fields, analysis)
+		p.walk(child, src, filePath, childNamespace, typePath, ownerType, childDeclared, fields, analysis)
 	}
 }
 
@@ -329,8 +334,38 @@ func csharpRecordBases(node *sitter.Node, src []byte, namespace, typePath string
 	}
 	analysis.ClassBases[typePath] = bases
 	// The key is stored even with no base list: its presence records that the
-	// file declares the type, which is what settles a guessed owner.
-	analysis.Supertypes[csharpJoin(namespace, typePath)] = bases
+	// file declares the type, which is what settles a guessed owner. A base is
+	// written unqualified, so it is listed under every namespace that could
+	// declare it, as Java lists a type of an on-demand import.
+	analysis.Supertypes[csharpJoin(namespace, typePath)] = csharpQualifiedBases(bases, namespace, analysis)
+}
+
+// csharpQualifiedBases qualifies each base a type names: with the namespace
+// it is written in, and with each namespace a using brings in. A base already
+// written qualified is kept as it is.
+func csharpQualifiedBases(bases []string, namespace string, analysis *FileAnalysis) []string {
+	out := make([]string, 0, len(bases))
+	for _, base := range bases {
+		if strings.Contains(base, csharpSeparator) {
+			out = append(out, csharpExpandBaseAlias(base, analysis))
+			continue
+		}
+		out = append(out, csharpJoin(namespace, base))
+		for _, wildcard := range analysis.WildcardImports {
+			out = append(out, wildcard+csharpSeparator+base)
+		}
+	}
+	return out
+}
+
+// csharpExpandBaseAlias substitutes a using alias at the head of a written
+// base name.
+func csharpExpandBaseAlias(base string, analysis *FileAnalysis) string {
+	head, rest, ok := strings.Cut(base, csharpSeparator)
+	if path, aliased := analysis.ImportAliases[head]; aliased && ok {
+		return csharpJoin(path, rest)
+	}
+	return base
 }
 
 // csharpRecordFieldValues records the string constants a type declares, under
@@ -381,7 +416,7 @@ func csharpStringContent(node *sitter.Node, src []byte) string {
 	return strings.Trim(text, `"`)
 }
 
-func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) *FunctionDecl {
+func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, namespace, typePath, ownerType string, fields *csharpFields, analysis *FileAnalysis) *FunctionDecl {
 	name := csharpFunctionName(node, src)
 	body := node.ChildByFieldName("body")
 	if name == "" {
@@ -395,15 +430,19 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		EndLine:      int(node.EndPoint().Row) + 1,
 		StartCol:     int(node.StartPoint().Column) + 1,
 		EndCol:       int(node.EndPoint().Column) + 1,
-		OwnerType:    "class",
+		OwnerType:    ownerType,
 		OwnerName:    csharpJoin(namespace, typePath),
 		FunctionType: "method",
 		Static:       csharpHasModifier(node, src, "static"),
+		Abstract:     ownerType == ownerTypeInterface || csharpHasModifier(node, src, "abstract"),
 		Parameters:   parameters,
 		ReturnType:   csharpReturnType(node, src),
 	}
 	if node.Type() == csharpNodeConstructor {
 		decl.FunctionType = "constructor"
+		if fields != nil {
+			decl.Calls = append(decl.Calls, fields.instanceCalls...)
+		}
 	}
 	variableTypes := make(map[string]string, len(parameters))
 	for _, parameter := range parameters {
@@ -450,12 +489,14 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 // into one synthetic declaration, as Java's class initializer does: a
 // `private static readonly SHA256 H = SHA256.Create();` is a call of the type,
 // made outside any method body.
-func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) *FunctionDecl {
+// readFieldInitializers records the calls a type's field initializers make,
+// kept apart by whether the field is static: a static field runs once at
+// class load, an instance field once per construction.
+func (p *CSharpParser) readFieldInitializers(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) {
 	body := node.ChildByFieldName("body")
-	if body == nil {
-		return nil
+	if body == nil || fields == nil {
+		return
 	}
-	var calls []FunctionCall
 	variableTypes := map[string]string{}
 	values := newCSharpValues(fields.literals(), fields.declaredTypes())
 	for i := 0; i < int(body.NamedChildCount()); i++ {
@@ -463,24 +504,59 @@ func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, file
 		if field.Type() != csharpNodeFieldDeclaration {
 			continue
 		}
+		var calls []FunctionCall
 		p.walkCalls(field, src, filePath, namespace, typePath, variableTypes, values, analysis, &calls)
+		if csharpHasModifier(field, src, "static") || csharpHasModifier(field, src, "const") {
+			fields.staticCalls = append(fields.staticCalls, calls...)
+			continue
+		}
+		fields.instanceCalls = append(fields.instanceCalls, calls...)
 	}
-	if len(calls) == 0 {
+}
+
+// parseClassInitializer collects the calls a type's field initializers make.
+// A static field runs at class load, as Java's class initializer does; an
+// instance field runs in the constructor, so its calls go to the type's
+// constructors -- to the one C# generates when the type declares none, which
+// is what a `new T()` of such a type calls.
+func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) []FunctionDecl {
+	body := node.ChildByFieldName("body")
+	if body == nil || fields == nil {
 		return nil
 	}
-	return &FunctionDecl{
-		ID:           FunctionID{Package: namespace, Type: typePath, Name: csharpMethodWithArity(clinitMethodName, 0)},
-		FilePath:     filePath,
-		StartLine:    int(node.StartPoint().Row) + 1,
-		EndLine:      int(node.EndPoint().Row) + 1,
-		StartCol:     int(node.StartPoint().Column) + 1,
-		EndCol:       int(node.EndPoint().Column) + 1,
-		OwnerType:    "class",
-		OwnerName:    csharpJoin(namespace, typePath),
-		FunctionType: "method",
-		Static:       true,
-		Calls:        calls,
+	decl := func(name string, static bool, calls []FunctionCall) FunctionDecl {
+		return FunctionDecl{
+			ID:           FunctionID{Package: namespace, Type: typePath, Name: name},
+			FilePath:     filePath,
+			StartLine:    int(node.StartPoint().Row) + 1,
+			EndLine:      int(node.EndPoint().Row) + 1,
+			StartCol:     int(node.StartPoint().Column) + 1,
+			EndCol:       int(node.EndPoint().Column) + 1,
+			OwnerType:    "class",
+			OwnerName:    csharpJoin(namespace, typePath),
+			FunctionType: "method",
+			Static:       static,
+			Calls:        calls,
+		}
 	}
+	var out []FunctionDecl
+	if len(fields.staticCalls) > 0 {
+		out = append(out, decl(csharpMethodWithArity(clinitMethodName, 0), true, fields.staticCalls))
+	}
+	if len(fields.instanceCalls) > 0 && !csharpDeclaresConstructor(body) {
+		out = append(out, decl(csharpMethodWithArity(constructorMethodName, 0), false, fields.instanceCalls))
+	}
+	return out
+}
+
+// csharpDeclaresConstructor reports a type body that declares one.
+func csharpDeclaresConstructor(body *sitter.Node) bool {
+	for i := 0; i < int(body.NamedChildCount()); i++ {
+		if body.NamedChild(i).Type() == csharpNodeConstructor {
+			return true
+		}
+	}
+	return false
 }
 
 // csharpFunctionName is the declared name, or the constructor name the graph
