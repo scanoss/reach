@@ -84,6 +84,7 @@ module.exports = { hotp, totp, verify };
 				"@acme/sign.default":    "@acme/sign/esm/index.main",
 				"@acme/sign.sign":       "@acme/sign/esm/sign.sign",
 				"@acme/sign.tools.hash": "@acme/sign/esm/sign.(tools).hash",
+				"@acme/sign.<module>":   "@acme/sign/esm/index.<module>",
 			},
 		},
 		{
@@ -113,9 +114,11 @@ module.exports = { hotp, totp, verify };
 				"plain.js":      "exports.p = function p() {};\n",
 			},
 			want: map[string]string{
-				"acme-sign.f":       "acme-sign/lib/impl.f",
-				"acme-sign/lib/x.f": "acme-sign/lib/impl.f",
-				"acme-sign/util.u":  "acme-sign/util/index.u",
+				"acme-sign.f":              "acme-sign/lib/impl.f",
+				"acme-sign/lib/x.f":        "acme-sign/lib/impl.f",
+				"acme-sign/util.u":         "acme-sign/util/index.u",
+				"acme-sign.<module>":       "acme-sign/index.<module>",
+				"acme-sign/lib/x.<module>": "acme-sign/lib/x.<module>",
 			},
 		},
 	}
@@ -186,5 +189,101 @@ module.exports = { hotp, totp };
 	hotp := dep.Functions["notp/index.(hotp).gen"]
 	if hotp == nil || !slices.Contains(calleesOf(hotp), "crypto.createHmac") {
 		t.Fatalf("notp/index.(hotp).gen = %+v, want it to call crypto.createHmac", hotp)
+	}
+}
+
+// A module compiled to CommonJS exports through property definitions: tsc
+// re-exports a binding with a getter, and esbuild collects a bundle's exports
+// in one object of getters handed to __toCommonJS. Both name the functions
+// they export.
+func TestNodePackageExports_PropertyDefinedExports(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  map[string]string
+	}{
+		{
+			name: "tsc getters over other modules",
+			files: map[string]string{
+				"package.json": `{"name":"acme","main":"./lib/index.js"}`,
+				"lib/index.js": `"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Signer = exports.importKey = void 0;
+var import_js_1 = require("./key/import.js");
+Object.defineProperty(exports, "importKey", { enumerable: true, get: function () { return import_js_1.importKey; } });
+var sign_js_1 = require("./sign.js");
+Object.defineProperty(exports, "Signer", { enumerable: true, get: function () { return sign_js_1.Signer; } });
+`,
+				"lib/key/import.js": "\"use strict\";\nexports.importKey = void 0;\nasync function importKey(jwk) { return jwk; }\nexports.importKey = importKey;\n",
+				"lib/sign.js":       "\"use strict\";\nexports.Signer = void 0;\nclass Signer { constructor(k) { this.k = k; } sign(d) { return d; } }\nexports.Signer = Signer;\n",
+			},
+			want: map[string]string{
+				"acme.importKey":           "acme/lib/key/import.importKey",
+				"acme.(Signer).<init>":     "acme/lib/sign.(Signer).constructor",
+				"acme.(Signer).sign":       "acme/lib/sign.(Signer).sign",
+				"acme.<module>":            "acme/lib/index.<module>",
+				"acme/lib.importKey":       "acme/lib/key/import.importKey",
+				"acme/lib.(Signer).<init>": "acme/lib/sign.(Signer).constructor",
+				"acme/lib.(Signer).sign":   "acme/lib/sign.(Signer).sign",
+				"acme/lib.<module>":        "acme/lib/index.<module>",
+			},
+		},
+		{
+			name: "esbuild export object",
+			files: map[string]string{
+				"package.json": `{"name":"acme","main":"./lib/index.cjs"}`,
+				"lib/index.cjs": `"use strict";
+var __defProp = Object.defineProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __toCommonJS = (mod) => mod;
+var index_exports = {};
+__export(index_exports, {
+  MemoryStore: () => MemoryStore,
+  default: () => index_default,
+  nip59: () => nip59_exports,
+  rateLimit: () => rate_limit_default
+});
+module.exports = __toCommonJS(index_exports);
+var MemoryStore = class { hit(key) { return key; } };
+var rateLimit = (options) => { return (req) => req; };
+var rate_limit_default = rateLimit;
+var index_default = rate_limit_default;
+var nip59_exports = {};
+__export(nip59_exports, { wrapEvent: () => wrapEvent2 });
+function wrapEvent2(e) { return e; }
+`,
+			},
+			want: map[string]string{
+				"acme.rateLimit":                  "acme/lib/index.rateLimit",
+				"acme.default":                    "acme/lib/index.rateLimit",
+				"acme.(MemoryStore).hit":          "acme/lib/index.(MemoryStore).hit",
+				"acme.MemoryStore.hit":            "acme/lib/index.(MemoryStore).hit",
+				"acme.(rateLimit()).<result>":     "acme/lib/index.<anonymous>@17:39",
+				"acme.(default()).<result>":       "acme/lib/index.<anonymous>@17:39",
+				"acme.<module>":                   "acme/lib/index.<module>",
+				"acme.nip59.wrapEvent":            "acme/lib/index.wrapEvent2",
+				"acme/lib.nip59.wrapEvent":        "acme/lib/index.wrapEvent2",
+				"acme/lib.rateLimit":              "acme/lib/index.rateLimit",
+				"acme/lib.default":                "acme/lib/index.rateLimit",
+				"acme/lib.(MemoryStore).hit":      "acme/lib/index.(MemoryStore).hit",
+				"acme/lib.MemoryStore.hit":        "acme/lib/index.(MemoryStore).hit",
+				"acme/lib.(rateLimit()).<result>": "acme/lib/index.<anonymous>@17:39",
+				"acme/lib.(default()).<result>":   "acme/lib/index.<anonymous>@17:39",
+				"acme/lib.<module>":               "acme/lib/index.<module>",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			graph := buildNodePackage(t, "acme", tc.files)
+			if !maps.Equal(graph.NodePackageExports, tc.want) {
+				t.Errorf("NodePackageExports = %v, want %v; functions: %v", graph.NodePackageExports, tc.want, functionKeys(graph))
+			}
+		})
 	}
 }

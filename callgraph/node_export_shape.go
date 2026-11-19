@@ -39,6 +39,8 @@ const (
 type NodeShapes struct {
 	parser  *NodeParser
 	modules map[string]*nodeShapeModule
+	// exports remembers what exportValue answered; see node_export_memo.go.
+	exports nodeExportMemo
 }
 
 type nodeShapeModule struct {
@@ -50,6 +52,48 @@ type nodeShapeModule struct {
 	assigned *nodeAssignments
 	// walks counts the walks of the whole tree, which tests bound.
 	walks int
+	// statements is built on first use; see topLevel.
+	statements []*sitter.Node
+	// thisAssigned and inherits are built on first use; see thisAssignments
+	// and inherited (node_value_shapes.go).
+	thisAssigned map[uint32]map[string]*sitter.Node
+	inherits     map[string][]*sitter.Node
+	// declared, programDeclared and imported are built on first use; see
+	// declarations and imports (node_value_shapes.go).
+	declared        map[uint32]map[string]nodeShapeDecl
+	programDeclared map[string]nodeShapeDecl
+	imported        map[string]nodeShapeImport
+	// params is built on first use; see parameters (node_value_shapes.go).
+	params map[uint32]map[string]bool
+	// getterValues and defined are built on first use; see getters and
+	// definedMembers (node_export_getters.go).
+	getterValues map[string]*sitter.Node
+	defined      map[string]map[string]*sitter.Node
+	// rebound is built on first use; see reassigned (node_value_shapes.go).
+	rebound map[nodeScopedName][]*sitter.Node
+}
+
+// topLevel lists the module's top-level statements. Reading the i-th child
+// of a node costs i steps, so a loop over the children of a bundle's program
+// by index is quadratic; every export lookup reads this list instead.
+func (m *nodeShapeModule) topLevel() []*sitter.Node {
+	if m.statements == nil {
+		count := int(m.root.NamedChildCount())
+		m.statements = make([]*sitter.Node, 0, count)
+		cursor := sitter.NewTreeCursor(m.root)
+		defer cursor.Close()
+		if cursor.GoToFirstChild() {
+			for {
+				if node := cursor.CurrentNode(); node.IsNamed() {
+					m.statements = append(m.statements, node)
+				}
+				if !cursor.GoToNextSibling() {
+					break
+				}
+			}
+		}
+	}
+	return m.statements
 }
 
 // nodeAssignments is what Definition reads from a module on every call, kept
@@ -527,11 +571,20 @@ func (s *NodeShapes) importedBinding(m *nodeShapeModule, program *sitter.Node, n
 // exportValue returns the value a module exports as name ("default" for the
 // module's own value), following re-exports.
 func (s *NodeShapes) exportValue(m *nodeShapeModule, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	s.exports.reached(depth)
 	if m == nil || depth > nodeShapeDepth {
 		return nil, nil
 	}
-	for i := 0; i < int(m.root.NamedChildCount()); i++ {
-		stmt := m.root.NamedChild(i)
+	return s.exports.resolve(nodeExportRef{module: m, name: name}, depth, func() (*sitter.Node, *nodeShapeModule) {
+		return s.exportValueUncached(m, name, depth)
+	})
+}
+
+// exportValueUncached reads the module for exportValue, which remembers the
+// answer.
+func (s *NodeShapes) exportValueUncached(m *nodeShapeModule, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	statements := m.topLevel()
+	for _, stmt := range statements {
 		switch stmt.Type() {
 		case nodeExportKind:
 			if value, vm := s.esExportValue(m, stmt, name, depth); value != nil {
@@ -543,8 +596,10 @@ func (s *NodeShapes) exportValue(m *nodeShapeModule, name string, depth int) (*s
 			}
 		}
 	}
-	for i := 0; i < int(m.root.NamedChildCount()); i++ {
-		stmt := m.root.NamedChild(i)
+	if value := m.getters()[name]; value != nil {
+		return s.getterValue(m, value, depth)
+	}
+	for _, stmt := range statements {
 		if stmt.Type() != nodeExportKind || name == nodeDefaultExport {
 			continue
 		}
@@ -555,6 +610,17 @@ func (s *NodeShapes) exportValue(m *nodeShapeModule, name string, depth int) (*s
 		}
 	}
 	return nil, nil
+}
+
+// getterValue is the value a property-defined export reads: the binding the
+// getter names, followed as an exported shorthand is, or the expression.
+func (s *NodeShapes) getterValue(m *nodeShapeModule, value *sitter.Node, depth int) (*sitter.Node, *nodeShapeModule) {
+	if value.Type() == goNodeIdentifier {
+		if bound, bm := s.binding(m, value, value.Content(m.src), depth); bound != nil {
+			return bound, bm
+		}
+	}
+	return value, m
 }
 
 func (s *NodeShapes) esExportValue(m *nodeShapeModule, stmt *sitter.Node, name string, depth int) (*sitter.Node, *nodeShapeModule) {
@@ -667,8 +733,13 @@ func nodeShapeCommonJSExport(stmt *sitter.Node, name string, src []byte) *sitter
 	if left == nil || right == nil {
 		return nil
 	}
+	if nodeForwardDeclaration(right, src) {
+		return nil // tsc's `exports.a = exports.b = void 0`, assigned for real below
+	}
 	target := left.Content(src)
 	switch {
+	case target == nodeModuleExportsTarget && nodeToCommonJSObject(expr, src) != "":
+		return nil // a bundle's export object: its getters name the exports
 	case target == nodeModuleExportsTarget && name == nodeDefaultExport:
 		return right
 	case target == nodeModuleExportsTarget && right.Type() == nodeObjectLiteral:
@@ -845,18 +916,52 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 		return nil, nil
 	}
 	if value := assignedExportPath(mod, name, members); value != nil {
-		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil {
+		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil && !nodeIsUnresolvedValue(def) {
 			return def, dm
 		}
 	}
 	value, vm := s.exportValue(mod, name, 0)
 	for _, member := range members {
 		if value == nil {
-			return nil, nil
+			break
 		}
 		value, vm = s.memberValue(vm, value, member, 0)
 	}
-	return s.definitionNode(vm, value, 0)
+	def, dm := s.definitionNode(vm, value, 0)
+	if def != nil && !nodeIsUnresolvedValue(def) {
+		return def, dm
+	}
+	// The path ends in an expression the lookups above do not read: a
+	// member of an instance (`exports.finalize = i.finalize`) or of another
+	// module's export (`exports.verify = require('./vs').verify`). The
+	// value shapes follow those to the function. A call stays the
+	// definition of what it returns: `export const sha256 = wrap(..)` is
+	// defined where it is written, not inside wrap.
+	q := s.query()
+	values := q.member(nodeShapeValue{m: mod, n: mod.root, module: true}, name, 0)
+	for _, member := range members {
+		var next []nodeShapeValue
+		for _, v := range values {
+			next = appendNodeValues(next, q.member(v, member, 0)...)
+		}
+		values = next
+	}
+	for _, v := range values {
+		if v.callable() {
+			return v.n, v.m
+		}
+	}
+	return def, dm
+}
+
+// nodeIsUnresolvedValue reports an expression that names a value without
+// being its definition.
+func nodeIsUnresolvedValue(n *sitter.Node) bool {
+	switch n.Type() {
+	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode:
+		return true
+	}
+	return false
 }
 
 // definitionNode follows bindings and re-export requires to the node that

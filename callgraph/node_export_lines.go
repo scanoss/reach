@@ -89,6 +89,15 @@ func NodeModuleExports(filePath string) (*NodeExports, error) {
 	}
 	nodeAliasExportLines(root, src, aliases, out.Lines)
 	nodeModuleExportsValues(root, src, out)
+	var statements []*sitter.Node
+	nodeEachNamedChild(root, func(stmt *sitter.Node) { statements = append(statements, stmt) })
+	if _, sites := nodeGetterExports(statements, src); len(sites) > 0 {
+		for name, site := range sites {
+			if _, seen := out.Lines[name]; !seen {
+				out.Lines[name] = nodeLine(site)
+			}
+		}
+	}
 	return out, nil
 }
 

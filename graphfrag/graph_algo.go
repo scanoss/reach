@@ -335,7 +335,50 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // (graph-fragment-1.38 start_col, end_col), so annotating a stored fragment
 // places a crypto call written on the line where a callback argument starts
 // in the function that writes the call, as a scan does (was the callback).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "9"
+// graph-algo-node-10: a graph follows values, where node-9 keyed a call by
+// its text alone and left every other call without an edge. Beside the calls
+// node-9 has, unchanged, a function now reaches:
+//   - the function a call's callee is when the package's own source builds
+//     it: a method of the object a factory returned (`make().run()`), of an
+//     instance in a variable or a field of this (`this.sock.write()`), of a
+//     class the method is only inherited from (`extends`, `util.inherits`,
+//     prototype assignment), of the object a function is assigned to
+//     (`this.gen()` in `hotp.verify = function`, in an object literal's
+//     method), a function a variable holds, an immediately invoked function,
+//     and f of `f.call(..)` and `f.apply(..)`;
+//   - the constructor a `new` of a class or constructor function of the
+//     package runs, the class's field initialisers (<clinit>), and the base
+//     constructor `super(..)` runs;
+//   - each function an object holds, from a call through a computed member
+//     of it (`signers[alg](..)`);
+//   - each function it hands over as a call argument or a returned value, by
+//     name, as a member, bound (`f.bind(..)`), or held by an object or array
+//     literal handed over (`promisify(client.getKey)`, `return { sign() {}
+//     }`); node-9 drew this for the callback APIs it lists only;
+//   - the top-level code of a module it loads with require or import() in
+//     its body, and of a package any of its code loads, as `<spec>.<module>`;
+//   - for a callee that comes from another package through a call or a
+//     construction, the key of that access: `new fc.Totp().validate()`
+//     reaches fc.(Totp).validate, `fc.client().getKey()` fc.(client()).getKey,
+//     `fc.make()()` fc.(make()).<result>, `new fc.a.K().open().read()`
+//     fc.a.(K>open()).read, with the value held in a variable, a field of
+//     this or a destructured name on the way. A call the KB types keeps the
+//     contract's key alone.
+//
+// A module that only loads a package at its top level gains a <module>
+// function. Fragments list in `exports` the functions those keys name
+// (`acme.(Totp).validate`, `acme.(Totp).<init>`, `acme.(client()).getKey`,
+// `acme.<module>`), to two calls or constructions deep, and an export whose
+// value is a member of an instance or of another module's export
+// (`exports.finalize = i.finalize`, `exports.verify =
+// require('./vs').verify`), which node-9 left out. A package.json "exports"
+// condition object resolves to its first key, in the order written, among
+// node, require and default (`import` when none of them resolves); node-9
+// tried require, import, default and node in that order whatever the
+// manifest's. A package whose manifest entry points lie in dist/ or build/
+// has that directory in its graph even when it ships other source
+// (skip.NodeEntryBuiltOutput).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "10"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

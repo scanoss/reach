@@ -37,8 +37,9 @@ type nodeModuleImportCollector struct {
 //
 // A type-only import is erased at compile time and loads nothing. A dynamic
 // import() and a require inside a function run only when that function does,
-// so neither is the module's call. A package specifier names no project file
-// and is left out, as is a module importing itself.
+// so neither is listed here: the value-flow pass draws those from the
+// function that runs them, and the load of a package from whoever loads it
+// (node_value_flow.go). A module importing itself is left out.
 func nodeModuleImportReferences(root *sitter.Node, src []byte, filePath, packagePath, modulePath string) []FunctionCall {
 	c := &nodeModuleImportCollector{
 		root: root, typescript: nodeIsTypeScriptFile(filePath),

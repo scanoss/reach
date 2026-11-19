@@ -109,11 +109,12 @@ func NewDefaultsSource() *DefaultsSource {
 
 // NewDefaultsSourceForTarget creates a defaults source aware of what targetDir
 // actually contains: a built-output directory that holds the target's only
-// source is dropped from the exclusions, because excluding it would make the
-// scan read nothing. See BuiltOutputOnlySource. The directory walk happens
+// source, or that a Node package's entry points load from, is dropped from
+// the exclusions, because excluding it would make the scan read nothing, or
+// nothing a consumer runs. See RescuedBuiltOutput. The directory walk happens
 // once, here, so Load and Rescued agree and neither repeats it.
 func NewDefaultsSourceForTarget(targetDir string) *DefaultsSource {
-	return &DefaultsSource{rescued: BuiltOutputOnlySource(targetDir)}
+	return &DefaultsSource{rescued: RescuedBuiltOutput(targetDir)}
 }
 
 // Rescued returns the built-output directory names this source left in the

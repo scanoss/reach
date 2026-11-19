@@ -215,10 +215,26 @@ func topSegment(rel string) (string, bool) {
 }
 
 // DefaultPatternsForTarget returns DefaultPatterns with any built-output
-// directory that holds the only source removed, so the scan reads the artifact
-// instead of skipping it. For a checkout it returns DefaultPatterns unchanged.
+// directory that holds the only source, or that a Node package's entry points
+// load from, removed, so the scan reads the artifact instead of skipping it.
+// For a checkout that is not built it returns DefaultPatterns unchanged.
 func DefaultPatternsForTarget(targetDir string) []string {
-	return withoutPatterns(DefaultPatterns(), BuiltOutputOnlySource(targetDir))
+	return withoutPatterns(DefaultPatterns(), RescuedBuiltOutput(targetDir))
+}
+
+// RescuedBuiltOutput returns, sorted, the built-output directory names a scan
+// of targetDir must read: those that hold its only source
+// (BuiltOutputOnlySource) and those a Node package's entry points load from
+// (NodeEntryBuiltOutput).
+func RescuedBuiltOutput(targetDir string) []string {
+	out := BuiltOutputOnlySource(targetDir)
+	for _, name := range NodeEntryBuiltOutput(targetDir) {
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // withoutPatterns returns patterns with every name in drop removed. Returns

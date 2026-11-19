@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,9 +13,15 @@ import (
 	"github.com/scanoss/reach/callgraph/contracts"
 )
 
-// nodeExportConditions are the package.json "exports" conditions a call
-// through a package name resolves, in the order tried.
-var nodeExportConditions = []string{"require", "import", "default", "node"}
+// nodeExportConditions are the package.json "exports" conditions that hold
+// for code Node runs with require. Node takes the first key of a condition
+// object, in the order the manifest writes them, that holds; `import` holds
+// for an ES module's import instead of `require`, and is tried only when
+// nothing else of the object resolves.
+var nodeExportConditions = map[string]bool{"node": true, "require": true, "default": true}
+
+// nodeImportCondition is the condition of an ES module's import.
+const nodeImportCondition = "import"
 
 // nodeBuiltinModules are the modules Node loads before any package of the same
 // name: `require('crypto')` is the runtime's crypto even when node_modules
@@ -76,6 +83,8 @@ type nodePackageCalls struct {
 	// name the contract is keyed by.
 	contracted map[string]bool
 	entries    map[string]string
+	// modules maps a file to the key of its <module> function.
+	modules map[string]string
 }
 
 // linkNodePackageCalls retargets the Node calls made through a package name to
@@ -122,8 +131,12 @@ func newNodePackageCalls(graph *CallGraph, dirs map[string]string) *nodePackageC
 		decls:   make(map[nodeDeclSite]string),
 		starts:  make(map[nodeDeclStart]string, len(graph.Functions)),
 		entries: make(map[string]string),
+		modules: make(map[string]string),
 	}
 	for key, decl := range graph.Functions {
+		if decl.FunctionType == functionTypeModuleInit {
+			r.modules[filepath.Clean(decl.FilePath)] = key
+		}
 		r.starts[nodeDeclStart{file: filepath.Clean(decl.FilePath), line: decl.StartLine, col: decl.StartCol}] = key
 		site := nodeDeclSite{file: filepath.Clean(decl.FilePath), line: decl.StartLine}
 		if _, taken := r.decls[site]; taken {
@@ -311,14 +324,43 @@ func nodeConditionTarget(value json.RawMessage) (string, bool) {
 	if json.Unmarshal(value, &conditions) != nil {
 		return "", false
 	}
-	for _, condition := range nodeExportConditions {
-		if nested, ok := conditions[condition]; ok {
-			if target, ok := nodeConditionTarget(nested); ok {
+	// A manifest that lists `default` before `node` means the first: an
+	// object's keys are read in the order written, which a map loses.
+	keys := nodeObjectKeys(value)
+	for _, pass := range []bool{false, true} {
+		for _, condition := range keys {
+			if !nodeExportConditions[condition] && (!pass || condition != nodeImportCondition) {
+				continue
+			}
+			if target, ok := nodeConditionTarget(conditions[condition]); ok {
 				return target, true
 			}
 		}
 	}
 	return "", false
+}
+
+// nodeObjectKeys lists the keys of a JSON object in the order it writes
+// them.
+func nodeObjectKeys(object json.RawMessage) []string {
+	decoder := json.NewDecoder(bytes.NewReader(object))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return nil
+	}
+	var keys []string
+	for decoder.More() {
+		token, err := decoder.Token()
+		key, ok := token.(string)
+		if err != nil || !ok {
+			return keys
+		}
+		keys = append(keys, key)
+		var skipped json.RawMessage
+		if decoder.Decode(&skipped) != nil {
+			return keys
+		}
+	}
+	return keys
 }
 
 // nodeSourceFile returns the file target, relative to dir, names: the file

@@ -61,6 +61,19 @@ func (b *Builder) recordNodePackageExports(graph *CallGraph) {
 	for public := range conflict {
 		delete(out, public)
 	}
+	for _, pkg := range pkgs {
+		count := 0
+		for _, module := range nodePublicModules(pkg, b.nodePackageDirs[pkg], b.nodeRelativeLoaders) {
+			names := nodeExportedNames(module.file, map[string]bool{}, 0)
+			names[nodeDefaultExport] = true
+			sorted := make([]string, 0, len(names))
+			for name := range names {
+				sorted = append(sorted, name)
+			}
+			sort.Strings(sorted)
+			r.publishValues(module, sorted, out, conflict, &count)
+		}
+	}
 	if len(out) > 0 {
 		graph.NodePackageExports = out
 	}
