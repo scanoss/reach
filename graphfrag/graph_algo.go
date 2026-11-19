@@ -414,6 +414,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 //     new Web()`, `Encryption.algorithms[kind] = {..}`);
 //   - what a class field declared without a value is assigned.
 //
+// A package's exports list what parameters hold too: `module.exports = new
+// PG(Client)` with `this.Client = clientConstructor` publishes
+// pg.(Client).connect.
+//
 // A function a caller passed is called by the caller that hands it over,
 // not by the function that receives it. JavaScript with type annotations
 // (Flow) that the JavaScript grammar cannot read is parsed with the TSX

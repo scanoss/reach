@@ -105,9 +105,11 @@ type nodePendingCall struct {
 const nodeFlowRounds = 4
 
 // linkNodeValueFlow adds the edges this file's comment lists to a Node graph.
-func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
+// It returns the shapes it read, with the call sites it recorded, for the
+// caller to close; nil for a graph of another ecosystem.
+func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 	if b.ecosystem != ecosystemNode {
-		return
+		return nil
 	}
 	f := &nodeValueFlow{
 		b:          b,
@@ -124,7 +126,6 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 		fieldCalls: make(map[*FunctionCall]nodeFieldCall),
 		foreign:    make(map[string]bool),
 	}
-	defer f.shapes.Close()
 	f.shapes.sites = newNodeCallSites()
 	for key, decl := range graph.Functions {
 		file := filepath.Clean(decl.FilePath)
@@ -201,6 +202,9 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 			delete(graph.Callers, key)
 		}
 	}
+	// The exports read with these shapes see every call site recorded.
+	f.shapes.sites.round()
+	return f.shapes
 }
 
 // resolvePending reads again the calls whose callee the first walk read a

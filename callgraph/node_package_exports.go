@@ -37,13 +37,21 @@ type nodePublicModule struct {
 
 // recordNodePackageExports fills graph.NodePackageExports: for each package
 // of the build, the key of every call through one of its specifiers that
-// names a function the package declares under another key.
-func (b *Builder) recordNodePackageExports(graph *CallGraph) {
+// names a function the package declares under another key. shapes, when
+// set, are the value flow's: a parameter of a function its calls fill holds
+// what they pass (`module.exports = new PG(Client)` with `this.Client =
+// clientConstructor` lists pg.(Client).connect). The caller closes them.
+func (b *Builder) recordNodePackageExports(graph *CallGraph, shapes *NodeShapes) {
 	if b.ecosystem != ecosystemNode || len(b.nodePackageDirs) == 0 {
 		return
 	}
 	r := newNodePackageCalls(graph, b.nodePackageDirs)
-	defer r.shapes.Close()
+	if shapes != nil {
+		r.shapes.Close()
+		r.shapes = shapes
+	} else {
+		defer r.shapes.Close()
+	}
 	pkgs := make([]string, 0, len(b.nodePackageDirs))
 	for pkg := range b.nodePackageDirs {
 		if !nodeBuiltinModules[pkg] {

@@ -45,6 +45,30 @@ func TestNodePackageExports(t *testing.T) {
 			want: map[string]string{"acme-sign.sign": "acme-sign/index.sign"},
 		},
 		{
+			// The members of an exported instance hold what its constructor
+			// assigns them, a parameter included: what the module passes it.
+			name: "module.exports instance holding a class its constructor receives",
+			pkg:  "pg",
+			files: map[string]string{
+				"package.json": `{"name":"pg","main":"./lib"}`,
+				"lib/index.js": `var Client = require('./client')
+var PG = function (clientConstructor) {
+  this.Client = clientConstructor
+}
+module.exports = new PG(Client)
+`,
+				"lib/client.js": "class Client { constructor(c) { this.c = c } connect(cb) { return cb } }\nmodule.exports = Client\n",
+			},
+			want: map[string]string{
+				"pg.(Client).<init>":      "pg/lib/client.(Client).constructor",
+				"pg.(Client).connect":     "pg/lib/client.(Client).connect",
+				"pg.<module>":             "pg/lib/index.<module>",
+				"pg/lib.(Client).<init>":  "pg/lib/client.(Client).constructor",
+				"pg/lib.(Client).connect": "pg/lib/client.(Client).connect",
+				"pg/lib.<module>":         "pg/lib/index.<module>",
+			},
+		},
+		{
 			name: "module.exports object of functions and of objects with property functions",
 			pkg:  "notp",
 			files: map[string]string{
