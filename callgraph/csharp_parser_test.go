@@ -442,3 +442,27 @@ class H
 		}
 	}
 }
+
+// A property write is an attribute store: the shape a rule reads when the
+// caller configures an object before the call that uses it.
+func TestCSharpParserAttributeStores(t *testing.T) {
+	a := parseOneCSharp(t, `
+namespace Acme;
+class H { void Run() { var aes = Aes.Create(); aes.KeySize = 256; aes.GenerateKey(); } }`)
+	var stores []AttributeStore
+	for i := range a.Functions {
+		if BaseFunctionName(a.Functions[i].ID.Name) == "Run" {
+			stores = a.Functions[i].AttributeStores
+		}
+	}
+	if len(stores) != 1 {
+		t.Fatalf("stores = %+v, want 1", stores)
+	}
+	got := stores[0]
+	if got.Receiver != "aes" || got.Attribute != "KeySize" || got.Operator != "=" || got.Value.Text != "256" {
+		t.Errorf("store = %+v, want aes.KeySize = 256", got)
+	}
+	if got.Line != 3 || got.StartCol <= 0 || got.EndCol <= got.StartCol {
+		t.Errorf("store span = line %d, %d..%d", got.Line, got.StartCol, got.EndCol)
+	}
+}
