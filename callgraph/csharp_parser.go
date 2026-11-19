@@ -148,7 +148,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	}
 	// The walk starts on the directory's path: a file that declares no
 	// namespace keeps it, and the first declaration replaces it.
-	p.walk(root, src, filePath, packagePath, "", false, analysis)
+	p.walk(root, src, filePath, packagePath, "", false, nil, analysis)
 	recordCSharpOwnerAlternatives(analysis)
 	return analysis, nil
 }
@@ -252,7 +252,7 @@ type CSharpUsing struct {
 	Line, StartCol, EndCol, EndLine int
 }
 
-func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, typePath string, declared bool, analysis *FileAnalysis) {
+func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, typePath string, declared bool, fields *csharpFields, analysis *FileAnalysis) {
 	switch node.Type() {
 	case csharpNodeNamespace:
 		// A declaration is absolute unless it nests inside another: C# nests
@@ -269,12 +269,13 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 		if name := node.ChildByFieldName("name"); name != nil {
 			typePath = csharpJoin(typePath, name.Content(src))
 			csharpRecordBases(node, src, namespace, typePath, analysis)
-			if decl := p.parseClassInitializer(node, src, filePath, namespace, typePath, analysis); decl != nil {
+			fields = csharpFieldFacts(node, src)
+			if decl := p.parseClassInitializer(node, src, filePath, namespace, typePath, fields, analysis); decl != nil {
 				analysis.Functions = append(analysis.Functions, *decl)
 			}
 		}
 	case csharpNodeMethod, csharpNodeConstructor, csharpNodeProperty:
-		if decl := p.parseFunction(node, src, filePath, namespace, typePath, analysis); decl != nil {
+		if decl := p.parseFunction(node, src, filePath, namespace, typePath, fields, analysis); decl != nil {
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
 		return
@@ -292,7 +293,7 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 			}
 			continue
 		}
-		p.walk(child, src, filePath, childNamespace, typePath, childDeclared, analysis)
+		p.walk(child, src, filePath, childNamespace, typePath, childDeclared, fields, analysis)
 	}
 }
 
@@ -379,7 +380,7 @@ func csharpStringContent(node *sitter.Node, src []byte) string {
 	return strings.Trim(text, `"`)
 }
 
-func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, namespace, typePath string, analysis *FileAnalysis) *FunctionDecl {
+func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) *FunctionDecl {
 	name := csharpFunctionName(node, src)
 	body := node.ChildByFieldName("body")
 	if name == "" {
@@ -420,7 +421,12 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 	if body == nil {
 		return decl
 	}
-	p.walkCalls(body, src, filePath, namespace, typePath, variableTypes, analysis, &decl.Calls)
+	values := newCSharpValues(fields.literals(), fields.declaredTypes())
+	for _, parameter := range parameters {
+		values.declare(parameter.Name, parameter.Type)
+	}
+	values.countWrites(body, src)
+	p.walkCalls(body, src, filePath, namespace, typePath, variableTypes, values, analysis, &decl.Calls)
 	decl.Declarations = csharpDeclarations(body, src)
 	return decl
 }
@@ -429,19 +435,20 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 // into one synthetic declaration, as Java's class initializer does: a
 // `private static readonly SHA256 H = SHA256.Create();` is a call of the type,
 // made outside any method body.
-func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, filePath, namespace, typePath string, analysis *FileAnalysis) *FunctionDecl {
+func (p *CSharpParser) parseClassInitializer(node *sitter.Node, src []byte, filePath, namespace, typePath string, fields *csharpFields, analysis *FileAnalysis) *FunctionDecl {
 	body := node.ChildByFieldName("body")
 	if body == nil {
 		return nil
 	}
 	var calls []FunctionCall
 	variableTypes := map[string]string{}
+	values := newCSharpValues(fields.literals(), fields.declaredTypes())
 	for i := 0; i < int(body.NamedChildCount()); i++ {
 		field := body.NamedChild(i)
 		if field.Type() != csharpNodeFieldDeclaration {
 			continue
 		}
-		p.walkCalls(field, src, filePath, namespace, typePath, variableTypes, analysis, &calls)
+		p.walkCalls(field, src, filePath, namespace, typePath, variableTypes, values, analysis, &calls)
 	}
 	if len(calls) == 0 {
 		return nil
@@ -586,27 +593,29 @@ func csharpChildByType(node *sitter.Node, kind string) *sitter.Node {
 	return nil
 }
 
-func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namespace, typePath string, variableTypes map[string]string, analysis *FileAnalysis, calls *[]FunctionCall) {
+func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namespace, typePath string, variableTypes map[string]string, values *csharpValues, analysis *FileAnalysis, calls *[]FunctionCall) {
 	if csharpIntroducesScope(node.Type()) {
 		variableTypes = maps.Clone(variableTypes)
+		values = values.clone()
 	}
 	if node.Type() == csharpNodeLocalDeclaration {
 		csharpRecordDeclaredTypes(node, src, variableTypes)
 	}
+	values.record(node, src)
 	switch node.Type() {
 	case csharpNodeInvocation:
-		if call := p.parseInvocation(node, src, filePath, namespace, typePath, variableTypes, analysis); call != nil {
+		if call := p.parseInvocation(node, src, filePath, namespace, typePath, variableTypes, values, analysis); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
 		}
 	case csharpNodeObjectCreation:
-		if call := p.parseObjectCreation(node, src, filePath, namespace, analysis); call != nil {
+		if call := p.parseObjectCreation(node, src, filePath, namespace, values, analysis); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walkCalls(node.Child(i), src, filePath, namespace, typePath, variableTypes, analysis, calls)
+		p.walkCalls(node.Child(i), src, filePath, namespace, typePath, variableTypes, values, analysis, calls)
 	}
 }
 
@@ -688,7 +697,7 @@ func csharpTypeName(node *sitter.Node, src []byte) string {
 	return strings.TrimSpace(node.Content(src))
 }
 
-func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, namespace, typePath string, variableTypes map[string]string, analysis *FileAnalysis) *FunctionCall {
+func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, namespace, typePath string, variableTypes map[string]string, values *csharpValues, analysis *FileAnalysis) *FunctionCall {
 	function := node.ChildByFieldName("function")
 	if function == nil {
 		return nil
@@ -725,6 +734,7 @@ func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, 
 		return nil
 	}
 	call.Callee.Name = csharpMethodWithArity(call.Callee.Name, len(call.Arguments))
+	call.ArgumentSources = csharpArgumentSources(call.Arguments, values, filePath, call.Line)
 	return call
 }
 
@@ -776,13 +786,15 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 	}
 }
 
-func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePath, namespace string, analysis *FileAnalysis) *FunctionCall {
+func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePath, namespace string, values *csharpValues, analysis *FileAnalysis) *FunctionCall {
 	written := csharpTypeName(node.ChildByFieldName("type"), src)
 	if written == "" {
 		return nil
 	}
 	arguments := csharpArguments(node.ChildByFieldName("arguments"), src)
+	line := int(node.StartPoint().Row) + 1
 	return &FunctionCall{
+		ArgumentSources: csharpArgumentSources(arguments, values, filePath, line),
 		Callee: FunctionID{
 			Package: csharpOwnerNamespace(written, namespace, analysis),
 			Type:    csharpSimpleName(written),
