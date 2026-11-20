@@ -1027,7 +1027,7 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 		return nil, nil
 	}
 	if value := assignedExportPath(mod, name, members); value != nil {
-		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil && !nodeIsUnresolvedValue(def) {
+		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil && !nodeIsUnresolvedValue(def, dm.src) {
 			return def, dm
 		}
 	}
@@ -1039,7 +1039,7 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 		value, vm = s.memberValue(vm, value, member, 0)
 	}
 	def, dm := s.definitionNode(vm, value, 0)
-	if def != nil && !nodeIsUnresolvedValue(def) {
+	if def != nil && !nodeIsUnresolvedValue(def, dm.src) {
 		return def, dm
 	}
 	// The path ends in an expression the lookups above do not read: a
@@ -1066,11 +1066,18 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 }
 
 // nodeIsUnresolvedValue reports an expression that names a value without
-// being its definition.
-func nodeIsUnresolvedValue(n *sitter.Node) bool {
+// being its definition: `f.bind(self)` among them, which is f.
+func nodeIsUnresolvedValue(n *sitter.Node, src []byte) bool {
 	switch n.Type() {
 	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode:
 		return true
+	case nodeCallExpression:
+		callee := unwrapNodeCallee(n.ChildByFieldName("function"))
+		if callee == nil || callee.Type() != nodeMemberExpression {
+			return false
+		}
+		property := callee.ChildByFieldName("property")
+		return property != nil && property.Content(src) == "bind"
 	}
 	return false
 }

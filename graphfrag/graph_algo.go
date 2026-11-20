@@ -425,6 +425,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // `module.exports = fn` does (object-hash).
 // A destructured parameter member holds its own default too
 // (`{ processRequest = defaultProcessRequest } = {}`).
+// An export written `inst.method.bind(inst)` publishes the method
+// (web-push's sendNotification), and the arguments `f.bind(self, a)` binds
+// fill f's parameters from the first, self being `this`.
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

@@ -586,6 +586,9 @@ func (f *nodeValueFlow) memberCall(m *nodeShapeModule, q *nodeValueQuery, call, 
 	}
 	name = strings.TrimPrefix(name, "#")
 	shift := 0
+	if name == "bind" {
+		shift = 1 // `f.bind(self, a)` passes a first; self is this
+	}
 	if nodeCallsThrough(callee, m.src) {
 		if name != "call" {
 			shift = nodeUnknownArguments // `f.apply(self, list)` spells no argument

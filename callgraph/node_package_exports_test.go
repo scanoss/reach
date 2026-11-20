@@ -96,6 +96,21 @@ module.exports = { hotp, totp, verify };
 			want: map[string]string{"dflt.default": "dflt/lib/main.exports"},
 		},
 		{
+			// web-push: `sendNotification: webPush.sendNotification.bind(webPush)`.
+			name: "a bound method of an exported instance",
+			pkg:  "wp",
+			files: map[string]string{
+				"package.json": `{"name":"wp"}`,
+				"lib.js":       "class Lib { send(n) { return n; } setKey(k) { this.k = k; } }\nmodule.exports = Lib;\n",
+				"index.js":     "const Lib = require('./lib.js');\nconst w = new Lib();\nmodule.exports = { setKey: w.setKey, send: w.send.bind(w) };\n",
+			},
+			want: map[string]string{
+				"wp.<module>": "wp/index.<module>",
+				"wp.send":     "wp/lib.(Lib).send",
+				"wp.setKey":   "wp/lib.(Lib).setKey",
+			},
+		},
+		{
 			// object-hash: `exports = module.exports = objectHash`, members
 			// added through the `exports` alias.
 			name: "exports = module.exports = function, chained",
