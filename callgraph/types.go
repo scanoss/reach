@@ -717,6 +717,10 @@ type FileAnalysis struct {
 	// cppFacts holds the classes a C++ file defines and the namespaces its
 	// using-directives name, for resolveCPPCalls. C++ only.
 	cppFacts *cppFileFacts
+	// csharpValueNames are the fields and properties the file's types
+	// declare. A receiver spelled with one of them is a value, not a type,
+	// so it gets no owner alternatives. C# only.
+	csharpValueNames map[string]bool
 	// rustFacts holds the declared-type facts collected from a Rust file:
 	// struct and enum-variant field types, function return types, and the
 	// set of types the file declares. The receiver-typing layer resolves

@@ -282,6 +282,7 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 			}
 			csharpRecordBases(node, src, namespace, typePath, analysis)
 			fields = csharpFieldFacts(node, src)
+			csharpRecordValueNames(fields, analysis)
 			p.readFieldInitializers(node, src, filePath, namespace, typePath, fields, analysis)
 			analysis.Functions = append(analysis.Functions,
 				p.parseClassInitializer(node, src, filePath, namespace, typePath, fields, analysis)...)
@@ -1110,9 +1111,25 @@ func recordCSharpOwnerAlternatives(analysis *FileAnalysis) {
 	}
 }
 
+// csharpRecordValueNames notes the fields and properties a type declares, so
+// a receiver written with one of their names is read as a value.
+func csharpRecordValueNames(fields *csharpFields, analysis *FileAnalysis) {
+	for name := range fields.declaredTypes() {
+		if analysis.csharpValueNames == nil {
+			analysis.csharpValueNames = map[string]bool{}
+		}
+		analysis.csharpValueNames[name] = true
+	}
+}
+
 func csharpOwnerAlternatives(callee FunctionID, analysis *FileAnalysis) []string {
 	typ := callee.Type
 	if typ == "" || strings.ContainsAny(typ, ".<>[]()") {
+		return nil
+	}
+	// `Registry.Init(..)` on a field named Registry reads a value: a using
+	// cannot make it name a type.
+	if analysis.csharpValueNames[typ] {
 		return nil
 	}
 	if _, declared := analysis.ClassBases[typ]; declared {

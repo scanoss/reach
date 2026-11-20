@@ -752,11 +752,12 @@ func buildAdjacency(
 			targetSet = componentSet(dependencyClosure(key, deps))
 			delete(targetSet, key)
 		}
-		resolve := callEdgeResolver(key, componentSigs, targetSet, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
+		csharpFragment := fragmentEcosystem(fragment) == "csharp"
+		resolve := callEdgeResolver(key, csharpFragment, componentSigs, targetSet, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
 		if closureTargets(key) {
 			others := componentSet(closure)
 			delete(others, key)
-			resolve = preferDeclared(resolve, callEdgeResolver(key, componentSigs, others, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy))
+			resolve = preferDeclared(resolve, callEdgeResolver(key, csharpFragment, componentSigs, others, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy))
 		}
 		if fragmentEcosystem(fragment) == "python" {
 			scope := targetSet
@@ -781,7 +782,7 @@ func buildAdjacency(
 		dispatchGroups := applyImmediateEdgePolicy(key, edges, immediate, adjacency, suppressed, dispatchSurfaces, ownerTypes, fragments, functionsByNode, ambiguous, nameOnly)
 		applyDispatchGroups(key, dispatchGroups, resolve, ownerTypes, fragments, functionsByNode, adjacency, suppressed, ambiguous)
 		if fallback != nil && len(*unresolved) > 0 {
-			full := callEdgeResolver(key, componentSigs, fallback.others(key), functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
+			full := callEdgeResolver(key, csharpFragment, componentSigs, fallback.others(key), functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
 			// The fallback's refusals are not the stitch's: nil records none.
 			groups := applyImmediateEdgePolicy(key, *unresolved, full, fallback.adjacency, nil, dispatchSurfaces, ownerTypes, fragments, functionsByNode, fallback.ambiguous, make(map[graphNode][]adjacencyEdge))
 			applyDispatchGroups(key, groups, full, ownerTypes, fragments, functionsByNode, fallback.adjacency, nil, fallback.ambiguous)
@@ -911,6 +912,7 @@ type edgeResolver func(callEdge) edgeTargets
 // components that are direct dependencies of the current component.
 func callEdgeResolver(
 	key ComponentKey,
+	csharpFragment bool,
 	componentSigs map[string]bool,
 	directDeps map[ComponentKey]bool,
 	functionsBySignature map[string][]graphNode,
@@ -951,7 +953,7 @@ func callEdgeResolver(
 			// name_only call is never spelled so.
 			targets.nodes = public.targets(e.target, key, directDeps, functionsBySignature, hierarchy)
 		}
-		if len(targets.nodes) == 0 {
+		if len(targets.nodes) == 0 && csharpFragment {
 			// A C# call keyed on the caller's own namespace, which the caller's
 			// graph does not declare: the owner is one of the file's usings.
 			targets = csharpOwnerTargets(e, directDeps, functionsBySignature, functionsByCanonicalSignature, aliasByKey)

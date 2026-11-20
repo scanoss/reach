@@ -31,7 +31,7 @@ func csharpOwnerTargets(
 		return edgeTargets{}
 	}
 	var found edgeTargets
-	chosen := ""
+	resolved := false
 	// The first candidate is the caller's own namespace, the guess that
 	// already failed to resolve.
 	for _, owner := range e.candidateOwners[1:] {
@@ -43,19 +43,40 @@ func csharpOwnerTargets(
 		if len(targets.nodes) == 0 {
 			continue
 		}
-		if chosen != "" && chosen != owner {
+		// Two usings of one package that both declare the name land on the
+		// same nodes: that is one owner, not an ambiguity.
+		if resolved && !sameGraphNodes(found.nodes, targets.nodes) {
 			return edgeTargets{}
 		}
-		chosen, found = owner, targets
+		resolved, found = true, targets
 	}
 	return found
 }
 
+// sameGraphNodes reports two target sets that name the same declarations.
+func sameGraphNodes(a, b []graphNode) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[graphNode]int, len(a))
+	for _, n := range a {
+		seen[n]++
+	}
+	for _, n := range b {
+		seen[n]--
+		if seen[n] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // csharpKeyMember is the `).Method#arity` tail of a C# function key, the part
-// that survives a change of owner.
+// that survives a change of owner. A caller in the global namespace writes no
+// package, so the key opens with `(`.
 func csharpKeyMember(key string) (string, bool) {
 	i := strings.LastIndex(key, ").")
-	if i < 0 || !strings.Contains(key, ".(") {
+	if i < 0 || (!strings.Contains(key, ".(") && !strings.HasPrefix(key, "(")) {
 		return "", false
 	}
 	return key[i+1:], true
@@ -66,7 +87,11 @@ func csharpKeyMember(key string) (string, bool) {
 // `Org.BouncyCastle.Crypto.Engines.(SM4Engine).Init#2`.
 func csharpKeyForOwner(owner, member string) (string, bool) {
 	i := strings.LastIndex(owner, ".")
-	if i <= 0 || i == len(owner)-1 {
+	if i < 0 {
+		// A type of the global namespace: the key opens with it.
+		return "(" + owner + ")" + member, owner != ""
+	}
+	if i == 0 || i == len(owner)-1 {
 		return "", false
 	}
 	return owner[:i] + ".(" + owner[i+1:] + ")" + member, true
