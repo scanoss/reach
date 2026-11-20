@@ -45,6 +45,30 @@ func TestNodePackageExports(t *testing.T) {
 			want: map[string]string{"acme-sign.sign": "acme-sign/index.sign"},
 		},
 		{
+			// The members of an exported instance hold what its constructor
+			// assigns them, a parameter included: what the module passes it.
+			name: "module.exports instance holding a class its constructor receives",
+			pkg:  "pg",
+			files: map[string]string{
+				"package.json": `{"name":"pg","main":"./lib"}`,
+				"lib/index.js": `var Client = require('./client')
+var PG = function (clientConstructor) {
+  this.Client = clientConstructor
+}
+module.exports = new PG(Client)
+`,
+				"lib/client.js": "class Client { constructor(c) { this.c = c } connect(cb) { return cb } }\nmodule.exports = Client\n",
+			},
+			want: map[string]string{
+				"pg.(Client).<init>":      "pg/lib/client.(Client).constructor",
+				"pg.(Client).connect":     "pg/lib/client.(Client).connect",
+				"pg.<module>":             "pg/lib/index.<module>",
+				"pg/lib.(Client).<init>":  "pg/lib/client.(Client).constructor",
+				"pg/lib.(Client).connect": "pg/lib/client.(Client).connect",
+				"pg/lib.<module>":         "pg/lib/index.<module>",
+			},
+		},
+		{
 			name: "module.exports object of functions and of objects with property functions",
 			pkg:  "notp",
 			files: map[string]string{
@@ -70,6 +94,39 @@ module.exports = { hotp, totp, verify };
 				"lib/main.js":  "module.exports = function (x) { return x; };\n",
 			},
 			want: map[string]string{"dflt.default": "dflt/lib/main.exports"},
+		},
+		{
+			// web-push: `sendNotification: webPush.sendNotification.bind(webPush)`.
+			name: "a bound method of an exported instance",
+			pkg:  "wp",
+			files: map[string]string{
+				"package.json": `{"name":"wp"}`,
+				"lib.js":       "class Lib { send(n) { return n; } setKey(k) { this.k = k; } }\nmodule.exports = Lib;\n",
+				"index.js":     "const Lib = require('./lib.js');\nconst w = new Lib();\nmodule.exports = { setKey: w.setKey, send: w.send.bind(w) };\n",
+			},
+			want: map[string]string{
+				"wp.<module>": "wp/index.<module>",
+				"wp.send":     "wp/lib.(Lib).send",
+				"wp.setKey":   "wp/lib.(Lib).setKey",
+			},
+		},
+		{
+			// object-hash: `exports = module.exports = objectHash`, members
+			// added through the `exports` alias.
+			name: "exports = module.exports = function, chained",
+			pkg:  "ohash",
+			files: map[string]string{
+				"package.json": `{"name":"ohash"}`,
+				"index.js": `exports = module.exports = objectHash;
+function objectHash(o) { return hash(o); }
+function hash(o) { return o; }
+exports.sha1 = function (o) { return objectHash(o); };
+`,
+			},
+			want: map[string]string{
+				"ohash.default": "ohash/index.objectHash",
+				"ohash.sha1":    "ohash/index.sha1",
+			},
 		},
 		{
 			name: "ESM export function and export default, re-exported through export *, scoped",
@@ -224,6 +281,8 @@ Object.defineProperty(exports, "Signer", { enumerable: true, get: function () { 
 				"acme.(Signer).sign":       "acme/lib/sign.(Signer).sign",
 				"acme.<module>":            "acme/lib/index.<module>",
 				"acme/lib.importKey":       "acme/lib/key/import.importKey",
+				"acme.Signer":              "acme/lib/sign.(Signer).constructor",
+				"acme/lib.Signer":          "acme/lib/sign.(Signer).constructor",
 				"acme/lib.(Signer).<init>": "acme/lib/sign.(Signer).constructor",
 				"acme/lib.(Signer).sign":   "acme/lib/sign.(Signer).sign",
 				"acme/lib.<module>":        "acme/lib/index.<module>",

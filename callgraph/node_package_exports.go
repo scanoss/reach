@@ -37,13 +37,21 @@ type nodePublicModule struct {
 
 // recordNodePackageExports fills graph.NodePackageExports: for each package
 // of the build, the key of every call through one of its specifiers that
-// names a function the package declares under another key.
-func (b *Builder) recordNodePackageExports(graph *CallGraph) {
+// names a function the package declares under another key. shapes, when
+// set, are the value flow's: a parameter of a function its calls fill holds
+// what they pass (`module.exports = new PG(Client)` with `this.Client =
+// clientConstructor` lists pg.(Client).connect). The caller closes them.
+func (b *Builder) recordNodePackageExports(graph *CallGraph, shapes *NodeShapes) {
 	if b.ecosystem != ecosystemNode || len(b.nodePackageDirs) == 0 {
 		return
 	}
 	r := newNodePackageCalls(graph, b.nodePackageDirs)
-	defer r.shapes.Close()
+	if shapes != nil {
+		r.shapes.Close()
+		r.shapes = shapes
+	} else {
+		defer r.shapes.Close()
+	}
 	pkgs := make([]string, 0, len(b.nodePackageDirs))
 	for pkg := range b.nodePackageDirs {
 		if !nodeBuiltinModules[pkg] {
@@ -99,6 +107,11 @@ func (r *nodePackageCalls) publishModule(module nodePublicModule, out map[string
 		// The definition must be a function's own node: an object on the
 		// line of the function it holds is not that function.
 		key := r.starts[nodeDeclStart{file: filepath.Clean(file), line: line, col: col}]
+		if key == "" {
+			// A class handed over as a value (`createCookieAgent(HttpsProxyAgent)`)
+			// is built by whoever receives it: its constructor.
+			key = r.classConstructorKey(module.file, path)
+		}
 		public := module.spec + "." + strings.Join(path, ".")
 		if path[0] == nodeDefaultExport && len(path) > 1 {
 			// A caller reads the default import's members as the module's:
@@ -354,4 +367,18 @@ func nodeWalkPackageFiles(dir string, visit func(rel string) bool) {
 		return true
 	}
 	walk("")
+}
+
+// classConstructorKey is the key of the constructor of the class the
+// export path names, "" when it names no class with one.
+func (r *nodePackageCalls) classConstructorKey(file string, path []string) string {
+	def, dm := r.shapes.definition(file, path[0], path[1:])
+	if def == nil || dm == nil || (def.Type() != nodeClassDeclaration && def.Type() != nodeClassExpression) {
+		return ""
+	}
+	ctor := nodeClassMember(dm, def, "constructor", false)
+	if ctor == nil {
+		return ""
+	}
+	return r.starts[nodeDeclStart{file: filepath.Clean(dm.path), line: nodeLine(ctor), col: int(ctor.StartPoint().Column) + 1}]
 }

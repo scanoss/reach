@@ -264,6 +264,9 @@ func StitchWithOptions(root ComponentKey, deps DependencyGraph, fragments map[Co
 		// candidate; only those of classes the root can hold stay.
 		nameOnly = narrowPythonNameOnly(root, fragments[root], fragments, indexPythonInstantiation(closure, fragments), adjacency, ambiguousCandidates, nameOnly)
 	}
+	// A function of a module nothing loads is no candidate of a Node
+	// name_only call.
+	nameOnly = narrowNodeNameOnly(root, fragments[root], indexNodeModules(closure, fragments), adjacency, ambiguousCandidates, nameOnly)
 	var ambiguousOnly map[graphNode]bool
 	if opts.AmbiguousDispatchAsTyped {
 		for caller, edges := range ambiguousCandidates {
@@ -734,6 +737,8 @@ func buildAdjacency(
 	byMethodArity := indexFunctionsByMethodArity(functionsByNode)
 	public := indexPythonPublicNames(closure, fragments)
 	modules := indexPythonModules(closure, fragments)
+	nodePkgs := indexNodePackages(closure, fragments)
+	var nodeLinks *nodeNameOnlyLinks
 
 	for _, key := range closure {
 		fragment := fragments[key]
@@ -757,6 +762,16 @@ func buildAdjacency(
 				delete(scope, key)
 			}
 			resolve = pythonNameOnlyCandidates(pythonUnresolvedAsNameOnly(resolve, key, modules, byMethodArity), key, fragment, modules, byMethodArity, scope)
+		}
+		if fragmentEcosystem(fragment) == "node" {
+			scope := targetSet
+			if closureTargets(key) {
+				if nodeLinks == nil {
+					nodeLinks = newNodeNameOnlyLinks(closure, deps)
+				}
+				scope = nodeLinks.scope(key)
+			}
+			resolve = nodeNameOnlyCandidates(nodeUnresolvedAsNameOnly(resolve, key, nodePkgs, byMethodArity, scope), key, byMethodArity, scope)
 		}
 
 		immediate, unresolved := fallback.tracking(resolve)
@@ -987,7 +1002,7 @@ func indexFunctionsByMethodArity(functionsByNode map[graphNode]*Function) map[st
 			key = key[:i]
 		}
 		if !strings.Contains(node.Function, "#") {
-			key = arityFreeMethodKey(key)
+			key = arityFreeMethodKey(nodeUnnumberedName(key))
 		}
 		out[key] = append(out[key], node)
 	}

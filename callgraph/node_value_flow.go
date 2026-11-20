@@ -4,6 +4,7 @@
 package callgraph
 
 import (
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -75,26 +76,69 @@ type nodeValueFlow struct {
 	// module path and each member path under one that a callee names.
 	modules  map[string]string
 	packages map[string]bool
+	// pending lists the calls, constructions and loads whose callee the
+	// first walk read a parameter for; see resolvePending.
+	pending []nodePendingCall
+	// recording is set during the first walk, which fills pending.
+	recording bool
+	// untyped holds the member calls the receiver's values named no function
+	// for, by the caller's key; "" once a round resolved the call. See
+	// node_untyped.go.
+	untyped map[*FunctionCall]string
+	// fieldCalls holds the resolved member calls whose receiver is a
+	// property, and foreign the properties the package writes on another
+	// object than this; see node_untyped.go.
+	fieldCalls map[*FunctionCall]nodeFieldCall
+	foreign    map[string]bool
+	// memberWrites indexes, per function body, the functions it writes
+	// into a member of an object; see handMembers.
+	memberWrites map[nodeBodyKey]map[string][]*sitter.Node
 }
 
+// nodeBodyKey names one function body (or a module's top level).
+type nodeBodyKey struct {
+	m  *nodeShapeModule
+	at uint32
+}
+
+// nodePendingCall is a call or `new` expression of the function fn whose
+// callee depends on what a parameter holds.
+type nodePendingCall struct {
+	m  *nodeShapeModule
+	n  *sitter.Node
+	fn string
+}
+
+// nodeFlowRounds bounds how many times the calls left without a callee are
+// read again: each round sees the call sites the round before recorded, so
+// a value crosses one more function.
+const nodeFlowRounds = 4
+
 // linkNodeValueFlow adds the edges this file's comment lists to a Node graph.
-func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
+// It returns the shapes it read, with the call sites it recorded, for the
+// caller to close; nil for a graph of another ecosystem.
+func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 	if b.ecosystem != ecosystemNode {
-		return
+		return nil
 	}
 	f := &nodeValueFlow{
-		b:        b,
-		graph:    graph,
-		shapes:   NewNodeShapes(),
-		starts:   make(map[nodeDeclStart]string, len(graph.Functions)),
-		clinits:  make(map[nodeDeclStart]string),
-		callers:  make(map[string]map[string]bool),
-		sites:    make(map[string]map[nodeCallSite]*FunctionCall),
-		bindings: make(map[*nodeShapeModule]nodeBindings),
-		modules:  make(map[string]string),
-		packages: make(map[string]bool),
+		b:          b,
+		graph:      graph,
+		shapes:     NewNodeShapes(),
+		starts:     make(map[nodeDeclStart]string, len(graph.Functions)),
+		clinits:    make(map[nodeDeclStart]string),
+		callers:    make(map[string]map[string]bool),
+		sites:      make(map[string]map[nodeCallSite]*FunctionCall),
+		bindings:   make(map[*nodeShapeModule]nodeBindings),
+		modules:    make(map[string]string),
+		packages:   make(map[string]bool),
+		untyped:    make(map[*FunctionCall]string),
+		fieldCalls: make(map[*FunctionCall]nodeFieldCall),
+		foreign:    make(map[string]bool),
+
+		memberWrites: make(map[nodeBodyKey]map[string][]*sitter.Node),
 	}
-	defer f.shapes.Close()
+	f.shapes.sites = newNodeCallSites()
 	for key, decl := range graph.Functions {
 		file := filepath.Clean(decl.FilePath)
 		if decl.FunctionType == functionTypeModuleInit {
@@ -110,11 +154,14 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 			f.modules[file] = decl.ID.Package
 		}
 	}
+	f.addRequiredModules()
 	files := make([]string, 0, len(f.modules))
 	for file, module := range f.modules {
 		files = append(files, file)
 		f.packages[module] = true
 	}
+	sort.Strings(files)
+	f.shapes.indexForeignWrites(files)
 	for _, decl := range graph.Functions {
 		for i := range decl.Calls {
 			// `mod.a.b()` is keyed with package `<module>.a`.
@@ -155,15 +202,49 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) {
 		graph.Functions[decl.ID.String()] = decl
 		added = append(added, decl.ID.String())
 	}
+	f.recording = true
 	for _, file := range files {
 		if m := f.shapes.module(file); m != nil {
 			f.walk(m, m.root, f.moduleKey(file))
 		}
 	}
+	f.recording = false
+	f.resolvePending()
+	f.linkAgentProtocol(files)
+	f.markUntyped()
 	for _, key := range added {
 		if len(graph.Functions[key].ImplicitCalls) == 0 {
 			delete(graph.Functions, key)
 			delete(graph.Callers, key)
+		}
+	}
+	// The exports read with these shapes see every call site recorded.
+	f.shapes.sites.round()
+	f.shapes.sites.shared = true
+	return f.shapes
+}
+
+// resolvePending reads again the calls whose callee the first walk read a
+// parameter for, now that the call sites of each function are known: a
+// callee that is a parameter, a member of one, or built from one holds what
+// the function's callers pass (node_value_params.go). The first walk reads
+// every parameter as holding nothing, so what one holds never depends on
+// the order the files were walked in, and a call that read none has the
+// edges it will ever have. A
+// round that records no new call site, and in which no parameter held more
+// than the round before, ends the rounds.
+func (f *nodeValueFlow) resolvePending() {
+	for round := 0; round < nodeFlowRounds && len(f.pending) > 0; round++ {
+		f.shapes.sites.round()
+		for _, p := range f.pending {
+			if p.n.Type() == nodeNewExpression {
+				f.constructed(p.m, p.n, p.fn)
+				continue
+			}
+			f.callee(p.m, p.n, p.fn)
+		}
+		if f.shapes.sites.added == 0 && !f.shapes.sites.grew {
+			break
 		}
 	}
 }
@@ -213,6 +294,8 @@ func (f *nodeValueFlow) walk(m *nodeShapeModule, n *sitter.Node, fn string) {
 		f.call(m, n, fn)
 	case nodeNewExpression:
 		f.construct(m, n, fn)
+	case nodeAssignmentExpression:
+		f.noteWrite(m, n)
 	case nodeReturnStatement:
 		if n.NamedChildCount() > 0 && !nodeImmediatelyInvoked(nodeEnclosingFunction(n)) {
 			f.handOver(m, n.NamedChild(0), fn, nodeHandReturn)
@@ -322,6 +405,42 @@ func (f *nodeValueFlow) reach(m *nodeShapeModule, values []nodeShapeValue, n *si
 	return found
 }
 
+// invoke is reach for the callee of the call or `new` expression n: it also
+// records n as a call site of each function of the package among values,
+// for the function's parameters (node_value_params.go).
+func (f *nodeValueFlow) invoke(m *nodeShapeModule, values []nodeShapeValue, n *sitter.Node, fn string, shift int) bool {
+	called := values[:0:0]
+	found := false
+	for _, v := range values {
+		if v.external == nil && v.callable() && !v.class() {
+			f.shapes.sites.add(nodeFunctionStart(v.m, v.n), nodeCallRef{m: m, n: n, shift: shift})
+		}
+		if v.passed {
+			// The caller that passed the function reaches it already.
+			found = found || f.functionKey(v.m, v.n) != ""
+			continue
+		}
+		if v.external != nil && v.external.runtime && nodeRuntimeFunction(v.external) {
+			// A function of the runtime (`tls.connect` with `tls =
+			// require('tls')`): the call is resolved, to nothing of the
+			// program.
+			found = true
+			continue
+		}
+		if v.external != nil && len(v.external.steps) == 0 && !v.external.runtime {
+			// Another package's module called as a function, under a name the
+			// parser could not tie to its import (a parameter, a bound copy):
+			// its default export, as the parser keys `require('m')(x)`.
+			id := FunctionID{Package: v.external.module, Name: nodeDefaultKeyword}
+			f.edge(fn, id.String(), id, n, n.Content(m.src))
+			found = true
+			continue
+		}
+		called = append(called, v)
+	}
+	return f.reach(m, called, n, fn) || found
+}
+
 // nodeCallSite is where a call expression is written.
 type nodeCallSite struct {
 	line, startCol, endCol int
@@ -331,25 +450,14 @@ type nodeCallSite struct {
 // function the call at n runs: a function the graph declares, or one of
 // another package (a call through an import, or on a receiver a contract
 // typed). Such a call keeps the one target it has.
-func (f *nodeValueFlow) bound(n *sitter.Node, fn string) bool {
-	decl := f.graph.Functions[fn]
-	if decl == nil {
-		return false
-	}
-	sites := f.sites[fn]
-	if sites == nil {
-		sites = make(map[nodeCallSite]*FunctionCall, len(decl.Calls))
-		for i := range decl.Calls {
-			call := &decl.Calls[i]
-			sites[nodeCallSite{call.Line, call.StartCol, call.EndCol}] = call
-		}
-		f.sites[fn] = sites
-	}
-	call := sites[nodeCallSite{nodeLine(n), int(n.StartPoint().Column) + 1, int(n.EndPoint().Column) + 1}]
+func (f *nodeValueFlow) bound(m *nodeShapeModule, n *sitter.Node, fn string) bool {
+	call := f.parsedCall(n, fn)
 	if call == nil {
 		return false
 	}
-	if f.graph.Functions[call.Callee.String()] != nil {
+	if callee := f.graph.Functions[call.Callee.String()]; callee != nil {
+		at := nodeDeclStart{file: filepath.Clean(callee.FilePath), line: callee.StartLine, col: callee.StartCol}
+		f.shapes.sites.add(at, nodeCallRef{m: m, n: n})
 		return true
 	}
 	if call.nodeUnboundMember && call.Callee.Type == "" {
@@ -371,42 +479,76 @@ func (f *nodeValueFlow) call(m *nodeShapeModule, call *sitter.Node, fn string) {
 	if args != nil && !nodeTakesNoCallback(callee, m.src) && !f.registersRoute(m, call) {
 		nodeEachNamedChild(args, func(arg *sitter.Node) { f.handOver(m, arg, fn, nodeHandArgument) })
 	}
+	reads := f.shapes.sites.reads
+	f.callee(m, call, fn)
+	if f.recording && f.shapes.sites.reads != reads {
+		f.pending = append(f.pending, nodePendingCall{m: m, n: call, fn: fn})
+	}
+}
+
+// callee adds the edge from fn to what the call expression runs. It reports
+// false for a call whose callee no value named, which resolvePending reads
+// again.
+func (f *nodeValueFlow) callee(m *nodeShapeModule, call *sitter.Node, fn string) bool {
+	function, args := call.ChildByFieldName("function"), call.ChildByFieldName("arguments")
+	if function == nil {
+		return true
+	}
+	callee := unwrapNodeCallee(function)
 	q := f.shapes.query()
 	switch callee.Type() {
 	case nodeFunctionExpression, nodeArrowFunction, nodeGeneratorFunction:
 		// An immediately invoked function runs where it is written.
 		if key := f.functionKey(m, callee); key != "" {
+			f.shapes.sites.add(nodeFunctionStart(m, callee), nodeCallRef{m: m, n: call})
 			f.edge(fn, key, f.graph.Functions[key].ID, call, "")
 		}
+		return true
 	case goNodeIdentifier:
-		name := callee.Content(m.src)
-		if name == nodeRequireFunction {
-			if args != nil && args.NamedChildCount() == 1 && args.NamedChild(0).Type() == nodeStringNode {
-				f.load(m, call, unquoteNodeString(args.NamedChild(0).Content(m.src)), fn)
-			}
-			return
+		if callee.Content(m.src) == nodeRequireFunction {
+			return f.loads(m, q, call, args, fn)
 		}
 		// The name is resolved from where it is read even when the module
 		// declares a function under the same key: a bundle's export getter
 		// `sign: () => sign` is keyed sign too, and is not what `sign()` runs.
-		f.reach(m, q.values(m, callee, 0), call, fn)
+		return f.invoke(m, q.values(m, callee, 0), call, fn, 0)
 	case "import":
-		if args != nil && args.NamedChildCount() == 1 && args.NamedChild(0).Type() == nodeStringNode {
-			f.load(m, call, unquoteNodeString(args.NamedChild(0).Content(m.src)), fn)
-		}
+		return f.loads(m, q, call, args, fn)
 	case "super":
+		found := false
 		for _, class := range q.thisValues(m, callee, 0) {
 			for _, base := range q.bases(class, 0) {
-				f.reach(m, q.constructors(base, 0, 0), call, fn)
+				found = f.invoke(m, q.constructors(base, 0, 0), call, fn, 0) || found
 			}
 		}
+		return found
 	case nodeMemberExpression, nodeSubscriptExpression:
-		if nodeCallsThrough(callee, m.src) || !f.bound(call, fn) {
-			f.memberCall(m, q, call, callee, fn)
+		if nodeCallsThrough(callee, m.src) || !f.bound(m, call, fn) {
+			found := f.memberCall(m, q, call, callee, fn)
+			f.noteMemberCall(m, call, callee, fn, found)
+			return found
 		}
-	default:
-		f.reach(m, q.values(m, callee, 0), call, fn)
+		return true
 	}
+	return f.invoke(m, q.values(m, callee, 0), call, fn, 0)
+}
+
+// loads adds the edge of a `require(x)` or `import(x)`: to the module the
+// string names, or to each module a string constant x may hold names
+// (`import(path)` in a function called with '@acme/push').
+func (f *nodeValueFlow) loads(m *nodeShapeModule, q *nodeValueQuery, call, args *sitter.Node, fn string) bool {
+	if args == nil || args.NamedChildCount() != 1 {
+		return true
+	}
+	if spec := args.NamedChild(0); spec.Type() != nodeStringNode {
+		specs := q.strings(m, spec, 0)
+		for _, name := range specs {
+			f.load(m, call, name, fn)
+		}
+		return len(specs) > 0
+	}
+	f.load(m, call, unquoteNodeString(args.NamedChild(0).Content(m.src)), fn)
+	return true
 }
 
 // nodeCallsThrough reports `f.call(..)` and `f.apply(..)`: the function
@@ -419,40 +561,71 @@ func nodeCallsThrough(callee *sitter.Node, src []byte) bool {
 	return property != nil && (property.Content(src) == "call" || property.Content(src) == "apply")
 }
 
-// memberCall adds the edges of a call whose callee is a member of a value.
-func (f *nodeValueFlow) memberCall(m *nodeShapeModule, q *nodeValueQuery, call, callee *sitter.Node, fn string) {
+// memberCall adds the edges of a call whose callee is a member of a value,
+// and reports whether any value named the function called.
+func (f *nodeValueFlow) memberCall(m *nodeShapeModule, q *nodeValueQuery, call, callee *sitter.Node, fn string) bool {
 	object, name, named := nodeReadMember(callee, m.src)
 	if object == nil {
 		object = callee.ChildByFieldName("object")
 	}
 	if object == nil {
-		return
+		return true
 	}
+	found := false
 	if !named {
-		// `table[key](..)` may run any function the object holds.
-		for _, table := range q.values(m, object, 0) {
+		// `table[key](..)` may run any function the object holds, and any
+		// the module puts in it through a computed key. A member declared
+		// under that very key (`[kResume]() {..}`) is the one it runs.
+		tables := q.values(m, object, 0)
+		if key := nodeComputedKey(callee, m.src); key != "" {
+			declared := false
+			for _, table := range tables {
+				if values := q.member(table, key, 0); len(values) > 0 {
+					declared = true
+					found = f.invoke(m, values, call, fn, 0) || found
+				}
+			}
+			if declared {
+				return found
+			}
+		}
+		for _, table := range tables {
 			names := q.memberNames(table, 0)
 			if len(names) > nodeTableMemberCap {
 				continue
 			}
 			for _, member := range names {
-				f.reach(m, f.shapes.query().member(table, member, 0), call, fn)
+				found = f.invoke(m, f.shapes.query().member(table, member, 0), call, fn, 0) || found
 			}
 		}
-		return
+		if callee.Type() == nodeSubscriptExpression {
+			found = f.invoke(m, f.shapes.query().elementValues(m, callee, 0), call, fn, 0) || found
+		}
+		return found
 	}
 	name = strings.TrimPrefix(name, "#")
-	if f.reach(m, q.calleeValues(m, callee, 0), call, fn) {
-		return
+	shift := 0
+	if name == "bind" {
+		shift = 1 // `f.bind(self, a)` passes a first; self is this
+	}
+	if nodeCallsThrough(callee, m.src) {
+		if name != "call" {
+			shift = nodeUnknownArguments // `f.apply(self, list)` spells no argument
+		} else {
+			shift = 1
+		}
+	}
+	if f.invoke(m, q.calleeValues(m, callee, 0), call, fn, shift) {
+		return true
 	}
 	if object.Type() == "super" {
 		for _, class := range q.thisValues(m, object, 0) {
 			for _, base := range q.bases(class, 0) {
-				f.reach(m, q.member(base, name, 0), call, fn)
+				found = f.invoke(m, q.member(base, name, 0), call, fn, 0) || found
 			}
 		}
-		return
 	}
+	return found
 }
 
 // construct adds the edges of a `new` expression: to the constructor of a
@@ -462,12 +635,28 @@ func (f *nodeValueFlow) construct(m *nodeShapeModule, n *sitter.Node, fn string)
 	if args := n.ChildByFieldName("arguments"); args != nil {
 		nodeEachNamedChild(args, func(arg *sitter.Node) { f.handOver(m, arg, fn, nodeHandArgument) })
 	}
+	reads := f.shapes.sites.reads
+	f.constructed(m, n, fn)
+	if f.recording && f.shapes.sites.reads != reads {
+		f.pending = append(f.pending, nodePendingCall{m: m, n: n, fn: fn})
+	}
+}
+
+// constructed adds the edges from fn to what the `new` expression n runs.
+// It reports false when no value named what is constructed.
+func (f *nodeValueFlow) constructed(m *nodeShapeModule, n *sitter.Node, fn string) bool {
 	q := f.shapes.query()
-	for _, instance := range q.values(m, n, 0) {
+	instances := q.values(m, n, 0)
+	for _, instance := range instances {
 		if instance.external != nil {
+			if !f.bound(m, n, fn) {
+				// A class of another package the parser could not name: one
+				// a parameter or a dynamic load holds.
+				f.reach(m, []nodeShapeValue{instance}, n, fn)
+			}
 			continue
 		}
-		f.reach(m, q.constructors(instance, 0, 0), n, fn)
+		f.invoke(m, q.constructors(instance, 0, 0), n, fn, 0)
 		if instance.class() {
 			// The class's field initialisers run with its constructor.
 			if body := instance.n.ChildByFieldName("body"); body != nil {
@@ -478,6 +667,7 @@ func (f *nodeValueFlow) construct(m *nodeShapeModule, n *sitter.Node, fn string)
 			}
 		}
 	}
+	return len(instances) > 0
 }
 
 // nodeHandOver says how an expression hands a function over.
@@ -537,19 +727,39 @@ func (f *nodeValueFlow) handOverAt(m *nodeShapeModule, expr *sitter.Node, fn str
 		if how != nodeHandArgument {
 			return
 		}
+		f.handMembers(m, expr, fn)
 	default:
 		return
 	}
 	q := f.shapes.query()
 	q.budget = nodeValueBudget / 8
 	if expr.Type() == nodeCallExpression {
-		// Only `f.bind(..)` hands a function over; any other call hands
-		// over its result, which is not followed.
+		// `f.bind(..)` hands f over. Any other call hands over its result,
+		// which is followed only when another package's function returns it
+		// (`app.use(path, graphqlUploadExpress(opts))`): that package lists
+		// what it returns, the package's own results are not followed.
 		callee := unwrapNodeCallee(expr.ChildByFieldName("function"))
-		if callee == nil || callee.Type() != nodeMemberExpression {
+		if callee == nil {
 			return
 		}
-		if property := callee.ChildByFieldName("property"); property == nil || property.Content(m.src) != "bind" {
+		if property := callee.ChildByFieldName("property"); callee.Type() != nodeMemberExpression || property == nil || property.Content(m.src) != "bind" {
+			if callee.Type() == goNodeIdentifier || callee.Type() == nodeMemberExpression {
+				var results []nodeShapeValue
+				for _, v := range q.values(m, callee, 0) {
+					if v.external == nil || v.external.runtime {
+						continue
+					}
+					if len(v.external.steps) == 0 {
+						// The module itself, called: its default export.
+						for _, d := range v.step(nodeAccessStep{name: nodeDefaultExport}) {
+							results = appendNodeValues(results, d.step(nodeAccessStep{call: true})...)
+						}
+						continue
+					}
+					results = appendNodeValues(results, v.step(nodeAccessStep{call: true})...)
+				}
+				f.reach(m, results, expr, fn)
+			}
 			return
 		}
 		f.reach(m, q.values(m, callee.ChildByFieldName("object"), 0), expr, fn)
@@ -619,4 +829,150 @@ func (f *nodeValueFlow) load(m *nodeShapeModule, n *sitter.Node, spec string, fn
 	}
 	id := FunctionID{Package: spec, Name: moduleInitMethodName}
 	f.edge(fn, id.String(), id, n, moduleInitMethodName)
+}
+
+// nodeRequiredModuleCap bounds the modules addRequiredModules adds.
+const nodeRequiredModuleCap = 4096
+
+// addRequiredModules adds to the modules the files the graph's modules load
+// by a relative specifier and that declare no function, transitively: a
+// module holding only data (`module.exports = { options: {} }`, node-forge's
+// shared namespace that every other module writes its functions into) is
+// still the receiver of the calls made through it, `forge.pkcs5.pbkdf2(..)`.
+func (f *nodeValueFlow) addRequiredModules() {
+	queue := make([]string, 0, len(f.modules))
+	for file := range f.modules {
+		queue = append(queue, file)
+	}
+	sort.Strings(queue)
+	for len(queue) > 0 && len(f.modules) < nodeRequiredModuleCap {
+		file := queue[0]
+		queue = queue[1:]
+		m := f.shapes.module(file)
+		if m == nil {
+			continue
+		}
+		module := f.modules[file]
+		nodeWalk(m.root, func(n *sitter.Node) {
+			spec := nodeRequireSource(n, m.src)
+			if spec == "" && n.Type() == "import_statement" {
+				if source := n.ChildByFieldName("source"); source != nil {
+					spec = unquoteNodeString(source.Content(m.src))
+				}
+			}
+			if !isNodeRelativeSpecifier(spec) {
+				return
+			}
+			target := f.shapes.relative(m, spec)
+			if target == nil {
+				return
+			}
+			path := filepath.Clean(target.path)
+			if _, known := f.modules[path]; known {
+				return
+			}
+			dir := pathpkg.Dir(module)
+			if rel, err := filepath.Rel(filepath.Dir(filepath.Clean(m.path)), filepath.Dir(path)); err == nil {
+				dir = pathpkg.Join(dir, filepath.ToSlash(rel))
+			}
+			f.modules[path] = nodeModulePath(dir, path)
+			queue = append(queue, path)
+		})
+	}
+}
+
+// handMembers adds an edge from fn to each function the body the argument
+// expr is written in assigns into a member of that same expression before
+// handing it over: node-apn writes `this.config.createConnection = (a) =>
+// tls.connect(..)` and passes this.config to http2.connect, which calls it;
+// ws writes `opts.createConnection = isSecure ? tlsConnect : netConnect`.
+func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn string) {
+	if expr.Type() != goNodeIdentifier && expr.Type() != nodeMemberExpression {
+		return
+	}
+	body := expr.Parent()
+	for body != nil && !nodeIsFunction(body) && body.Type() != nodeMethodDefinition && body.Type() != nodeProgram {
+		body = body.Parent()
+	}
+	if body == nil {
+		return
+	}
+	key := nodeBodyKey{m: m, at: body.StartByte()}
+	writes, ok := f.memberWrites[key]
+	if !ok {
+		writes = make(map[string][]*sitter.Node)
+		nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+			if n.Type() != nodeAssignmentExpression {
+				return
+			}
+			left, right := n.ChildByFieldName("left"), nodeUnwrapValue(n.ChildByFieldName("right"))
+			if left == nil || right == nil || left.Type() != nodeMemberExpression {
+				return
+			}
+			if object := left.ChildByFieldName("object"); object != nil {
+				writes[object.Content(m.src)] = append(writes[object.Content(m.src)], right)
+			}
+		})
+		f.memberWrites[key] = writes
+	}
+	for _, right := range writes[expr.Content(m.src)] {
+		switch right.Type() {
+		case nodeFunctionExpression, nodeArrowFunction, nodeGeneratorFunction:
+			if key := f.functionKey(m, right); key != "" {
+				f.edge(fn, key, f.graph.Functions[key].ID, right, "")
+			}
+		default:
+			// `opts.createConnection = secure ? tlsConnect : netConnect`.
+			q := f.shapes.query()
+			q.budget = nodeValueBudget / 8
+			f.reach(m, nodeLocalValues(q.values(m, right, 0)), right, fn)
+		}
+	}
+}
+
+// nodeRuntimeFunction reports an access that names a function of the
+// runtime: a member of a runtime module by plain reads (`tls.connect`,
+// `http2.connect`), or, for a module whose functions hand back values of
+// the runtime only (nodeRuntimeClosedModules), a method of what a chain of
+// its calls returned (`crypto.createHmac(a, k).update(t).digest`,
+// `readline.createInterface(o).close`).
+//
+// What other runtime calls return may be the program's own objects
+// (`store.getStore()` of an AsyncLocalStorage, `util.promisify(f)`), a
+// construction may be of a class the program extends (`this.retrieve()` in
+// a class extending EventEmitter), and a member read off a result may be an
+// object the program stored there (`socket.parser.execute(d)`): a member of
+// any of them is no runtime function.
+func nodeRuntimeFunction(a *nodeValueAccess) bool {
+	if len(a.steps) == 0 || a.steps[len(a.steps)-1].call {
+		return false
+	}
+	closed := nodeRuntimeClosedModules[strings.TrimPrefix(a.module, "node:")]
+	called := false
+	for i, step := range a.steps {
+		switch {
+		case step.ctor || step.name == "":
+			return false
+		case step.call:
+			if !closed {
+				return false
+			}
+			called = true
+		case called && i < len(a.steps)-1:
+			return false
+		}
+	}
+	return true
+}
+
+// nodeRuntimeClosedModules are the runtime modules whose functions, and the
+// methods of what they return, hand back values of the runtime (a Hash, a
+// Socket, a ClientRequest, a Buffer, a string) and never an object of the
+// program. Modules that carry the program's values or functions through
+// (events, stream, util, async_hooks, vm, module, worker_threads) are not
+// listed.
+var nodeRuntimeClosedModules = map[string]bool{
+	"crypto": true, "zlib": true, "readline": true, "fs": true, "fs/promises": true, "os": true, "path": true,
+	"dns": true, "net": true, "tls": true, "http": true, "https": true, "http2": true, "dgram": true,
+	"child_process": true, "url": true, "querystring": true, "string_decoder": true, "buffer": true,
 }

@@ -4,7 +4,6 @@
 package callgraph
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -54,15 +53,15 @@ type NodeExports struct {
 // name assigned through an alias of the exports object counts too:
 // `var elliptic = exports; elliptic.ec = ...` and `module.exports = bls; bls.x = ...`.
 func NodeModuleExports(filePath string) (*NodeExports, error) {
-	parser := NewNodeParser().parserForFile(filePath)
-	if parser == nil {
+	parser := NewNodeParser()
+	if parser.parserForFile(filePath) == nil {
 		return nil, fmt.Errorf("callgraph: node exports: unsupported source file %s", filePath)
 	}
 	src, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node exports: read %s: %w", filePath, err)
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := parser.parseSource(filePath, src)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node exports: parse %s: %w", filePath, err)
 	}

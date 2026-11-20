@@ -4,8 +4,10 @@
 package callgraph
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -34,7 +36,7 @@ const (
 	// nodeValueBudget bounds the expressions one question follows.
 	nodeValueBudget = 4096
 	// nodeValueFanout bounds the values one expression yields.
-	nodeValueFanout = 12
+	nodeValueFanout = 32
 )
 
 // nodeShapeValue is one value the source builds.
@@ -48,6 +50,15 @@ type nodeShapeValue struct {
 	// external is a value of another package, spelled as the steps from its
 	// import (node_value_access.go); m and n are nil.
 	external *nodeValueAccess
+	// passed marks a function a caller passed as an argument, read from the
+	// parameter that received it: the caller already reaches it for handing
+	// it over (nodeValueFlow.handOver), so calling it draws no second edge
+	// from a callee that every other caller shares.
+	passed bool
+	// method is the method whose `this` this instance is, nil otherwise: a
+	// member its class lacks is looked for on the instances the method is
+	// called on (receiverValues).
+	method *sitter.Node
 }
 
 func (v nodeShapeValue) same(o nodeShapeValue) bool {
@@ -105,6 +116,11 @@ func (v nodeShapeValue) step(step nodeAccessStep) []nodeShapeValue {
 type nodeValueQuery struct {
 	s      *NodeShapes
 	budget int
+	// active holds the parameters the question is reading; see enter
+	// (node_value_params.go).
+	active map[nodeParamKey]bool
+	// cut is set when the question ran out of budget.
+	cut bool
 }
 
 func (s *NodeShapes) query() *nodeValueQuery {
@@ -113,6 +129,9 @@ func (s *NodeShapes) query() *nodeValueQuery {
 
 func (q *nodeValueQuery) spend() bool {
 	q.budget--
+	if q.budget < 0 {
+		q.cut = true
+	}
 	return q.budget >= 0
 }
 
@@ -167,6 +186,9 @@ func (q *nodeValueQuery) values(m *nodeShapeModule, n *sitter.Node, depth int) [
 	case nodeMemberExpression, nodeSubscriptExpression:
 		object, name, ok := nodeReadMember(n, m.src)
 		if !ok {
+			if n.Type() == nodeSubscriptExpression {
+				return q.elementValues(m, n, depth)
+			}
 			return nil
 		}
 		if n.Content(m.src) == nodeModuleExportsTarget {
@@ -219,7 +241,7 @@ func (q *nodeValueQuery) nameValues(m *nodeShapeModule, n *sitter.Node, depth in
 					// The parameter an IIFE receives module.exports as.
 					return []nodeShapeValue{{m: m, n: m.root, module: true}}
 				}
-				return nil
+				return q.parameterValues(m, scope, name)
 			}
 			if own := scope.ChildByFieldName(nodeFieldName); own != nil && scope.Type() == nodeFunctionExpression && own.Content(m.src) == name {
 				return []nodeShapeValue{{m: m, n: scope}}
@@ -599,8 +621,11 @@ func (q *nodeValueQuery) callValues(m *nodeShapeModule, call *sitter.Node, depth
 		return nil
 	}
 	if text := fn.Content(m.src); text == nodeRequireFunction || fn.Type() == "import" {
-		if args.NamedChildCount() != 1 || args.NamedChild(0).Type() != nodeStringNode {
+		if args.NamedChildCount() != 1 {
 			return nil
+		}
+		if args.NamedChild(0).Type() != nodeStringNode {
+			return q.loaded(m, args.NamedChild(0), depth)
 		}
 		spec := unquoteNodeString(args.NamedChild(0).Content(m.src))
 		if target := q.s.local(m, spec); target != nil {
@@ -667,11 +692,9 @@ func (q *nodeValueQuery) results(v nodeShapeValue, depth int) []nodeShapeValue {
 		return q.values(v.m, body, depth+1)
 	}
 	var out []nodeShapeValue
-	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
-		if n.Type() == goNodeReturnStatement && n.NamedChildCount() > 0 {
-			out = appendNodeValues(out, q.values(v.m, n.NamedChild(0), depth+1)...)
-		}
-	})
+	for _, returned := range v.m.returnedValues(body) {
+		out = appendNodeValues(out, q.values(v.m, returned, depth+1)...)
+	}
 	return out
 }
 
@@ -698,7 +721,13 @@ func (q *nodeValueQuery) thisValues(m *nodeShapeModule, n *sitter.Node, depth in
 	for fn := n.Parent(); fn != nil; fn = fn.Parent() {
 		switch fn.Type() {
 		case nodeMethodDefinition:
-			return nodeMethodOwner(m, fn)
+			owner := nodeMethodOwner(m, fn)
+			for i := range owner {
+				if owner[i].instance {
+					owner[i].method = fn
+				}
+			}
+			return owner
 		case nodeFieldDefinition, nodePublicFieldDefinition:
 			if body := fn.Parent(); body != nil && body.Parent() != nil {
 				return []nodeShapeValue{{m: m, n: body.Parent(), instance: !hasNodeToken(fn, "static")}}
@@ -768,9 +797,21 @@ func nodeValueNames(v nodeShapeValue) []string {
 		}
 	}
 	holder := v.n.Parent()
-	for holder != nil && holder.Type() == goNodeParenExpr {
+	// The value of a default (`ns.x = ns.x || {}`) and of a chain of
+	// assignments (`var x = ns.x = ns.x || {}`) is named by each target.
+	for holder != nil {
+		switch {
+		case holder.Type() == goNodeParenExpr:
+		case holder.Type() == "binary_expression" && nodeDefaultOperator(holder, v.m.src):
+		case holder.Type() == nodeAssignmentExpression && holder.ChildByFieldName("left") != nil &&
+			holder.ChildByFieldName("left").Type() == nodeMemberExpression:
+			add(holder.ChildByFieldName("left").Content(v.m.src))
+		default:
+			goto named
+		}
 		holder = holder.Parent()
 	}
+named:
 	if holder == nil {
 		return names
 	}
@@ -785,6 +826,13 @@ func nodeValueNames(v nodeShapeValue) []string {
 		}
 	}
 	return names
+}
+
+// nodeDefaultOperator reports whether the binary expression n is `a || b`
+// or `a ?? b`, which hold the value of either operand.
+func nodeDefaultOperator(n *sitter.Node, src []byte) bool {
+	op := n.ChildByFieldName("operator")
+	return op != nil && (op.Content(src) == "||" || op.Content(src) == "??")
 }
 
 // member is what the member name of v is.
@@ -811,7 +859,10 @@ func (q *nodeValueQuery) member(v nodeShapeValue, name string, depth int) []node
 				return q.values(v.m, value, depth+1)
 			}
 		}
-		return q.assignedMember(v, name, depth)
+		if values := q.assignedMember(v, name, depth); len(values) > 0 {
+			return values
+		}
+		return q.foreignMember(v, name, depth)
 	case v.callable() && v.n.Type() != nodeMethodDefinition:
 		if name == nodePrototypeMember {
 			return []nodeShapeValue{{m: v.m, n: v.n, instance: true}}
@@ -843,6 +894,25 @@ func (q *nodeValueQuery) moduleMember(v nodeShapeValue, name string, depth int) 
 		return q.values(v.m, q.s.followExportAlias(v.m, value, 0), depth+1)
 	}
 	return nil
+}
+
+// foreignMember is what other modules of the package assign to the member
+// name of the object a module exports, through the name they require it
+// under: node-forge's forge.js exports `{ options }`, and pbkdf2.js writes
+// `forge.pkcs5 = forge.pkcs5 || {}` into it with `forge = require('./forge')`.
+func (q *nodeValueQuery) foreignMember(v nodeShapeValue, name string, depth int) []nodeShapeValue {
+	writes := q.s.foreign[filepath.Clean(v.m.path)][name]
+	if len(writes) == 0 {
+		return nil
+	}
+	if exported, em := q.s.exportValue(v.m, nodeDefaultExport, depth); exported == nil || em != v.m || !sameSyntaxNode(nodeUnfrozen(exported, v.m.src), v.n) {
+		return nil
+	}
+	var out []nodeShapeValue
+	for _, w := range writes {
+		out = appendNodeValues(out, q.values(w.m, w.value, depth+1)...)
+	}
+	return out
 }
 
 // assignedMember is the value the module assigns to `<v>.name` after v is
@@ -896,7 +966,9 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 		return v.step(nodeAccessStep{name: name})
 	}
 	if v.class() {
-		if member := nodeClassMember(v.m, v.n, name, false); member != nil {
+		// A field declared without a value (`adapter: Adapter;`) holds what
+		// the constructor or a method assigns it.
+		if member := nodeClassMember(v.m, v.n, name, false); member != nil && (member.Type() == nodeMethodDefinition || member.ChildByFieldName("value") != nil) {
 			return q.classMemberValues(v.m, member, depth)
 		}
 	}
@@ -915,14 +987,30 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 		}
 	}
 	if value := v.m.thisAssignments(nodeConstructorBody(v))[name]; value != nil {
-		return q.values(v.m, value, depth+1)
+		if !nodeIsNothing(value) {
+			return appendNodeValues(q.values(v.m, value, depth+1), q.heldWrites(v, name, depth)...)
+		}
+		// A field the constructor empties (`this.next = null`) holds what
+		// the methods assign it.
 	}
 	if found := q.fieldValues(v, name, depth); len(found) > 0 {
+		return appendNodeValues(found, q.heldWrites(v, name, depth)...)
+	}
+	if found := q.heldWrites(v, name, depth); len(found) > 0 {
 		return found
 	}
 	var out []nodeShapeValue
 	for _, base := range q.bases(v, depth) {
 		out = appendNodeValues(out, q.instanceMember(base, name, depth+1, up+1)...)
+	}
+	if v.method != nil && len(nodeLocalValues(out)) == 0 {
+		// `this` in a base class's method, called on a subclass's instance;
+		// a base outside the package (EventEmitter) declares nothing here.
+		for _, r := range q.receiverValues(v.m, v.method) {
+			if r.m != v.m || !sameSyntaxNode(r.n, v.n) {
+				out = appendNodeValues(out, q.instanceMember(r, name, depth+1, up+1)...)
+			}
+		}
 	}
 	return out
 }
@@ -939,27 +1027,161 @@ func (q *nodeValueQuery) fieldValues(v nodeShapeValue, name string, depth int) [
 		return nil
 	}
 	var out []nodeShapeValue
-	unknown, count := false, 0
+	unknown, count, steps := false, 0, false
 	nodeEachNamedChild(body, func(member *sitter.Node) {
 		if member.Type() != nodeMethodDefinition || unknown {
 			return
 		}
-		value := v.m.thisAssignments(member.ChildByFieldName("body"))[name]
-		if value == nil || nodeIsNothing(value) {
-			return
+		for _, value := range v.m.thisAssignmentsOf(member.ChildByFieldName("body"), name) {
+			if nodeIsNothing(value) {
+				continue
+			}
+			if nodeCallsThisField(value, name, v.m.src) {
+				steps = true // `this.next = this.next(p)`: read below
+				continue
+			}
+			count++
+			held := q.values(v.m, value, depth+1)
+			if len(held) == 0 || count > nodeAssignmentFanout {
+				unknown = true
+				return
+			}
+			out = appendNodeValues(out, held...)
 		}
-		count++
-		held := q.values(v.m, value, depth+1)
-		if len(held) == 0 || count > nodeAssignmentFanout {
-			unknown = true
-			return
-		}
-		out = appendNodeValues(out, held...)
 	})
 	if unknown {
 		return nil
 	}
+	if steps {
+		// A field a method sets to what calling it returns (a state
+		// machine: each state returns the next) holds the functions the
+		// others assign and what calling those returns, to a fixed point.
+		for round := 0; round < nodeAssignmentFanout; round++ {
+			grown := false
+			for _, state := range slices.Clone(out) {
+				for _, next := range q.results(state, depth+1) {
+					if next.callable() && !next.class() && !slices.ContainsFunc(out, next.same) {
+						out = appendNodeValues(out, next)
+						grown = true
+					}
+				}
+			}
+			if !grown {
+				break
+			}
+		}
+	}
 	return out
+}
+
+// heldWrites is what the plain functions the fields of v's class hold
+// assign to the field name of this: ssh2's Protocol sets `this._parse =
+// parseHeader`, a function that runs as its method and sets `this._parse =
+// parsePacket` and `this._decipher = new NullDecipher(..)`.
+func (q *nodeValueQuery) heldWrites(v nodeShapeValue, name string, depth int) []nodeShapeValue {
+	if !v.class() {
+		return nil
+	}
+	var out []nodeShapeValue
+	for _, fn := range v.m.heldFunctions(v.n) {
+		for _, value := range v.m.thisAssignmentsOf(fn.ChildByFieldName("body"), name) {
+			if !nodeIsNothing(value) {
+				out = appendNodeValues(out, q.values(v.m, value, depth+1)...)
+			}
+		}
+	}
+	return out
+}
+
+// heldFunctions lists the plain functions (declarations and function
+// expressions, whose `this` is the object they are called on) that the
+// constructor and methods of class assign to a field of this, and those
+// such functions assign in turn, by syntax alone.
+func (m *nodeShapeModule) heldFunctions(class *sitter.Node) []*sitter.Node {
+	if found, ok := m.held[class.StartByte()]; ok {
+		return found
+	}
+	if m.held == nil {
+		m.held = make(map[uint32][]*sitter.Node)
+	}
+	var out []*sitter.Node
+	seen := make(map[uint32]bool)
+	scan := func(body *sitter.Node) {
+		if body == nil {
+			return
+		}
+		m.thisAssignmentsOf(body, "")
+		for _, values := range m.thisAssignedAll[body.StartByte()] {
+			for _, value := range values {
+				fn := nodeUnwrapValue(value)
+				if fn != nil && fn.Type() == goNodeIdentifier {
+					fn = nodeTopLevelFunction(m.root, fn.Content(m.src), m.src)
+				}
+				if fn == nil || seen[fn.StartByte()] || len(out) >= nodeHeldFunctionCap {
+					continue
+				}
+				if fn.Type() == nodeFunctionDeclaration || fn.Type() == nodeFunctionExpression {
+					seen[fn.StartByte()] = true
+					out = append(out, fn)
+				}
+			}
+		}
+	}
+	if body := class.ChildByFieldName("body"); body != nil {
+		nodeEachNamedChild(body, func(member *sitter.Node) {
+			if member.Type() == nodeMethodDefinition {
+				scan(member.ChildByFieldName("body"))
+			}
+		})
+	}
+	for i := 0; i < len(out); i++ {
+		scan(out[i].ChildByFieldName("body"))
+	}
+	m.held[class.StartByte()] = out
+	return out
+}
+
+// nodeHeldFunctionCap bounds the functions one class's fields hold.
+const nodeHeldFunctionCap = 32
+
+// nodeCallsThisField reports whether value calls the field name of this:
+// `this.next(p)` or `this.next.call(this, p)`.
+func nodeCallsThisField(value *sitter.Node, name string, src []byte) bool {
+	value = nodeUnwrapValue(value)
+	if value == nil || value.Type() != nodeCallExpression {
+		return false
+	}
+	callee := value.ChildByFieldName("function")
+	if callee != nil && callee.Type() == nodeMemberExpression && nodeCallsThrough(callee, src) {
+		callee = callee.ChildByFieldName("object")
+	}
+	return callee != nil && strings.TrimPrefix(nodeThisField(callee, src), nodeThisNode+".") == name
+}
+
+// thisAssignmentsOf lists every value body assigns to the field name of
+// this, outside nested functions, in source order.
+func (m *nodeShapeModule) thisAssignmentsOf(body *sitter.Node, name string) []*sitter.Node {
+	if body == nil {
+		return nil
+	}
+	if found, ok := m.thisAssignedAll[body.StartByte()]; ok {
+		return found[name]
+	}
+	found := make(map[string][]*sitter.Node)
+	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+		if n.Type() != nodeAssignmentExpression {
+			return
+		}
+		if field := nodeThisField(n.ChildByFieldName("left"), m.src); field != "" {
+			field = strings.TrimPrefix(strings.TrimPrefix(field, nodeThisNode+"."), "#")
+			found[field] = append(found[field], n.ChildByFieldName("right"))
+		}
+	})
+	if m.thisAssignedAll == nil {
+		m.thisAssignedAll = make(map[uint32]map[string][]*sitter.Node)
+	}
+	m.thisAssignedAll[body.StartByte()] = found
+	return found[name]
 }
 
 // nodeConstructorBody is the body that runs when v is constructed: the
@@ -1114,7 +1336,8 @@ func (m *nodeShapeModule) inherited() map[string][]*sitter.Node {
 // nodeMemberNameCap bounds the member names listed for one value.
 const nodeMemberNameCap = 256
 
-// memberNames lists the members v is known to have, in source order: the
+// memberNames lists the members v is known to have, in a stable order (a
+// source's as written, a set's sorted): the
 // keys of an object literal and the properties assigned to it, the methods
 // and fields of an instance with those it inherits, the static members of a
 // class. A module's are its export names.
@@ -1137,17 +1360,15 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 		return
 	}
 	assigned := func(prefixes ...string) {
-		for target := range v.m.assignments().byTarget {
-			for _, prefix := range prefixes {
-				if rest, ok := strings.CutPrefix(target, prefix); ok && rest != "" && !strings.ContainsAny(rest, ".[(") && rest != nodePrototypeMember {
-					add(rest)
-				}
+		for _, prefix := range prefixes {
+			for _, rest := range v.m.assignments().memberNamesUnder(prefix) {
+				add(rest)
 			}
 		}
 	}
 	switch {
 	case v.module:
-		for name := range nodeExportedNames(v.m.path, map[string]bool{}, 0) {
+		for _, name := range q.s.exportedNames(v.m.path) {
 			add(name)
 		}
 	case v.instance:
@@ -1170,7 +1391,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 				}
 			}
 		}
-		for name := range v.m.thisAssignments(nodeConstructorBody(v)) {
+		for _, name := range slices.Sorted(maps.Keys(v.m.thisAssignments(nodeConstructorBody(v)))) {
 			add(name)
 		}
 		for _, base := range q.bases(v, depth) {
@@ -1199,7 +1420,7 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 		}
 		for _, base := range nodeValueNames(v) {
 			assigned(base + ".")
-			for name := range v.m.definedMembers()[base] {
+			for _, name := range slices.Sorted(maps.Keys(v.m.definedMembers()[base])) {
 				add(name)
 			}
 		}
@@ -1265,4 +1486,23 @@ func (s *NodeShapes) local(from *nodeShapeModule, spec string) *nodeShapeModule 
 		}
 	}
 	return nil
+}
+
+// returnedValues lists the expressions the return statements of a function
+// body return, outside nested functions, read once per body.
+func (m *nodeShapeModule) returnedValues(body *sitter.Node) []*sitter.Node {
+	if found, ok := m.returned[body.StartByte()]; ok {
+		return found
+	}
+	if m.returned == nil {
+		m.returned = make(map[uint32][]*sitter.Node)
+	}
+	var out []*sitter.Node
+	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+		if n.Type() == goNodeReturnStatement && n.NamedChildCount() > 0 {
+			out = append(out, n.NamedChild(0))
+		}
+	})
+	m.returned[body.StartByte()] = out
+	return out
 }

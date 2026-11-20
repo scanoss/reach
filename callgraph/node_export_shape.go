@@ -4,10 +4,11 @@
 package callgraph
 
 import (
-	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -41,6 +42,89 @@ type NodeShapes struct {
 	modules map[string]*nodeShapeModule
 	// exports remembers what exportValue answered; see node_export_memo.go.
 	exports nodeExportMemo
+	// sites holds the call sites the value flow recorded, nil outside it;
+	// see node_value_params.go.
+	sites *nodeCallSites
+	// foreign holds, by the file of a module and member name, what other
+	// modules assign to that member of what it exports (indexForeignWrites).
+	foreign map[string]map[string][]nodeForeignWrite
+	// names remembers exportedNames' answers by file.
+	names map[string][]string
+}
+
+// exportedNames lists, sorted, the names file exports (nodeExportedNames),
+// read once per file.
+func (s *NodeShapes) exportedNames(file string) []string {
+	if names, ok := s.names[file]; ok {
+		return names
+	}
+	if s.names == nil {
+		s.names = make(map[string][]string)
+	}
+	names := slices.Sorted(maps.Keys(nodeExportedNames(file, map[string]bool{}, 0)))
+	s.names[file] = names
+	return names
+}
+
+// nodeForeignWrite is the value one module assigns to a member of another
+// module's exports.
+type nodeForeignWrite struct {
+	m     *nodeShapeModule
+	value *sitter.Node
+}
+
+// nodeForeignWriteCap bounds the writes indexed for one member.
+const nodeForeignWriteCap = 16
+
+// indexForeignWrites indexes, over the modules files, each assignment
+// `x.name = value` whose x is a module-level name bound to the require of a
+// relative module: the member name of what that module exports holds value.
+func (s *NodeShapes) indexForeignWrites(files []string) {
+	s.foreign = make(map[string]map[string][]nodeForeignWrite)
+	for _, file := range files {
+		m := s.module(file)
+		if m == nil {
+			continue
+		}
+		required := make(map[string]string)
+		m.walk(func(n *sitter.Node) {
+			if n.Type() != nodeAssignmentExpression {
+				return
+			}
+			left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+			if left == nil || right == nil || left.Type() != nodeMemberExpression {
+				return
+			}
+			object, property := left.ChildByFieldName("object"), left.ChildByFieldName("property")
+			if object == nil || property == nil || object.Type() != goNodeIdentifier || property.Type() != nodePropertyIdentifier {
+				return
+			}
+			base := object.Content(m.src)
+			target, seen := required[base]
+			if !seen {
+				if decl := nodeShapeDeclaration(m.root, base, m.src); decl != nil {
+					if spec := nodeRequireSource(decl, m.src); isNodeRelativeSpecifier(spec) {
+						if tm := s.relative(m, spec); tm != nil {
+							target = filepath.Clean(tm.path)
+						}
+					}
+				}
+				required[base] = target
+			}
+			if target == "" || target == filepath.Clean(m.path) {
+				return
+			}
+			byName := s.foreign[target]
+			if byName == nil {
+				byName = make(map[string][]nodeForeignWrite)
+				s.foreign[target] = byName
+			}
+			name := property.Content(m.src)
+			if len(byName[name]) < nodeForeignWriteCap {
+				byName[name] = append(byName[name], nodeForeignWrite{m: m, value: right})
+			}
+		})
+	}
 }
 
 type nodeShapeModule struct {
@@ -57,7 +141,15 @@ type nodeShapeModule struct {
 	// thisAssigned and inherits are built on first use; see thisAssignments
 	// and inherited (node_value_shapes.go).
 	thisAssigned map[uint32]map[string]*sitter.Node
-	inherits     map[string][]*sitter.Node
+	// thisAssignedAll lists every value per field; see thisAssignmentsOf.
+	thisAssignedAll map[uint32]map[string][]*sitter.Node
+	inherits        map[string][]*sitter.Node
+	// held lists, per class, the plain functions its fields hold; see
+	// heldFunctions.
+	held map[uint32][]*sitter.Node
+	// returned lists, per function body, what its return statements
+	// return; see returnedValues.
+	returned map[uint32][]*sitter.Node
 	// declared, programDeclared and imported are built on first use; see
 	// declarations and imports (node_value_shapes.go).
 	declared        map[uint32]map[string]nodeShapeDecl
@@ -71,6 +163,9 @@ type nodeShapeModule struct {
 	defined      map[string]map[string]*sitter.Node
 	// rebound is built on first use; see reassigned (node_value_shapes.go).
 	rebound map[nodeScopedName][]*sitter.Node
+	// elements is built on first use; see elementWrites
+	// (node_value_params.go).
+	elements map[string][]nodeElementWrite
 }
 
 // topLevel lists the module's top-level statements. Reading the i-th child
@@ -103,6 +198,29 @@ func (m *nodeShapeModule) topLevel() []*sitter.Node {
 type nodeAssignments struct {
 	aliases  map[string]bool
 	byTarget map[string]*nodeTargetAssignments
+	// members lists, by the prefix up to a target's last dot, the member
+	// names assigned under it, sorted; built on first use (memberNamesUnder).
+	members map[string][]string
+}
+
+// memberNamesUnder lists the names assigned as `<prefix><name>`, sorted, the
+// prototype left out.
+func (a *nodeAssignments) memberNamesUnder(prefix string) []string {
+	if a.members == nil {
+		a.members = make(map[string][]string)
+		for _, target := range slices.Sorted(maps.Keys(a.byTarget)) {
+			dot := strings.LastIndex(target, ".")
+			if dot < 0 {
+				continue
+			}
+			rest := target[dot+1:]
+			if rest == "" || strings.ContainsAny(rest, "[(") || rest == nodePrototypeMember {
+				continue
+			}
+			a.members[target[:dot+1]] = append(a.members[target[:dot+1]], rest)
+		}
+	}
+	return a.members[prefix]
 }
 
 // nodeTargetAssignments holds the first assignment to one target and the first
@@ -342,15 +460,14 @@ func (s *NodeShapes) module(path string) *nodeShapeModule {
 		return m
 	}
 	s.modules[path] = nil
-	parser := s.parser.parserForFile(path)
-	if parser == nil {
+	if s.parser.parserForFile(path) == nil {
 		return nil
 	}
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := s.parser.parseSource(path, src)
 	if err != nil {
 		return nil
 	}
@@ -719,16 +836,27 @@ func (s *NodeShapes) commonJSExportValue(m *nodeShapeModule, stmt *sitter.Node, 
 		return nil, nil
 	}
 	if value.Type() == nodeShorthandProperty {
-		return s.binding(m, value, name, depth)
+		return s.shorthandBinding(m, value, name, depth)
 	}
 	return value, m
+}
+
+// shorthandBinding follows the shorthand property `{ name }` to the binding
+// it names. A name destructured from a value (`const { g } = make()`) is
+// the property itself, which the value shapes follow into each value make
+// returns; a single definition would keep only one.
+func (s *NodeShapes) shorthandBinding(m *nodeShapeModule, at *sitter.Node, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	if b, ok := m.nameBinding(at); ok && b.scope != nil && b.decl.member != "" {
+		return at, m
+	}
+	return s.binding(m, at, name, depth)
 }
 
 func nodeShapeCommonJSExport(stmt *sitter.Node, name string, src []byte) *sitter.Node {
 	if stmt.NamedChildCount() == 0 || stmt.NamedChild(0).Type() != nodeAssignmentExpression {
 		return nil
 	}
-	expr := stmt.NamedChild(0)
+	expr := nodeExportsRebinding(stmt.NamedChild(0), src)
 	left, right := expr.ChildByFieldName("left"), expr.ChildByFieldName("right")
 	if left == nil || right == nil {
 		return nil
@@ -866,15 +994,15 @@ func nodeWalkSkippingFunctions(n *sitter.Node, visit func(*sitter.Node)) {
 // NodeCodeNames returns the identifiers a JavaScript or TypeScript file's code
 // names, leaving out comments and strings.
 func NodeCodeNames(path string) (map[string]bool, error) {
-	parser := NewNodeParser().parserForFile(path)
-	if parser == nil {
+	parser := NewNodeParser()
+	if parser.parserForFile(path) == nil {
 		return nil, fmt.Errorf("callgraph: node names: unsupported source file %s", path)
 	}
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node names: read %s: %w", path, err)
 	}
-	tree, err := parser.ParseCtx(context.TODO(), nil, src)
+	tree, err := parser.parseSource(path, src)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node names: parse %s: %w", path, err)
 	}
@@ -916,7 +1044,7 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 		return nil, nil
 	}
 	if value := assignedExportPath(mod, name, members); value != nil {
-		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil && !nodeIsUnresolvedValue(def) {
+		if def, dm := s.definitionNode(mod, s.followExportAlias(mod, value, 0), 0); def != nil && !nodeIsUnresolvedValue(def, dm.src) {
 			return def, dm
 		}
 	}
@@ -928,7 +1056,7 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 		value, vm = s.memberValue(vm, value, member, 0)
 	}
 	def, dm := s.definitionNode(vm, value, 0)
-	if def != nil && !nodeIsUnresolvedValue(def) {
+	if def != nil && !nodeIsUnresolvedValue(def, dm.src) {
 		return def, dm
 	}
 	// The path ends in an expression the lookups above do not read: a
@@ -955,11 +1083,18 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 }
 
 // nodeIsUnresolvedValue reports an expression that names a value without
-// being its definition.
-func nodeIsUnresolvedValue(n *sitter.Node) bool {
+// being its definition: `f.bind(self)` among them, which is f.
+func nodeIsUnresolvedValue(n *sitter.Node, src []byte) bool {
 	switch n.Type() {
-	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode:
+	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode, nodeShorthandProperty:
 		return true
+	case nodeCallExpression:
+		callee := unwrapNodeCallee(n.ChildByFieldName("function"))
+		if callee == nil || callee.Type() != nodeMemberExpression {
+			return false
+		}
+		property := callee.ChildByFieldName("property")
+		return property != nil && property.Content(src) == "bind"
 	}
 	return false
 }
@@ -1062,7 +1197,7 @@ func (s *NodeShapes) objectEntryMember(m *nodeShapeModule, c *sitter.Node, membe
 	switch c.Type() {
 	case nodeShorthandProperty:
 		if c.Content(m.src) == member {
-			return s.binding(m, c, member, depth)
+			return s.shorthandBinding(m, c, member, depth)
 		}
 	case nodePair:
 		if key := c.ChildByFieldName(nodeFieldKey); key != nil && unquoteNodeString(key.Content(m.src)) == member {
@@ -1219,4 +1354,21 @@ func (s *NodeShapes) followExportAlias(m *nodeShapeModule, value *sitter.Node, d
 		return s.followExportAlias(m, next, depth+1)
 	}
 	return value
+}
+
+// nodeExportsRebinding is the `module.exports = value` assignment inside
+// `exports = module.exports = value`, which only keeps the `exports` alias
+// pointing at the new exports object; any other expression is itself.
+func nodeExportsRebinding(expr *sitter.Node, src []byte) *sitter.Node {
+	if expr.Type() != nodeAssignmentExpression {
+		return expr
+	}
+	left, right := expr.ChildByFieldName("left"), expr.ChildByFieldName("right")
+	if left == nil || right == nil || left.Content(src) != nodeCommonJSExportsObject || right.Type() != nodeAssignmentExpression {
+		return expr
+	}
+	if inner := right.ChildByFieldName("left"); inner != nil && inner.Content(src) == nodeModuleExportsTarget {
+		return right
+	}
+	return expr
 }

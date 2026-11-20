@@ -397,7 +397,95 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // manifest's. A package whose manifest entry points lie in dist/ or build/
 // has that directory in its graph even when it ships other source
 // (skip.NodeEntryBuiltOutput).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "10"
+// graph-algo-node-11: a parameter holds what the calls of its function pass,
+// as a union over the call sites the graph resolved to that function, read
+// again for up to four rounds so a value crosses one more function each
+// round. A function now also reaches:
+//   - the function a method called on a parameter, on a member of it or on
+//     what is built from it names (`deps.Client` of `module.exports =
+//     function (deps)`, `this.adapter.send()` with adapter a constructor
+//     argument), the argument after the receiver for `f.call(self, a)`;
+//   - the module a `require(x)` or `import(x)` loads when x is a string
+//     constant, its own or one a caller passes (`loadModule('@acme/push')`),
+//     and what is built from the loaded value, keyed by its access;
+//   - what `table[key]` holds: the member declared under that very key
+//     (`[kResume]() {..}`), else each member of the table and each value the
+//     module writes into it through a computed key (`this.senders[type] =
+//     new Web()`, `Encryption.algorithms[kind] = {..}`);
+//   - what a class field declared without a value is assigned.
+//
+// A package's exports list what parameters hold too: `module.exports = new
+// PG(Client)` with `this.Client = clientConstructor` publishes
+// pg.(Client).connect.
+// A member read on what a module exports also holds what the modules
+// requiring it assign to that member (node-forge's `forge.pkcs5.pbkdf2`,
+// written by pbkdf2.js into forge.js's exported object), and a module that
+// holds only data is followed when another requires it.
+// `exports = module.exports = fn` exports fn as the module, as
+// `module.exports = fn` does (object-hash).
+// A destructured parameter member holds its own default too
+// (`{ processRequest = defaultProcessRequest } = {}`).
+// An export written `inst.method.bind(inst)` publishes the method
+// (web-push's sendNotification), and the arguments `f.bind(self, a)` binds
+// fill f's parameters from the first, self being `this`.
+// An exported `{ name }` destructured from what a call returns (`const {
+// getSecureStream } = getStreamFuncs()`, pg) holds each value it can be.
+// A function a body writes into a member of an object it then passes to a
+// call is handed over with that object (node-apn's
+// `this.config.createConnection = ..; http2.connect(url, this.config)`, ws's
+// `opts.createConnection = isSecure ? tlsConnect : netConnect`).
+// A field of a class also holds what the plain functions its fields hold
+// assign it, run as its methods (ssh2's `this._parse = parseHeader`, which
+// sets `this._parse = parsePacket`).
+// A call's result passed as an argument is handed over when another
+// package's function returns it (`app.use(path, graphqlUploadExpress(o))`
+// reaches graphql-upload's `(default()).<result>`).
+// A member call on a module of the runtime the program holds (`tls =
+// require('tls'); tls.connect(..)`) is resolved to the runtime, not name_only.
+// So is a method of what the calls of a runtime module that hands back only
+// values of the runtime returned (`crypto.createHmac(a, k).update(t).digest()`,
+// `readline.createInterface(o).close()`); a member read off such a result, a
+// construction and what other runtime modules return stay name_only.
+// The runtime drives an HTTP agent: the constructor of a class whose bases
+// reach http.Agent, https.Agent or agent-base's Agent reaches the
+// addRequest, createSocket, createConnection and connect its chain declares
+// (https-proxy-agent's connect). An exported class is also published under
+// its own name, keyed by its constructor, for a class handed over as a value
+// (`createCookieAgent(HttpsProxyAgent)`).
+// `this` in a method also holds the instances its calls are made on (a
+// subclass's), a field the constructor empties holds what the methods
+// assign it, and a field a method sets to what calling it returns holds
+// each state such a machine steps through (mysql2's `this.next =
+// this.next(packet)`).
+//
+// A function a caller passed is called by the caller that hands it over,
+// not by the function that receives it. JavaScript with type annotations
+// (Flow) that the JavaScript grammar cannot read is parsed with the TSX
+// grammar (its functions and the class members after an annotation were in
+// no function).
+// A member call nothing typed is exported name_only, not exact: its receiver
+// is a value of the program (a parameter, a field, what a call returned;
+// not a global of the language, a literal, `call`/`apply` or a computed
+// key), no import, class or contract bound it, and no value the graph
+// follows names the method (`sink.write(d)` on a parameter no call fills,
+// `this.cipher.update(b)`, `this.compute()` that no class of the receiver
+// declares), or it is resolved on a receiver that is a property the package
+// also writes on another object than this (`this._cipher.allocPacket(n)`
+// with `this._protocol._cipher = createCipher(c)` elsewhere), which keeps
+// the edges it has. Its target stays the key the parser gave it, which no
+// function has; a stitch gives it the functions of that name in the
+// component and in scope as name_only candidates (stitch_node_untyped.go),
+// so a finding reached only across one reads unknown (unresolved_dispatch),
+// where it read unreachable.
+// Under environment targets those candidates come only from the
+// A second function of one key (`keyParser.sign@371:14`) is a candidate
+// under its plain name, as the first is.
+// components the caller's depends on or that depend on it, transitively.
+// A candidate in a module the root never loads is dropped: a function
+// exists only once its module has run, and a module counts as loaded when
+// the root reaches any function of it, its `<module>` included, over the
+// traversed, ambiguous and kept name_only edges (stitch_node_loaded.go).
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "11"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.

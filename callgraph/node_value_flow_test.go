@@ -203,6 +203,49 @@ function jwa(alg, bits) { return signers[alg](bits); }
 			not:  []string{"app/m.jwa -> app/m.unused", "app/m.<module> -> app/m.hmac"},
 		},
 		{
+			// parse-server: `app.use(path, graphqlUploadExpress(opts))` hands
+			// over the middleware graphql-upload returns.
+			name: "what another package's function returns, handed over",
+			files: map[string]string{"m.mjs": `import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
+import express from 'express';
+export function apply(app) {
+  app.use('/x', graphqlUploadExpress({ max: 1 }));
+  app.use('/y', express.json());
+}
+`},
+			want: []string{
+				"app/m.apply -> graphql-upload/graphqlUploadExpress.js.(default()).<result>",
+				"app/m.apply -> express.(json()).<result>",
+			},
+		},
+		{
+			// node-apn: `this.config.createConnection = (a) => ..` then
+			// `http2.connect(url, this.config)`, which calls it.
+			name: "a function written into an object the same body hands over",
+			files: map[string]string{"m.js": `const http2 = require('http2');
+function dial(a) { return a; }
+class Client {
+  connect(socket) {
+    if (socket) { this.config.createConnection = (a) => dial(a); }
+    this.config.other = function kept() { return 1; };
+    return http2.connect('x', this.config);
+  }
+  idle() { this.spare.onIdle = function idle() { return 1; }; return 0; }
+}
+function tlsConnect(o) { return o; }
+function netConnect(o) { return o; }
+function initAsClient(opts, secure) {
+  opts.createConnection = opts.createConnection || (secure ? tlsConnect : netConnect);
+  return http2.request(opts);
+}
+`},
+			want: []string{
+				"app/m.(Client).connect -> app/m.createConnection", "app/m.(Client).connect -> app/m.kept",
+				"app/m.initAsClient -> app/m.tlsConnect", "app/m.initAsClient -> app/m.netConnect",
+			},
+			not: []string{"app/m.(Client).idle -> app/m.idle"},
+		},
+		{
 			name: "returned closure and object, and a bound function",
 			files: map[string]string{"m.js": `function sign(x) { return x; }
 function factory(bits) { return function inner(x) { return x + bits; }; }
@@ -426,6 +469,7 @@ exports.Legacy = Legacy;
 		"fakecrypto.Legacy.run":             "fakecrypto/index.(Legacy).run",
 		"fakecrypto.(Totp>open()).open":     "fakecrypto/index.(Base).open",
 		"fakecrypto.(Totp).read":            "fakecrypto/index.(Base).read",
+		"fakecrypto.Totp":                   "fakecrypto/index.(Totp).constructor",
 		"fakecrypto.(Totp>open()).<init>":   "",
 		"fakecrypto.(direct).<init>":        "",
 		"fakecrypto.(client()).<result>":    "",
