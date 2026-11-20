@@ -96,6 +96,24 @@ module.exports = { hotp, totp, verify };
 			want: map[string]string{"dflt.default": "dflt/lib/main.exports"},
 		},
 		{
+			// object-hash: `exports = module.exports = objectHash`, members
+			// added through the `exports` alias.
+			name: "exports = module.exports = function, chained",
+			pkg:  "ohash",
+			files: map[string]string{
+				"package.json": `{"name":"ohash"}`,
+				"index.js": `exports = module.exports = objectHash;
+function objectHash(o) { return hash(o); }
+function hash(o) { return o; }
+exports.sha1 = function (o) { return objectHash(o); };
+`,
+			},
+			want: map[string]string{
+				"ohash.default": "ohash/index.objectHash",
+				"ohash.sha1":    "ohash/index.sha1",
+			},
+		},
+		{
 			name: "ESM export function and export default, re-exported through export *, scoped",
 			pkg:  "@acme/sign",
 			files: map[string]string{

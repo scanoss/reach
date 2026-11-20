@@ -421,6 +421,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // requiring it assign to that member (node-forge's `forge.pkcs5.pbkdf2`,
 // written by pbkdf2.js into forge.js's exported object), and a module that
 // holds only data is followed when another requires it.
+// `exports = module.exports = fn` exports fn as the module, as
+// `module.exports = fn` does (object-hash).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

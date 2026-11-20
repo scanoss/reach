@@ -839,7 +839,7 @@ func nodeShapeCommonJSExport(stmt *sitter.Node, name string, src []byte) *sitter
 	if stmt.NamedChildCount() == 0 || stmt.NamedChild(0).Type() != nodeAssignmentExpression {
 		return nil
 	}
-	expr := stmt.NamedChild(0)
+	expr := nodeExportsRebinding(stmt.NamedChild(0), src)
 	left, right := expr.ChildByFieldName("left"), expr.ChildByFieldName("right")
 	if left == nil || right == nil {
 		return nil
@@ -1330,4 +1330,21 @@ func (s *NodeShapes) followExportAlias(m *nodeShapeModule, value *sitter.Node, d
 		return s.followExportAlias(m, next, depth+1)
 	}
 	return value
+}
+
+// nodeExportsRebinding is the `module.exports = value` assignment inside
+// `exports = module.exports = value`, which only keeps the `exports` alias
+// pointing at the new exports object; any other expression is itself.
+func nodeExportsRebinding(expr *sitter.Node, src []byte) *sitter.Node {
+	if expr.Type() != nodeAssignmentExpression {
+		return expr
+	}
+	left, right := expr.ChildByFieldName("left"), expr.ChildByFieldName("right")
+	if left == nil || right == nil || left.Content(src) != nodeCommonJSExportsObject || right.Type() != nodeAssignmentExpression {
+		return expr
+	}
+	if inner := right.ChildByFieldName("left"); inner != nil && inner.Content(src) == nodeModuleExportsTarget {
+		return right
+	}
+	return expr
 }

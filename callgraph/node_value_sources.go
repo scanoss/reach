@@ -615,8 +615,14 @@ func (x *nodeValueIndex) commonJSWrites(root *sitter.Node) (map[string][]nodeCom
 	walk = func(n *sitter.Node) {
 		if n.Type() == nodeAssignmentExpression || n.Type() == nodeAugmentedAssignment {
 			left := n.ChildByFieldName("left")
-			if target, isExport := nodeCommonJSExportTarget(left, x.src); isExport {
-				writes[target] = append(writes[target], nodeCommonJSWrite{statement: n.Parent(), value: n.ChildByFieldName("right")})
+			// `exports = module.exports = v` writes module.exports, read
+			// below as the inner assignment.
+			if target, isExport := nodeCommonJSExportTarget(left, x.src); isExport && nodeExportsRebinding(n, x.src) == n {
+				statement := n.Parent()
+				if statement != nil && statement.Type() == nodeAssignmentExpression && nodeExportsRebinding(statement, x.src) == n {
+					statement = statement.Parent()
+				}
+				writes[target] = append(writes[target], nodeCommonJSWrite{statement: statement, value: n.ChildByFieldName("right")})
 				ok = ok && !strings.ContainsAny(target, ".[") && left.Content(x.src) != nodeCommonJSExportsObject
 			}
 		}
