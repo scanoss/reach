@@ -5,8 +5,9 @@ package graphfrag
 
 import "testing"
 
-// An ecosystem with no module name of its own (nuget) records the purl as the
-// module. Composing a purl from it again would prefix and escape it twice.
+// An ecosystem with no module name of its own (nuget, npm, cargo, gem)
+// records the purl as the module. Composing a purl from it again prefixed and
+// escaped it twice.
 func TestExportDependencyInfoPurlShapes(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -15,6 +16,9 @@ func TestExportDependencyInfoPurlShapes(t *testing.T) {
 		{"nuget module is a purl", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "2.4.0", "pkg:nuget/Acme.Crypto@2.4.0"},
 		{"purl already carries the version", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto@2.0.0", "2.0.0", "pkg:nuget/Acme.Crypto@2.0.0"},
 		{"a version that needs escaping", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "1.0.0+build", "pkg:nuget/Acme.Crypto@1.0.0%2Bbuild"},
+		{"npm records the purl as its module", "node", "pkg:npm/left-pad", "pkg:npm/left-pad", "1.3.0", "pkg:npm/left-pad@1.3.0"},
+		{"a scoped npm name is not escaped twice", "node", "pkg:npm/%40scope/pkg", "pkg:npm/%40scope/pkg", "1.0.0", "pkg:npm/%40scope/pkg@1.0.0"},
+		{"cargo records the purl as its module", "rust", "pkg:cargo/ring", "pkg:cargo/ring", "0.17.0", "pkg:cargo/ring@0.17.0"},
 		{"a frame with no module is unchanged", "java", "", "pkg:maven/net.crypto/lib", "2.0.0", "pkg:maven/net.crypto/lib"},
 		{"a named module is unchanged", "java", "net.crypto:lib", "pkg:maven/net.crypto/lib", "2.0.0", "pkg:maven/net.crypto/lib@2.0.0"},
 	} {
