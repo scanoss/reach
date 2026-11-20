@@ -203,6 +203,24 @@ function jwa(alg, bits) { return signers[alg](bits); }
 			not:  []string{"app/m.jwa -> app/m.unused", "app/m.<module> -> app/m.hmac"},
 		},
 		{
+			// node-apn: `this.config.createConnection = (a) => ..` then
+			// `http2.connect(url, this.config)`, which calls it.
+			name: "a function written into an object the same body hands over",
+			files: map[string]string{"m.js": `const http2 = require('http2');
+function dial(a) { return a; }
+class Client {
+  connect(socket) {
+    if (socket) { this.config.createConnection = (a) => dial(a); }
+    this.config.other = function kept() { return 1; };
+    return http2.connect('x', this.config);
+  }
+  idle() { this.spare.onIdle = function idle() { return 1; }; return 0; }
+}
+`},
+			want: []string{"app/m.(Client).connect -> app/m.createConnection", "app/m.(Client).connect -> app/m.kept"},
+			not:  []string{"app/m.(Client).idle -> app/m.idle"},
+		},
+		{
 			name: "returned closure and object, and a bound function",
 			files: map[string]string{"m.js": `function sign(x) { return x; }
 function factory(bits) { return function inner(x) { return x + bits; }; }

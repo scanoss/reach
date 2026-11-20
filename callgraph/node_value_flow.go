@@ -90,6 +90,15 @@ type nodeValueFlow struct {
 	// object than this; see node_untyped.go.
 	fieldCalls map[*FunctionCall]nodeFieldCall
 	foreign    map[string]bool
+	// memberWrites indexes, per function body, the functions it writes
+	// into a member of an object; see handMembers.
+	memberWrites map[nodeBodyKey]map[string][]*sitter.Node
+}
+
+// nodeBodyKey names one function body (or a module's top level).
+type nodeBodyKey struct {
+	m  *nodeShapeModule
+	at uint32
 }
 
 // nodePendingCall is a call or `new` expression of the function fn whose
@@ -126,6 +135,8 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 		untyped:    make(map[*FunctionCall]string),
 		fieldCalls: make(map[*FunctionCall]nodeFieldCall),
 		foreign:    make(map[string]bool),
+
+		memberWrites: make(map[nodeBodyKey]map[string][]*sitter.Node),
 	}
 	f.shapes.sites = newNodeCallSites()
 	for key, decl := range graph.Functions {
@@ -708,6 +719,7 @@ func (f *nodeValueFlow) handOverAt(m *nodeShapeModule, expr *sitter.Node, fn str
 		if how != nodeHandArgument {
 			return
 		}
+		f.handMembers(m, expr, fn)
 	default:
 		return
 	}
@@ -839,5 +851,50 @@ func (f *nodeValueFlow) addRequiredModules() {
 			f.modules[path] = nodeModulePath(dir, path)
 			queue = append(queue, path)
 		})
+	}
+}
+
+// handMembers adds an edge from fn to each function the body the argument
+// expr is written in assigns into a member of that same expression before
+// handing it over: node-apn writes `this.config.createConnection = (a) =>
+// tls.connect(..)` and passes this.config to http2.connect, which calls it.
+func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn string) {
+	if expr.Type() != goNodeIdentifier && expr.Type() != nodeMemberExpression {
+		return
+	}
+	body := expr.Parent()
+	for body != nil && !nodeIsFunction(body) && body.Type() != nodeMethodDefinition && body.Type() != nodeProgram {
+		body = body.Parent()
+	}
+	if body == nil {
+		return
+	}
+	key := nodeBodyKey{m: m, at: body.StartByte()}
+	writes, ok := f.memberWrites[key]
+	if !ok {
+		writes = make(map[string][]*sitter.Node)
+		nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+			if n.Type() != nodeAssignmentExpression {
+				return
+			}
+			left, right := n.ChildByFieldName("left"), nodeUnwrapValue(n.ChildByFieldName("right"))
+			if left == nil || right == nil || left.Type() != nodeMemberExpression {
+				return
+			}
+			switch right.Type() {
+			case nodeFunctionExpression, nodeArrowFunction, nodeGeneratorFunction:
+			default:
+				return
+			}
+			if object := left.ChildByFieldName("object"); object != nil {
+				writes[object.Content(m.src)] = append(writes[object.Content(m.src)], right)
+			}
+		})
+		f.memberWrites[key] = writes
+	}
+	for _, right := range writes[expr.Content(m.src)] {
+		if key := f.functionKey(m, right); key != "" {
+			f.edge(fn, key, f.graph.Functions[key].ID, right, "")
+		}
 	}
 }
