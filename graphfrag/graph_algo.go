@@ -442,6 +442,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // reaches graphql-upload's `(default()).<result>`).
 // A member call on a module of the runtime the program holds (`tls =
 // require('tls'); tls.connect(..)`) is resolved to the runtime, not name_only.
+// So is a method of what the calls of a runtime module that hands back only
+// values of the runtime returned (`crypto.createHmac(a, k).update(t).digest()`,
+// `readline.createInterface(o).close()`); a member read off such a result, a
+// construction and what other runtime modules return stay name_only.
 // The runtime drives an HTTP agent: the constructor of a class whose bases
 // reach http.Agent, https.Agent or agent-base's Agent reaches the
 // addRequest, createSocket, createConnection and connect its chain declares
@@ -474,6 +478,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // so a finding reached only across one reads unknown (unresolved_dispatch),
 // where it read unreachable.
 // Under environment targets those candidates come only from the
+// A second function of one key (`keyParser.sign@371:14`) is a candidate
+// under its plain name, as the first is.
 // components the caller's depends on or that depend on it, transitively.
 // A candidate in a module the root never loads is dropped: a function
 // exists only once its module has run, and a module counts as loaded when

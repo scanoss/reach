@@ -232,3 +232,31 @@ func (l *nodeNameOnlyLinks) scope(key ComponentKey) map[ComponentKey]bool {
 	delete(out, key)
 	return out
 }
+
+// nodeUnnumberedName is the name of a Node function key's last part without
+// the `@line:col` a second function of the same key carries
+// (`keyParser.sign@371:14`, the other `sign` of ssh2's keyParser): it is
+// called by the name alone, as the first is.
+func nodeUnnumberedName(name string) string {
+	at := strings.LastIndex(name, "@")
+	if at <= 0 {
+		return name
+	}
+	line, col, ok := strings.Cut(name[at+1:], ":")
+	if !ok || !isDigits(line) || !isDigits(col) {
+		return name
+	}
+	return name[:at]
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}

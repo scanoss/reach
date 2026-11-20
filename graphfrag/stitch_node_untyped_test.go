@@ -38,6 +38,7 @@ func nodeUntypedVerdict(t *testing.T, sink string, appCalls, acmeCalls []Externa
 				{Signature: "acme/lib/cipher.(Aes).encrypt"},
 				{Signature: "acme/lib/sign.(Signer).sign"},
 				{Signature: "acme/lib/queue.(Queue).push"},
+				{Signature: "acme/lib/sign.sign@371:14"},
 			},
 			ExternalCalls:    acmeCalls,
 			CryptoOperations: []CryptoOperation{{Function: sink, FindingID: "f", RuleID: "rule", FilePath: "lib/x.js", StartLine: 1}},
@@ -159,5 +160,27 @@ func TestNodeNameOnlyLinksScope(t *testing.T) {
 	}
 	if got := newNodeNameOnlyLinks(closure, DependencyGraph{}).scope(db); len(got) != 3 || got[db] {
 		t.Fatalf("scope without edges = %v, want every other component", got)
+	}
+}
+
+// A second function of a key carries `@line:col` (`sign@371:14`, the other
+// `sign` of one module): an untyped `key.sign(d)` may run it as it may run
+// the first.
+func TestStitch_NodeUntypedCallReachesANumberedFunction(t *testing.T) {
+	t.Parallel()
+	fg := nodeUntypedVerdict(t, "acme/lib/sign.sign@371:14", []ExternalCall{nodeNameOnly("app/src/index.sign", "sign")}, nil)
+	if fg.Reachability != ReachabilityUnknown || fg.UnresolvedReason != UnresolvedReasonDispatch {
+		t.Fatalf("got %q %q, want %q %q", fg.Reachability, fg.UnresolvedReason, ReachabilityUnknown, UnresolvedReasonDispatch)
+	}
+}
+
+func TestNodeUnnumberedName(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		"sign@371:14": "sign", "sign": "sign", "<anonymous>@3:1": "<anonymous>", "@scope": "@scope", "a@b": "a@b", "a@1:x": "a@1:x",
+	} {
+		if got := nodeUnnumberedName(in); got != want {
+			t.Errorf("nodeUnnumberedName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

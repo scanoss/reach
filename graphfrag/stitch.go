@@ -1002,7 +1002,7 @@ func indexFunctionsByMethodArity(functionsByNode map[graphNode]*Function) map[st
 			key = key[:i]
 		}
 		if !strings.Contains(node.Function, "#") {
-			key = arityFreeMethodKey(key)
+			key = arityFreeMethodKey(nodeUnnumberedName(key))
 		}
 		out[key] = append(out[key], node)
 	}
