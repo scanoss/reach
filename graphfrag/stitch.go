@@ -700,6 +700,9 @@ type callEdge struct {
 	// dispatch edge it names what the walk could not narrow, which is the whole
 	// reason a consumer would want to see it.
 	declaredType string
+	// candidateOwners are the types a C# call's owner can be when the caller
+	// could not name it (stitch_csharp_owners.go).
+	candidateOwners []string
 }
 
 // buildAdjacency composes the traversable call graph from the fragment closure
@@ -886,7 +889,7 @@ func collectCallEdges(fragment Fragment) []callEdge {
 			caller: c.Caller, target: c.TargetSignature, targetCanonicalSignature: c.TargetCanonicalSignature, resolution: c.Resolution,
 			method: c.MethodName, arity: c.Arity, callSite: c.CallSite, startCol: c.StartCol, endCol: c.EndCol, internal: false, entryCall: c.EntryCall,
 			resolvedReceiverType: c.ResolvedReceiverType, declaredType: c.DeclaredType,
-			receiverVar: c.ReceiverVar, chainID: c.ChainID,
+			receiverVar: c.ReceiverVar, chainID: c.ChainID, candidateOwners: c.CandidateOwners,
 		})
 	}
 	return edges
@@ -947,6 +950,11 @@ func callEdgeResolver(
 			// (`acme-sign.sign`), joins the declaration its exports name. A
 			// name_only call is never spelled so.
 			targets.nodes = public.targets(e.target, key, directDeps, functionsBySignature, hierarchy)
+		}
+		if len(targets.nodes) == 0 {
+			// A C# call keyed on the caller's own namespace, which the caller's
+			// graph does not declare: the owner is one of the file's usings.
+			targets = csharpOwnerTargets(e, directDeps, functionsBySignature, functionsByCanonicalSignature, aliasByKey)
 		}
 		if len(targets.nodes) == 0 && e.resolution == ResolutionNameOnly && e.method != "" {
 			// A call whose receiver type the caller could not name (a client
