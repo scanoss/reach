@@ -998,7 +998,15 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 	}
 	if value := v.m.thisAssignments(nodeConstructorBody(v))[name]; value != nil {
 		if !nodeIsNothing(value) {
-			return appendNodeValues(q.values(v.m, value, depth+1), q.heldWrites(v, name, depth)...)
+			// Each value the constructor may assign (google-auth-library's
+			// IdentityPoolClient picks a file, url or certificate supplier).
+			var out []nodeShapeValue
+			for _, each := range v.m.thisAssignmentsOf(nodeConstructorBody(v), name) {
+				if !nodeIsNothing(each) {
+					out = appendNodeValues(out, q.values(v.m, each, depth+1)...)
+				}
+			}
+			return appendNodeValues(out, q.heldWrites(v, name, depth)...)
 		}
 		// A field the constructor empties (`this.next = null`) holds what
 		// the methods assign it.

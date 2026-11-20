@@ -346,6 +346,24 @@ func TestNodeValueFlow_ReceiverAndStateMachineFields(t *testing.T) {
 	t.Parallel()
 	runNodeFlowCases(t, []nodeFlowCase{
 		{
+			// google-auth-library's IdentityPoolClient constructor picks a
+			// file, url or certificate supplier for one field.
+			name: "each value a constructor may assign a field",
+			files: map[string]string{"c.js": `class FileSupplier { token() { return 1; } }
+class CertSupplier { token() { return 2; } }
+class Other { token() { return 3; } }
+class Client {
+  constructor(opts) {
+    if (opts.file) { this.supplier = new FileSupplier(); } else { this.supplier = new CertSupplier(); }
+  }
+  fetch() { return this.supplier.token(); }
+}
+module.exports = Client;
+`},
+			want: []string{"app/c.(Client).fetch -> app/c.(FileSupplier).token", "app/c.(Client).fetch -> app/c.(CertSupplier).token"},
+			not:  []string{"app/c.(Client).fetch -> app/c.(Other).token"},
+		},
+		{
 			// ssh2's Protocol: `this._parse = parseHeader` in the constructor,
 			// and parseHeader, run as this._parse, sets `this._parse =
 			// parsePacket`.
