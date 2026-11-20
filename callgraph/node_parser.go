@@ -431,10 +431,33 @@ func extractNodeImports(node *sitter.Node, src []byte, bindings nodeBindings) {
 		return
 	case nodeVariableDeclarator:
 		extractNodeRequireImport(node, src, bindings)
+	case nodeAssignmentExpression:
+		extractNodeAssignedRequire(node, src, bindings)
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
 		extractNodeImports(node.Child(i), src, bindings)
 	}
+}
+
+// extractNodeAssignedRequire binds a name that is declared first and assigned a
+// require later, the shape Babel emits for a conditional require:
+// `let AES; AES = require('crypto-js/aes');`. The name binds as
+// `const AES = require('crypto-js/aes')` would. A name a declaration or an
+// earlier assignment already binds to another module keeps that binding.
+func extractNodeAssignedRequire(node *sitter.Node, src []byte, bindings nodeBindings) {
+	left := node.ChildByFieldName("left")
+	if left == nil || left.Type() != goNodeIdentifier {
+		return
+	}
+	binding, ok := nodeRequireBinding(node.ChildByFieldName("right"), src)
+	if !ok {
+		return
+	}
+	name := left.Content(src)
+	if prior, bound := bindings[name]; bound && (prior.module != binding.module || prior.member != binding.member) {
+		return
+	}
+	bindings[name] = binding
 }
 
 func extractNodeESImport(node *sitter.Node, src []byte, bindings nodeBindings) {

@@ -65,6 +65,11 @@ func collectNodeImports(root *sitter.Node, src []byte) []NodeImport {
 				out = append(out, imports...)
 				return
 			}
+		case nodeAssignmentExpression:
+			if imp, ok := nodeRequireAssignmentImport(n, src, line, local); ok {
+				out = append(out, imp)
+				return
+			}
 		case nodeCallExpression:
 			if imp, ok := nodeLoadCall(n, src, line, local); ok {
 				out = append(out, imp)
@@ -271,4 +276,22 @@ func nodeLoadCall(n *sitter.Node, src []byte, line int, local bool) (NodeImport,
 	}
 	module := unquoteNodeString(arg.Content(src))
 	return NodeImport{Line: line, Module: module, Kind: kind, Local: local}, module != ""
+}
+
+// nodeRequireAssignmentImport reads `x = require('m')` (and `x = require('m').a`)
+// where x is declared elsewhere, as Babel emits for a conditional require.
+func nodeRequireAssignmentImport(n *sitter.Node, src []byte, line int, local bool) (NodeImport, bool) {
+	left := n.ChildByFieldName("left")
+	if left == nil || left.Type() != goNodeIdentifier {
+		return NodeImport{}, false
+	}
+	binding, ok := nodeRequireBinding(n.ChildByFieldName("right"), src)
+	if !ok {
+		return NodeImport{}, false
+	}
+	imp := NodeImport{Line: line, Module: binding.module, Name: binding.member, Alias: left.Content(src), Kind: NodeImportRequire, Local: local}
+	if imp.Alias == imp.Name {
+		imp.Alias = ""
+	}
+	return imp, true
 }
