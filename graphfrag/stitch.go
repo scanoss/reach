@@ -735,6 +735,7 @@ func buildAdjacency(
 	public := indexPythonPublicNames(closure, fragments)
 	modules := indexPythonModules(closure, fragments)
 	nodePkgs := indexNodePackages(closure, fragments)
+	var nodeLinks *nodeNameOnlyLinks
 
 	for _, key := range closure {
 		fragment := fragments[key]
@@ -762,8 +763,10 @@ func buildAdjacency(
 		if fragmentEcosystem(fragment) == "node" {
 			scope := targetSet
 			if closureTargets(key) {
-				scope = componentSet(closure)
-				delete(scope, key)
+				if nodeLinks == nil {
+					nodeLinks = newNodeNameOnlyLinks(closure, deps)
+				}
+				scope = nodeLinks.scope(key)
 			}
 			resolve = nodeNameOnlyCandidates(nodeUnresolvedAsNameOnly(resolve, key, nodePkgs, byMethodArity, scope), key, byMethodArity, scope)
 		}

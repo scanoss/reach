@@ -192,3 +192,43 @@ func (p nodePackages) owners(target string, self ComponentKey, scope map[Compone
 	}
 	return out
 }
+
+// nodeNameOnlyLinks gives a Node component, under environment targets, the
+// components a value its code holds can come from: those it depends on and
+// those that depend on it, transitively (a dependency's object, or an object
+// a dependent hands it). A component neither reaches nor is reached by
+// holds none of its values, so its functions are no candidates of the
+// component's name_only calls (mongodb's `client.connect` never runs
+// nostr-tools' Relay.connect). A closure whose dependency graph has no edge
+// keeps every component in scope.
+type nodeNameOnlyLinks struct {
+	closure    []ComponentKey
+	deps       DependencyGraph
+	dependents DependencyGraph
+	known      bool
+}
+
+func newNodeNameOnlyLinks(closure []ComponentKey, deps DependencyGraph) *nodeNameOnlyLinks {
+	l := &nodeNameOnlyLinks{closure: closure, deps: deps, dependents: make(DependencyGraph)}
+	for from, to := range deps {
+		for _, dep := range to {
+			l.dependents[dep] = append(l.dependents[dep], from)
+			l.known = true
+		}
+	}
+	return l
+}
+
+func (l *nodeNameOnlyLinks) scope(key ComponentKey) map[ComponentKey]bool {
+	var out map[ComponentKey]bool
+	if !l.known {
+		out = componentSet(l.closure)
+	} else {
+		out = componentSet(dependencyClosure(key, l.deps))
+		for _, k := range dependencyClosure(key, l.dependents) {
+			out[k] = true
+		}
+	}
+	delete(out, key)
+	return out
+}

@@ -139,3 +139,25 @@ func TestStitch_NodeUnresolvedCallIntoADependency(t *testing.T) {
 		t.Fatalf("into crypto: %q %q, want no route and no reason", fg.Reachability, fg.UnresolvedReason)
 	}
 }
+
+// Under environment targets a Node component's name_only calls take
+// candidates from the components it depends on and those that depend on
+// it, transitively, never from a sibling that neither reaches nor is
+// reached by it; a closure with no dependency edge keeps them all.
+func TestNodeNameOnlyLinksScope(t *testing.T) {
+	t.Parallel()
+	app := ComponentKey{Purl: "pkg:npm/app", Version: "1.0.0"}
+	db := ComponentKey{Purl: "pkg:npm/db", Version: "1.0.0"}
+	net := ComponentKey{Purl: "pkg:npm/net", Version: "1.0.0"}
+	relay := ComponentKey{Purl: "pkg:npm/relay", Version: "1.0.0"}
+	closure := []ComponentKey{app, db, net, relay}
+	deps := DependencyGraph{app: {db, relay}, db: {net}}
+
+	got := newNodeNameOnlyLinks(closure, deps).scope(db)
+	if !got[app] || !got[net] || got[relay] || got[db] {
+		t.Fatalf("scope of db = %v, want app and net only", got)
+	}
+	if got := newNodeNameOnlyLinks(closure, DependencyGraph{}).scope(db); len(got) != 3 || got[db] {
+		t.Fatalf("scope without edges = %v, want every other component", got)
+	}
+}

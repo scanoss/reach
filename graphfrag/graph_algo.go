@@ -473,6 +473,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // component and in scope as name_only candidates (stitch_node_untyped.go),
 // so a finding reached only across one reads unknown (unresolved_dispatch),
 // where it read unreachable.
+// Under environment targets those candidates come only from the
+// components the caller's depends on or that depend on it, transitively.
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "11"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
