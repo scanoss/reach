@@ -28,3 +28,28 @@ func TestExportDependencyInfoPurlShapes(t *testing.T) {
 		}
 	}
 }
+
+// BuildDependencyInfo names the same dependency on the file-level block, and
+// must agree with the chain frames of the same response. A frame with no
+// module at all is left out: the two have disagreed there since before this
+// pass (the frame omits the version, the block carries it), and settling that
+// would move every ecosystem.
+func TestBuildDependencyInfoAgreesWithTheChainFrames(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, ecosystem, module, purl, version string
+	}{
+		{"npm records the purl as its module", "node", "pkg:npm/acme-sign", "pkg:npm/acme-sign", "2.0.1"},
+		{"cargo records the purl as its module", "rust", "pkg:cargo/ring", "pkg:cargo/ring", "0.17.0"},
+		{"nuget records the purl as its module", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "2.4.0"},
+		{"a named module", "java", "net.crypto:lib", "pkg:maven/net.crypto/lib", "2.0.0"},
+	} {
+		key := ComponentKey{Purl: c.purl, Version: c.version}
+		frame := &CallFrame{Module: c.module, Component: key}
+		chain := exportDependencyInfo(frame, c.ecosystem).PURL
+		file := BuildDependencyInfo(ScanMeta{Ecosystem: c.ecosystem}, Fragment{Module: c.module}, key).PURL
+		if chain != file {
+			t.Errorf("%s: chain frame %q, file block %q", c.name, chain, file)
+		}
+	}
+}

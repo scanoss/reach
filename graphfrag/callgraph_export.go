@@ -2026,7 +2026,11 @@ func splitFnName(fn string) (class, method string) {
 // possible) rather than shipping an empty one.
 func BuildDependencyInfo(meta ScanMeta, frag Fragment, key ComponentKey) *ExportDependencyInfo {
 	packageURL := purl.Dependency(meta.Ecosystem, frag.Module, key.Version)
-	if packageURL == "" && strings.HasPrefix(key.Purl, "pkg:") {
+	// A module that is already a purl names no module of its own, as an
+	// absent one does: composing a purl from it would prefix and escape it a
+	// second time, and the file-level dependency_info would then contradict
+	// the chain frames of the same response.
+	if (packageURL == "" || strings.HasPrefix(frag.Module, "pkg:")) && strings.HasPrefix(key.Purl, "pkg:") {
 		if versioned := purl.WithVersion(key.Purl, key.Version); versioned != "" {
 			packageURL = versioned
 		} else {
