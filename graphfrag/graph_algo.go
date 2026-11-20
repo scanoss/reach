@@ -522,7 +522,29 @@ const cGraphAlgoPrefix = "graph-algo-c-"
 // written (WrittenParameters); and each file's using directives and
 // declarations among its includes, so a C++ fragment carries them as
 // imports.
-const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "3"
+//
+// graph-algo-cpp-4: a C++ call is resolved against every file of the
+// project once all are parsed (callgraph's resolveCPPCalls): a member
+// call's receiver is typed from a data member's declared type, from a
+// project function's declared return type (an `auto` local bound to such a
+// call included, and a deduced return of a member), and through `->` of a
+// std::unique_ptr / std::shared_ptr; a type, scope or function name is
+// looked up in the enclosing class and namespaces innermost first, then
+// globally, then in the using-directives' namespaces; an unqualified call in
+// a member function is looked up as a member first; a method is looked up in
+// the base classes; a definition is found in any directory of the project (a
+// `static` one only from its own file), a qualified call of a static
+// function of a named namespace included. A call that can dispatch also
+// reaches, as interface_dispatch, the override in every project class
+// derived from its receiver's type (class hierarchy analysis). A
+// std::make_unique<T> / make_shared<T> call is also a construction of T, and
+// a constructor's member initializer list is read: its calls are the
+// constructor's, and an entry constructs the member's class type or the base
+// it names. A class written with an export macro (`class LIB_API Name {`),
+// which tree-sitter reads as a function, is read as the class. A call that
+// resolves to no project definition is keyed as before, so the contract KB
+// types it as before.
+const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "4"
 
 // cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped
 // with one is a C++ graph.

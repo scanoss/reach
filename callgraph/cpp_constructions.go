@@ -108,6 +108,7 @@ func cppConstruction(typeNode, args, from, to *sitter.Node, src []byte, filePath
 	if localTypes[call.Callee.Type] {
 		call.Callee.Linkage = LinkageInternal
 	}
+	call.cpp = &cppCallFacts{shape: cppCallConstruct}
 	return call
 }
 

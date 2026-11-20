@@ -326,6 +326,9 @@ type FunctionDecl struct {
 	// always nil for Java/Go/Rust declarations. Used by expandPythonSubclassDispatch
 	// to expand a base-class call site to its concrete subclass overrides.
 	OwnerBases []string
+	// cpp is what a C++ definition declares about its result and linkage,
+	// for resolveCPPCalls; nil for other ecosystems.
+	cpp *cppFunctionFacts
 	// OwnerTraits holds the trait an `impl <Trait> for <Type>` block implements,
 	// with the path resolved through the file's imports
 	// (e.g. ["pkcs8::EncodePrivateKey"] for `impl EncodePrivateKey for MyKey`
@@ -556,6 +559,9 @@ type FunctionCall struct {
 	// nodeInferredField names the unannotated class field the receiver was
 	// typed from.
 	nodeInferredField string
+	// cpp is how a C++ call was written, for resolveCPPCalls; nil for
+	// other ecosystems.
+	cpp *cppCallFacts
 }
 
 // SourceNode describes where a value comes from in the data flow.
@@ -704,6 +710,9 @@ type FileAnalysis struct {
 	// resolved through the file's imports, so the hierarchy never re-resolves
 	// them by simple name.
 	nodeSupertypeOwners []string
+	// cppFacts holds the classes a C++ file defines and the namespaces its
+	// using-directives name, for resolveCPPCalls. C++ only.
+	cppFacts *cppFileFacts
 	// rustFacts holds the declared-type facts collected from a Rust file:
 	// struct and enum-variant field types, function return types, and the
 	// set of types the file declares. The receiver-typing layer resolves

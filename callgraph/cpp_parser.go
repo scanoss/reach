@@ -83,6 +83,13 @@ func (p *CPPParser) parseFile(filePath, packagePath string) (*FileAnalysis, erro
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: cpp parser: parse %s: %w", filePath, err)
 	}
+	if masked, ok := cppMaskClassMacros(tree.RootNode(), src); ok {
+		reparsed, err := p.parser.ParseCtx(context.TODO(), nil, masked)
+		if err == nil {
+			tree.Close()
+			tree, src = reparsed, masked
+		}
+	}
 	defer tree.Close()
 	defer p.anchors.reset()
 
@@ -98,6 +105,7 @@ func (p *CPPParser) parseFile(filePath, packagePath string) (*FileAnalysis, erro
 	collectCPPDeclaredTypes(tree.RootNode(), src, "", analysis.DeclaredTypes)
 	p.walkFile(tree.RootNode(), src, filePath, packagePath, "", staticFunctions, analysis.DeclaredTypes, analysis)
 	analysis.CStrings = cStringLiterals(tree.RootNode(), src)
+	analysis.cppFacts = collectCPPFileFacts(tree.RootNode(), src, filePath, analysis.CIncludes)
 	return analysis, nil
 }
 
@@ -309,6 +317,20 @@ func (p *CPPParser) parseFunction(node *sitter.Node, src []byte, filePath, packa
 	decl.WrittenParameters = cppWrittenParameters(declarator, src)
 	decl.Declarations = cppDeclarations(body, src)
 	variableTypes := cppVariableTypes(decl.Parameters)
+	decl.cpp = &cppFunctionFacts{static: decl.ID.Package != packagePath}
+	returns, deduced := cppDeclaredReturn(node, src)
+	decl.cpp.returns = returns
+	if deduced {
+		decl.cpp.returnsMember = cppReturnedMember(body, src, cppFunctionLocals(decl))
+	}
+	// A constructor's member initializer list runs before its body: the
+	// calls in it (`m_dh(DH_new(), &dh_free)`) and the constructions it
+	// performs are the constructor's (graph-algo-cpp-4).
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		if inits := node.NamedChild(i); inits.Type() == cppNodeFieldInitializers {
+			p.walkCalls(inits, src, filePath, packagePath, staticFunctions, localTypes, variableTypes, &decl.Calls)
+		}
+	}
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, localTypes, variableTypes, &decl.Calls)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions, localTypes, variableTypes)
 	return decl
@@ -339,6 +361,7 @@ func recordCPPDeclarationTypes(node *sitter.Node, src []byte, types map[string]s
 		}
 		if name := cppBoundVariableName(child, src); name != "" {
 			types[name] = typeName
+			cppRecordByValue(child, name, types)
 		}
 	}
 }
@@ -470,10 +493,24 @@ func (p *CPPParser) walkCalls(node *sitter.Node, src []byte, filePath, packagePa
 		recordCPPDeclarationTypes(node, src, variableTypes)
 	}
 	p.constructionSites(node, src, filePath, packagePath, localTypes, calls)
+	if node.Type() == cppNodeFieldInitializer {
+		if call := cppMemberInitCall(node, src, filePath, packagePath); call != nil {
+			p.anchors.set(call, node)
+			*calls = append(*calls, *call)
+		}
+	}
 	if node.Type() == cNodeCallExpression {
 		if call := p.parseCall(node, src, filePath, packagePath, staticFunctions, localTypes, variableTypes); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
+			// std::make_unique<T>(args) constructs a T: it is a
+			// construction site of T as `new T(args)` is, beside the call
+			// of make_unique itself (graph-algo-cpp-4).
+			if function := node.ChildByFieldName("function"); function != nil {
+				if typeNode := cppSmartConstruction(function, src); typeNode != nil {
+					*calls = append(*calls, *cppSmartConstructionCall(call, typeNode, src, packagePath))
+				}
+			}
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -512,12 +549,14 @@ func (p *CPPParser) parseCall(node *sitter.Node, src []byte, filePath, packagePa
 	case cNodeIdentifier:
 		call.Callee.Name = function.Content(src)
 		call.Callee.Package = cFunctionPackage(packagePath, filePath, call.Callee.Name, staticFunctions)
+		call.cpp = &cppCallFacts{shape: cppCallFree}
 	case fieldExpressionNode:
 		field, argument := function.ChildByFieldName("field"), function.ChildByFieldName("argument")
 		if field == nil {
 			return nil
 		}
 		call.Callee.Name = field.Content(src)
+		call.cpp = &cppCallFacts{shape: cppCallMember, receiver: cppReceiverExpr(argument, src, variableTypes), arrow: cppArrowAccess(function, src)}
 		if argument != nil && argument.Type() == cNodeIdentifier {
 			call.ReceiverVar = argument.Content(src)
 			call.Callee.Type = variableTypes[call.ReceiverVar]
@@ -532,6 +571,7 @@ func (p *CPPParser) parseCall(node *sitter.Node, src []byte, filePath, packagePa
 		}
 		call.Callee.Name = name
 		call.Callee.Package = cFunctionPackage(packagePath, filePath, call.Callee.Name, staticFunctions)
+		call.cpp = &cppCallFacts{shape: cppCallFree}
 	case cppNodeQualifiedIdentifier:
 		scope, name := cppQualifiedCallee(function, src)
 		if scope == "" || name == "" {
@@ -539,6 +579,7 @@ func (p *CPPParser) parseCall(node *sitter.Node, src []byte, filePath, packagePa
 		}
 		call.Callee.Name = name
 		call.Callee.Type = scope
+		call.cpp = &cppCallFacts{shape: cppCallQualified, scope: scope}
 		if localTypes[call.Callee.Type+"::"+call.Callee.Name] {
 			call.Callee.Linkage = LinkageInternal
 		}
