@@ -20,8 +20,10 @@ func TestCSharpFieldReceiverGetsNoOwnerAlternatives(t *testing.T) {
 namespace App;
 class H {
     private Box Registry;
+    public Box Store { get; set; }
     void Run() {
         Registry.Init(true, null);
+        Store.Init(true, null);
         Sm4Engine.Create();
     }
 }`
@@ -40,6 +42,11 @@ class H {
 	}
 	if got := alts["App.(Registry).Init#2"]; len(got) != 0 {
 		t.Errorf("field receiver: alternatives %v, want none", got)
+	}
+	// C# spells a property the way it spells a type, so this is the shape
+	// most likely to collide with a dependency's type name.
+	if got := alts["App.(Store).Init#2"]; len(got) != 0 {
+		t.Errorf("property receiver: alternatives %v, want none", got)
 	}
 	if got := alts["App.(Sm4Engine).Create#0"]; len(got) == 0 {
 		t.Errorf("type receiver: no alternatives, want the usings")

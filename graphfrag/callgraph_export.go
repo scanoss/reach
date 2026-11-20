@@ -1652,12 +1652,15 @@ func buildExportNode(frame *CallFrame, root ComponentKey, ecosystem string) Expo
 func exportDependencyInfo(frame *CallFrame, ecosystem string) *ExportDependencyInfo {
 	module := moduleFromFrame(frame)
 	packageURL := purl.Dependency(ecosystem, frame.Module, frame.Component.Version)
-	// A module that is already a purl (an ecosystem with no module name of
-	// its own, such as nuget) would be prefixed and escaped a second time.
-	if (frame.Module == "" || strings.HasPrefix(frame.Module, "pkg:")) && strings.HasPrefix(frame.Component.Purl, "pkg:") {
+	switch {
+	case frame.Module == "" && strings.HasPrefix(frame.Component.Purl, "pkg:"):
 		packageURL = frame.Component.Purl
-		if frame.Component.Version != "" {
-			packageURL += "@" + frame.Component.Version
+	case strings.HasPrefix(frame.Module, "pkg:") && strings.HasPrefix(frame.Component.Purl, "pkg:"):
+		// A module that is already a purl (an ecosystem with no module name of
+		// its own, such as nuget) would be prefixed and escaped a second time.
+		packageURL = frame.Component.Purl
+		if versioned := purl.WithVersion(frame.Component.Purl, frame.Component.Version); versioned != "" {
+			packageURL = versioned
 		}
 	}
 	return &ExportDependencyInfo{
