@@ -75,8 +75,9 @@ func TestCPPParserResolvesTypedReceiverIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each declaration is a construction site of its type, then the method call.
 	calls := analyses[0].Functions[0].Calls
-	if len(calls) != 2 || calls[0].Callee.Type != "CryptoPP::SHA256" || calls[1].Callee.Type != "Local::SHA256" {
+	if len(calls) != 4 || calls[0].Callee.Type != "CryptoPP::SHA256" || calls[1].Callee.Type != "CryptoPP::SHA256" || calls[2].Callee.Type != "Local::SHA256" || calls[3].Callee.Type != "Local::SHA256" {
 		t.Fatalf("calls = %#v, want lexical receiver types", calls)
 	}
 }
@@ -107,7 +108,8 @@ void digest(const void *input, int length) {
 		t.Fatalf("functions = %#v, want inline %s", graph.Functions, method.String())
 	}
 	digest := graph.Functions[(FunctionID{Package: "app", Name: "digest"}).String()]
-	if len(digest.Calls) != 1 || digest.Calls[0].Callee.Linkage != LinkageInternal {
+	// The declaration's construction site and the method call.
+	if len(digest.Calls) != 2 || digest.Calls[0].Callee.Linkage != LinkageInternal || digest.Calls[1].Callee.Linkage != LinkageInternal {
 		t.Fatalf("digest calls = %#v, want project-local receiver", digest.Calls)
 	}
 }
@@ -136,7 +138,8 @@ public:
 		t.Fatal(err)
 	}
 	digest := graph.Functions[(FunctionID{Package: "app", Name: "digest"}).String()]
-	if len(digest.Calls) != 1 || digest.Calls[0].Callee.Linkage != LinkageInternal {
+	// The declaration's construction site and the method call.
+	if len(digest.Calls) != 2 || digest.Calls[0].Callee.Linkage != LinkageInternal || digest.Calls[1].Callee.Linkage != LinkageInternal {
 		t.Fatalf("digest calls = %#v, want header-declared project-local receiver", digest.Calls)
 	}
 }
@@ -228,8 +231,13 @@ void digest(const void *input) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// digest's declaration is a construction site, of the same normalized type.
 	for _, function := range analyses[0].Functions {
-		if len(function.Calls) != 1 || function.Calls[0].Callee.Type != "CryptoPP::SHA256" {
+		want := 1
+		if function.ID.Name == "digest" {
+			want = 2
+		}
+		if len(function.Calls) != want || function.Calls[0].Callee.Type != "CryptoPP::SHA256" || function.Calls[want-1].Callee.Type != "CryptoPP::SHA256" {
 			t.Fatalf("%s parameters = %#v calls = %#v, want normalized receiver type", function.ID, function.Parameters, function.Calls)
 		}
 	}

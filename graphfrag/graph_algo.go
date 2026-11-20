@@ -502,7 +502,17 @@ const cGraphAlgoPrefix = "graph-algo-c-"
 // each project file's #include directives and string literals as
 // graph-algo-c-1 lists C's, and redefinitions kept as graph-algo-c-1 keeps
 // them.
-const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "1"
+//
+// graph-algo-cpp-2: a C++ graph records constructor calls written without a
+// call_expression: a declaration that constructs a class-typed variable
+// (`T v(args);`, `T v{args};`, `T v;`), `new T(...)` and `T{...}`. Each is a
+// call of (T).T, the key a constructor definition has, so one of a project
+// type is an edge to the constructor and one of a dependency type an external
+// call; its span reads back as the construct (`T v(args)`, `new T(args)`,
+// `T{args}`), so a C++ fragment carries it as a call site as written. A
+// declaration tree-sitter reads as a function declaration because every
+// argument is a name (`QSslKey key(data, QSsl::Rsa)`) is one of them.
+const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "2"
 
 // cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped
 // with one is a C++ graph.
