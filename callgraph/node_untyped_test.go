@@ -157,20 +157,3 @@ module.exports = { Protocol, rekey };
 		t.Fatalf("untyped calls %v, want the call on this._cipher", got)
 	}
 }
-
-// A call on the runtime's WebCrypto object that another module exports
-// (jose's webcrypto.js: `export default crypto`) runs the runtime's
-// function: it is resolved, not name_only.
-func TestNodeUntypedWebCryptoFromAnotherModule(t *testing.T) {
-	t.Parallel()
-	graph := buildNodeFiles(t, map[string]string{
-		"webcrypto.mjs": "export default crypto;\nexport const g = globalThis.crypto;\n",
-		"decrypt.mjs": `import crypto, { g } from './webcrypto.mjs';
-export async function decrypt(k, d) { return crypto.subtle.decrypt('AES-GCM', k, d); }
-export function fill(b) { return g.getRandomValues(b); }
-`,
-	})
-	if got := nodeUntypedCalls(t, graph); len(got) != 0 {
-		t.Fatalf("untyped calls %v, want none", got)
-	}
-}

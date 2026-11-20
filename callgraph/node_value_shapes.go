@@ -194,11 +194,6 @@ func (q *nodeValueQuery) values(m *nodeShapeModule, n *sitter.Node, depth int) [
 		if n.Content(m.src) == nodeModuleExportsTarget {
 			return q.moduleValues(m, depth+1)
 		}
-		if nodeGlobalCryptoProperties[name] && object.Type() == goNodeIdentifier && nodeGlobalObjects[object.Content(m.src)] {
-			if _, declared := m.nameBinding(object); !declared {
-				return nodeExternalValue(nodeCryptoGlobalName) // `globalThis.crypto`
-			}
-		}
 		var out []nodeShapeValue
 		for _, o := range q.values(m, object, depth+1) {
 			out = appendNodeValues(out, q.member(o, strings.TrimPrefix(name, "#"), depth+1)...)
@@ -269,11 +264,6 @@ func (q *nodeValueQuery) nameValues(m *nodeShapeModule, n *sitter.Node, depth in
 		if name == nodeCommonJSExportsObject || m.assignments().aliases[name] {
 			// The CommonJS exports object, or a name the module binds to it.
 			return []nodeShapeValue{{m: m, n: m.root, module: true}}
-		}
-		if name == nodeCryptoGlobalName {
-			// The runtime's WebCrypto object (node_webcrypto.go), also the
-			// Node module of that name: what jose's webcrypto.js exports.
-			return nodeExternalValue(nodeCryptoGlobalName)
 		}
 		return nil
 	}

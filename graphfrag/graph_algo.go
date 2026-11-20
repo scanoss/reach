@@ -440,10 +440,6 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A call's result passed as an argument is handed over when another
 // package's function returns it (`app.use(path, graphqlUploadExpress(o))`
 // reaches graphql-upload's `(default()).<result>`).
-// The global `crypto` (and `globalThis.crypto`) holds the runtime's
-// WebCrypto object, so a call on it under another module's name (jose's
-// webcrypto.js `export default crypto`) is resolved to the runtime, not
-// name_only.
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds
