@@ -296,9 +296,12 @@ type FunctionDecl struct {
 	LocalBindings []LocalBinding
 	// Declarations are the local variables and fields the body declares, and
 	// Casts its cast expressions (Java; Python's annotated assignments and
-	// typing.cast calls).
+	// typing.cast calls; C and C++ local declarations).
 	Declarations []VarDecl
 	Casts        []CastExpr
+	// WrittenParameters are the function's parameters as the source writes
+	// them, type text, name and span (C++ only, graph-algo-cpp-3).
+	WrittenParameters []WrittenParameter
 	// nodeReturnClass is the class a Node function declares as its return
 	// type, `function make(): Base`, when that is a plain class of the project.
 	nodeReturnClass FunctionID

@@ -23,6 +23,9 @@ import (
 //     anchor is the init_declarator, or the function_declarator tree-sitter
 //     reads `T v(a, ns::b)` as when every argument also reads as a type name
 //     (a declaration of a function, which a function body never means).
+//     `T v();` declares a function, but OpenGrep matches it as `T $K(...);`:
+//     it is a site too (graph-algo-cpp-3), anchored on the
+//     function_declarator, with no arguments; its span reads `T v()`.
 //   - `T v;`: the same span, `T v`; the anchor is the declarator's identifier.
 //   - `new T(args)`, `new T{args}`, `new T`: the span and the anchor are the
 //     new_expression.
@@ -36,8 +39,8 @@ import (
 // function. Not recorded: a type that names no class (a primitive, `auto`, an
 // elaborated `struct S`, a dependent `typename`, `decltype`), a pointer,
 // reference or array declarator, an `extern` declaration, copy-initialization
-// (`T v = e;`, where e is the site when it is a call), `T v();` (a function
-// declaration), and an array new (`new T[n]`).
+// (`T v = e;`, where e is the site when it is a call; the declaration is
+// listed among the function's Declarations), and an array new (`new T[n]`).
 
 const (
 	cppNodeDeclaration          = "declaration"
@@ -145,7 +148,13 @@ func cppConstructedDeclarator(node *sitter.Node, src []byte) (name string, args 
 		return declarator.Content(src), value, true
 	case cppNodeFunctionDeclarator:
 		declarator, parameters := node.ChildByFieldName("declarator"), node.ChildByFieldName("parameters")
-		if declarator == nil || declarator.Type() != cNodeIdentifier || !cppParametersReadAsArguments(node, parameters) {
+		if declarator == nil || declarator.Type() != cNodeIdentifier {
+			return "", nil, false
+		}
+		if cppEmptyParameters(node, parameters) {
+			return declarator.Content(src), nil, true
+		}
+		if !cppParametersReadAsArguments(node, parameters) {
 			return "", nil, false
 		}
 		return declarator.Content(src), parameters, true
@@ -178,6 +187,13 @@ func cppParametersReadAsArguments(declarator, parameters *sitter.Node) bool {
 		}
 	}
 	return true
+}
+
+// cppEmptyParameters reports whether a function declarator is `v()` with
+// nothing after the list: `T v();`, which declares a function (the most
+// vexing parse) and which OpenGrep matches as `T $K(...);`.
+func cppEmptyParameters(declarator, parameters *sitter.Node) bool {
+	return parameters != nil && parameters.Type() == cNodeParameterList && parameters.NamedChildCount() == 0 && declarator.NamedChildCount() == 2
 }
 
 // cppNameReadsAsValue reports whether a type name could be an expression: an

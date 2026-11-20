@@ -18,6 +18,10 @@ import (
 
 const cppNodeFunctionDefinition = "function_definition"
 
+// cppCallOperator is the name of a function call operator, as a definition
+// `R T::operator()(...)` names it.
+const cppCallOperator = "operator()"
+
 // CPPParser extracts C++ function declarations, calls, and include paths.
 type CPPParser struct {
 	parser       *sitter.Parser
@@ -101,7 +105,15 @@ func (p *CPPParser) walkFile(node *sitter.Node, src []byte, filePath, packagePat
 	switch node.Type() {
 	case "preproc_include":
 		p.extractInclude(node, src, analysis)
+	case cppNodeUsingDeclaration:
+		if using, ok := cppUsingOf(node, src); ok {
+			analysis.CIncludes = append(analysis.CIncludes, using)
+		}
+		return
 	case cppNodeFunctionDefinition:
+		if body := node.ChildByFieldName("body"); body != nil {
+			analysis.CIncludes = append(analysis.CIncludes, cppBodyUsings(body, src)...)
+		}
 		if decl := p.parseFunction(node, src, filePath, packagePath, scope, staticFunctions, localTypes); decl != nil {
 			analysis.Functions = append(analysis.Functions, *decl)
 		}
@@ -294,6 +306,8 @@ func (p *CPPParser) parseFunction(node *sitter.Node, src []byte, filePath, packa
 		FunctionType: "function",
 		Parameters:   cppParameters(declarator, src),
 	}
+	decl.WrittenParameters = cppWrittenParameters(declarator, src)
+	decl.Declarations = cppDeclarations(body, src)
 	variableTypes := cppVariableTypes(decl.Parameters)
 	p.walkCalls(body, src, filePath, packagePath, staticFunctions, localTypes, variableTypes, &decl.Calls)
 	decl.ReturnSources = p.extractReturnSources(body, src, filePath, packagePath, staticFunctions, localTypes, variableTypes)
@@ -339,7 +353,7 @@ func cppBoundVariableName(node *sitter.Node, src []byte) string {
 	switch node.Type() {
 	case cNodeIdentifier:
 		return node.Content(src)
-	case "reference_declarator":
+	case cppNodeReferenceDeclarator:
 		for i := 0; i < int(node.NamedChildCount()); i++ {
 			if name := cppBoundVariableName(node.NamedChild(i), src); name != "" {
 				return name
@@ -402,6 +416,25 @@ func cppDeclaratorName(node *sitter.Node, src []byte) string {
 	return name
 }
 
+// cppOperatorName spells an operator function's name without the spaces a
+// symbol operator may be written with (`operator ()` → `operator()`, `operator
+// ==` → `operator==`), the name a call of it is keyed by; a word operator
+// keeps one (`operator new`). Any other name is returned as is.
+func cppOperatorName(name string) string {
+	rest, ok := strings.CutPrefix(name, "operator")
+	if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t' && !strings.ContainsAny(rest[:1], "()[]<>=!+-*/%^&|~,")) {
+		return name
+	}
+	words := strings.Fields(rest)
+	if len(words) == 0 {
+		return name
+	}
+	if c := words[0][0]; c == '_' || (c|0x20 >= 'a' && c|0x20 <= 'z') {
+		return "operator " + strings.Join(words, " ")
+	}
+	return "operator" + strings.Join(words, "")
+}
+
 func cppDeclaratorIdentity(node *sitter.Node, src []byte) (name, typeName string) {
 	if node == nil {
 		return "", ""
@@ -409,9 +442,21 @@ func cppDeclaratorIdentity(node *sitter.Node, src []byte) (name, typeName string
 	switch node.Type() {
 	case cNodeIdentifier, "field_identifier":
 		return node.Content(src), ""
+	case cppNodeOperatorName:
+		return cppOperatorName(node.Content(src)), ""
 	case cppNodeQualifiedIdentifier:
 		parts := strings.Split(strings.TrimPrefix(node.Content(src), "::"), "::")
-		return parts[len(parts)-1], strings.Join(parts[:len(parts)-1], "::")
+		return cppOperatorName(parts[len(parts)-1]), strings.Join(parts[:len(parts)-1], "::")
+	case cppNodeReferenceDeclarator:
+		// A function returning a reference (`const T& f()`, `T& C::f()`):
+		// tree-sitter-cpp gives the reference declarator no `declarator`
+		// field, so its function declarator is read as its named child.
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			if name, typeName := cppDeclaratorIdentity(node.NamedChild(i), src); name != "" {
+				return name, typeName
+			}
+		}
+		return "", ""
 	default:
 		return cppDeclaratorIdentity(node.ChildByFieldName("declarator"), src)
 	}
@@ -495,6 +540,23 @@ func (p *CPPParser) parseCall(node *sitter.Node, src []byte, filePath, packagePa
 		call.Callee.Name = name
 		call.Callee.Type = scope
 		if localTypes[call.Callee.Type+"::"+call.Callee.Name] {
+			call.Callee.Linkage = LinkageInternal
+		}
+	case cNodeCallExpression:
+		// A call of a call's result, `SHA256()(x)`: the call operator of
+		// what the inner call yields. When the inner callee is a name it is
+		// read as a type, as a temporary `T(args)` is: the outer call is
+		// keyed (T).operator(), the key the definition of T::operator() has,
+		// with T as written (template arguments kept, no leading "::").
+		// Any other inner callee (`obj.get()(x)`, `f()()(x)`) is not
+		// recorded.
+		inner := function.ChildByFieldName("function")
+		if inner == nil || (inner.Type() != cNodeIdentifier && inner.Type() != cppNodeQualifiedIdentifier && inner.Type() != "template_function") {
+			return nil
+		}
+		call.Callee.Name = cppCallOperator
+		call.Callee.Type = cppCanonicalType(inner.Content(src))
+		if localTypes[call.Callee.Type] {
 			call.Callee.Linkage = LinkageInternal
 		}
 	default:

@@ -19,6 +19,12 @@ import (
 // inside a preprocessor conditional (#if, #ifdef, #ifndef, #elif, #else).
 // InFunction is true when the directive is written inside a function body;
 // such a directive's text is listed, but it names nothing for the file.
+//
+// A C++ file lists its using directives and declarations among them
+// (graph-algo-cpp-3): Using set, Header and System empty, Text the statement
+// as written (`using namespace a::b;`, `using a::b::n;`, whitespace runs
+// collapsed to one space) and InFunction set when it is written in a
+// function body. A using in a class body is not listed.
 type CInclude struct {
 	Line        int
 	StartCol    int
@@ -28,6 +34,7 @@ type CInclude struct {
 	Text        string
 	Conditional bool
 	InFunction  bool
+	Using       bool
 }
 
 // cIncludeOf reads one preproc_include node; ok is false when it names no

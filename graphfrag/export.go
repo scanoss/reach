@@ -533,7 +533,8 @@ type GraphFragmentExport struct {
 	// statements in source order (Python, optional with no schema bump; Rust
 	// `use` and `extern crate` from 1.26; Node from graph-algo-node-3,
 	// optional with no schema bump; Go import specs from 1.32; C and C++
-	// #include directives from 1.37). A rule that names an import, or reads
+	// #include directives from 1.37; C++ using directives and declarations
+	// from graph-algo-cpp-3, optional with no schema bump). A rule that names an import, or reads
 	// an argument through an import alias, needs them without the source.
 	Imports map[string][]GraphFragmentImport `json:"imports,omitempty"`
 	// GoValues are, by file path, the composite literals, new(T)
@@ -643,6 +644,13 @@ type GraphFragmentExport struct {
 // require('m')`, "dynamic" for import() and "export" for `export ... from
 // 'm'`. `import d from 'm'` is {name: default, alias: d}; `const x =
 // require('m')` is {alias: x, kind: require}.
+//
+// A C or C++ #include (1.37) has the header as module, the directive as
+// text, its line and start_col, and local when it is written in a function
+// body. A C++ using directive or declaration (graph-algo-cpp-3) has no
+// module and its statement as text, whitespace runs collapsed to one space
+// (`using namespace a::b;`, `using a::b::n;`), with the same line, start_col
+// and local; a using in a class body is not listed.
 type GraphFragmentImport struct {
 	Line     int    `json:"line"`
 	Module   string `json:"module"`
@@ -1414,10 +1422,31 @@ type GraphFragmentFunction struct {
 	// ParameterNames (1.21+) are the names of the function's parameters, in
 	// order.
 	ParameterNames []string `json:"parameter_names,omitempty"`
+	// WrittenParameters are the function's parameters as the source writes
+	// them (C++, graph-algo-cpp-3; optional, no schema bump), every one in
+	// order, those with a default value and a variadic pack included, where
+	// parameter_types is canonicalized and leaves them out.
+	WrittenParameters []GraphFragmentWrittenParameter `json:"written_parameters,omitempty"`
 	// ReturnSources (1.21+) is the provenance of the values the function
 	// returns, as the parser traced it.
 	ReturnSources  []GraphFragmentRawSource `json:"return_sources,omitempty"`
 	InferredReturn json.RawMessage          `json:"-"`
+}
+
+// GraphFragmentWrittenParameter is one parameter of a function as the source
+// writes it (callgraph.WrittenParameter). type is the parameter declaration
+// without its name and default value, whitespace runs collapsed to one space
+// (`const seal::KeyGenerator &` for `const seal::KeyGenerator &kg`,
+// `int (*)(int)` for `int (*cb)(int)`); name is "" for an unnamed parameter.
+// The span is the parameter declaration's, default value included: columns
+// 1-based, end exclusive, end_line only when it spans lines.
+type GraphFragmentWrittenParameter struct {
+	Type     string `json:"type"`
+	Name     string `json:"name,omitempty"`
+	Line     int    `json:"line"`
+	StartCol int    `json:"start_col"`
+	EndCol   int    `json:"end_col"`
+	EndLine  int    `json:"end_line,omitempty"`
 }
 
 // GraphFragmentCallSite carries the per-edge call-site invocation detail: the

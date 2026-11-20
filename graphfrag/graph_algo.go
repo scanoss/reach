@@ -512,7 +512,17 @@ const cGraphAlgoPrefix = "graph-algo-c-"
 // `T{args}`), so a C++ fragment carries it as a call site as written. A
 // declaration tree-sitter reads as a function declaration because every
 // argument is a name (`QSslKey key(data, QSsl::Rsa)`) is one of them.
-const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "2"
+//
+// graph-algo-cpp-3: a C++ graph records the functions that return a
+// reference (`const T& f()`, `T& C::f()`) and the operator functions
+// (`T::operator()`), which it dropped; a call of a call's result
+// (`SHA256()(x)`) as a call of (T).operator() when the inner callee is a
+// name; `T v();` as a construction of T with no arguments; each function's
+// local declarations (as C's, references included) and its parameters as
+// written (WrittenParameters); and each file's using directives and
+// declarations among its includes, so a C++ fragment carries them as
+// imports.
+const GraphAlgoVersionCPP = cppGraphAlgoPrefix + "3"
 
 // cppGraphAlgoPrefix starts every C++ graph algorithm id: a fragment stamped
 // with one is a C++ graph.
