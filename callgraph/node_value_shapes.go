@@ -1002,8 +1002,9 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 	for _, base := range q.bases(v, depth) {
 		out = appendNodeValues(out, q.instanceMember(base, name, depth+1, up+1)...)
 	}
-	if len(out) == 0 && v.method != nil {
-		// `this` in a base class's method, called on a subclass's instance.
+	if v.method != nil && len(nodeLocalValues(out)) == 0 {
+		// `this` in a base class's method, called on a subclass's instance;
+		// a base outside the package (EventEmitter) declares nothing here.
 		for _, r := range q.receiverValues(v.m, v.method) {
 			if r.m != v.m || !sameSyntaxNode(r.n, v.n) {
 				out = appendNodeValues(out, q.instanceMember(r, name, depth+1, up+1)...)
