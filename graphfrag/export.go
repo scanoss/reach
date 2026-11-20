@@ -286,7 +286,14 @@ import (
 // call argument (a callback) from the function that writes it on the same
 // line. A fragment before 1.38, or a function without columns, places a call
 // by lines only.
-const SchemaVersion = "graph-fragment-1.38"
+//
+// 1.39 adds candidate_owners to a C# external call: the fully qualified types
+// the call's owner can be, the file's own namespace first and then one per
+// using. C# names a type through an on-demand using, so a call into a
+// dependency is keyed on the caller's own namespace, which no dependency
+// graph holds. A fragment before 1.39 carries none, and such a call resolves
+// only when the caller's own graph declares the type.
+const SchemaVersion = "graph-fragment-1.39"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -1677,6 +1684,12 @@ type GraphFragmentExternal struct {
 	// since it cannot name one module; the candidates are the modules the
 	// receiver may hold the member from. Omitted otherwise.
 	CandidateModules []string `json:"candidate_modules,omitempty"`
+	// CandidateOwners (1.39, C#) lists the fully qualified types the call's
+	// owner can be: the caller's own namespace first, then one per using of
+	// the file, the graph's FunctionCall.OwnerAlternatives. target_key keeps
+	// the caller-local guess; the stitch reads these to find the owner a
+	// dependency declares. Omitted otherwise.
+	CandidateOwners []string `json:"candidate_owners,omitempty"`
 }
 
 // GraphFragmentCryptoOp is one crypto finding annotation attached to a function

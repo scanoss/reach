@@ -700,6 +700,9 @@ type callEdge struct {
 	// dispatch edge it names what the walk could not narrow, which is the whole
 	// reason a consumer would want to see it.
 	declaredType string
+	// candidateOwners are the types a C# call's owner can be when the caller
+	// could not name it (stitch_csharp_owners.go).
+	candidateOwners []string
 }
 
 // buildAdjacency composes the traversable call graph from the fragment closure
@@ -749,11 +752,12 @@ func buildAdjacency(
 			targetSet = componentSet(dependencyClosure(key, deps))
 			delete(targetSet, key)
 		}
-		resolve := callEdgeResolver(key, componentSigs, targetSet, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
+		csharpFragment := fragmentEcosystem(fragment) == "csharp"
+		resolve := callEdgeResolver(key, csharpFragment, componentSigs, targetSet, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
 		if closureTargets(key) {
 			others := componentSet(closure)
 			delete(others, key)
-			resolve = preferDeclared(resolve, callEdgeResolver(key, componentSigs, others, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy))
+			resolve = preferDeclared(resolve, callEdgeResolver(key, csharpFragment, componentSigs, others, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy))
 		}
 		if fragmentEcosystem(fragment) == "python" {
 			scope := targetSet
@@ -778,7 +782,7 @@ func buildAdjacency(
 		dispatchGroups := applyImmediateEdgePolicy(key, edges, immediate, adjacency, suppressed, dispatchSurfaces, ownerTypes, fragments, functionsByNode, ambiguous, nameOnly)
 		applyDispatchGroups(key, dispatchGroups, resolve, ownerTypes, fragments, functionsByNode, adjacency, suppressed, ambiguous)
 		if fallback != nil && len(*unresolved) > 0 {
-			full := callEdgeResolver(key, componentSigs, fallback.others(key), functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
+			full := callEdgeResolver(key, csharpFragment, componentSigs, fallback.others(key), functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy)
 			// The fallback's refusals are not the stitch's: nil records none.
 			groups := applyImmediateEdgePolicy(key, *unresolved, full, fallback.adjacency, nil, dispatchSurfaces, ownerTypes, fragments, functionsByNode, fallback.ambiguous, make(map[graphNode][]adjacencyEdge))
 			applyDispatchGroups(key, groups, full, ownerTypes, fragments, functionsByNode, fallback.adjacency, nil, fallback.ambiguous)
@@ -886,7 +890,7 @@ func collectCallEdges(fragment Fragment) []callEdge {
 			caller: c.Caller, target: c.TargetSignature, targetCanonicalSignature: c.TargetCanonicalSignature, resolution: c.Resolution,
 			method: c.MethodName, arity: c.Arity, callSite: c.CallSite, startCol: c.StartCol, endCol: c.EndCol, internal: false, entryCall: c.EntryCall,
 			resolvedReceiverType: c.ResolvedReceiverType, declaredType: c.DeclaredType,
-			receiverVar: c.ReceiverVar, chainID: c.ChainID,
+			receiverVar: c.ReceiverVar, chainID: c.ChainID, candidateOwners: c.CandidateOwners,
 		})
 	}
 	return edges
@@ -908,6 +912,7 @@ type edgeResolver func(callEdge) edgeTargets
 // components that are direct dependencies of the current component.
 func callEdgeResolver(
 	key ComponentKey,
+	csharpFragment bool,
 	componentSigs map[string]bool,
 	directDeps map[ComponentKey]bool,
 	functionsBySignature map[string][]graphNode,
@@ -947,6 +952,11 @@ func callEdgeResolver(
 			// (`acme-sign.sign`), joins the declaration its exports name. A
 			// name_only call is never spelled so.
 			targets.nodes = public.targets(e.target, key, directDeps, functionsBySignature, hierarchy)
+		}
+		if len(targets.nodes) == 0 && csharpFragment {
+			// A C# call keyed on the caller's own namespace, which the caller's
+			// graph does not declare: the owner is one of the file's usings.
+			targets = csharpOwnerTargets(e, directDeps, functionsBySignature, functionsByCanonicalSignature, aliasByKey)
 		}
 		if len(targets.nodes) == 0 && e.resolution == ResolutionNameOnly && e.method != "" {
 			// A call whose receiver type the caller could not name (a client

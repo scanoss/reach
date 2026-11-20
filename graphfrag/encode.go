@@ -96,6 +96,7 @@ func EncodeFragment(frag Fragment) ([]byte, error) {
 
 			ResolvedReceiverType: e.ResolvedReceiverType,
 			CandidateModules:     e.CandidateModules,
+			CandidateOwners:      e.CandidateOwners,
 		})
 	}
 

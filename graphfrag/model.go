@@ -508,6 +508,11 @@ type ExternalCall struct {
 	// reach the member in, its target caller-local (1.29, Node). See
 	// GraphFragmentExternal.CandidateModules.
 	CandidateModules []string
+
+	// CandidateOwners are the types a C# call's owner can be, its target
+	// keyed on the caller's own namespace (1.39). See
+	// GraphFragmentExternal.CandidateOwners.
+	CandidateOwners []string
 }
 
 // CryptoOperation is a crypto finding attached to a function.
