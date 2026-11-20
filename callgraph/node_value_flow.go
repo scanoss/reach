@@ -726,13 +726,32 @@ func (f *nodeValueFlow) handOverAt(m *nodeShapeModule, expr *sitter.Node, fn str
 	q := f.shapes.query()
 	q.budget = nodeValueBudget / 8
 	if expr.Type() == nodeCallExpression {
-		// Only `f.bind(..)` hands a function over; any other call hands
-		// over its result, which is not followed.
+		// `f.bind(..)` hands f over. Any other call hands over its result,
+		// which is followed only when another package's function returns it
+		// (`app.use(path, graphqlUploadExpress(opts))`): that package lists
+		// what it returns, the package's own results are not followed.
 		callee := unwrapNodeCallee(expr.ChildByFieldName("function"))
-		if callee == nil || callee.Type() != nodeMemberExpression {
+		if callee == nil {
 			return
 		}
-		if property := callee.ChildByFieldName("property"); property == nil || property.Content(m.src) != "bind" {
+		if property := callee.ChildByFieldName("property"); callee.Type() != nodeMemberExpression || property == nil || property.Content(m.src) != "bind" {
+			if callee.Type() == goNodeIdentifier || callee.Type() == nodeMemberExpression {
+				var results []nodeShapeValue
+				for _, v := range q.values(m, callee, 0) {
+					if v.external == nil || v.external.runtime {
+						continue
+					}
+					if len(v.external.steps) == 0 {
+						// The module itself, called: its default export.
+						for _, d := range v.step(nodeAccessStep{name: nodeDefaultExport}) {
+							results = appendNodeValues(results, d.step(nodeAccessStep{call: true})...)
+						}
+						continue
+					}
+					results = appendNodeValues(results, v.step(nodeAccessStep{call: true})...)
+				}
+				f.reach(m, results, expr, fn)
+			}
 			return
 		}
 		f.reach(m, q.values(m, callee.ChildByFieldName("object"), 0), expr, fn)

@@ -437,6 +437,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A field of a class also holds what the plain functions its fields hold
 // assign it, run as its methods (ssh2's `this._parse = parseHeader`, which
 // sets `this._parse = parsePacket`).
+// A call's result passed as an argument is handed over when another
+// package's function returns it (`app.use(path, graphqlUploadExpress(o))`
+// reaches graphql-upload's `(default()).<result>`).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

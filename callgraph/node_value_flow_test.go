@@ -203,6 +203,22 @@ function jwa(alg, bits) { return signers[alg](bits); }
 			not:  []string{"app/m.jwa -> app/m.unused", "app/m.<module> -> app/m.hmac"},
 		},
 		{
+			// parse-server: `app.use(path, graphqlUploadExpress(opts))` hands
+			// over the middleware graphql-upload returns.
+			name: "what another package's function returns, handed over",
+			files: map[string]string{"m.mjs": `import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
+import express from 'express';
+export function apply(app) {
+  app.use('/x', graphqlUploadExpress({ max: 1 }));
+  app.use('/y', express.json());
+}
+`},
+			want: []string{
+				"app/m.apply -> graphql-upload/graphqlUploadExpress.js.(default()).<result>",
+				"app/m.apply -> express.(json()).<result>",
+			},
+		},
+		{
 			// node-apn: `this.config.createConnection = (a) => ..` then
 			// `http2.connect(url, this.config)`, which calls it.
 			name: "a function written into an object the same body hands over",
