@@ -147,6 +147,9 @@ type Builder struct {
 	// kb, when set, replaces the installed source's KB for the build's
 	// ecosystem, so a test can build with a KB of its own.
 	kb *contracts.KnowledgeBase
+	// cppBuild accumulates the C++ facts resolveCPPCalls reads across files,
+	// while a C++ build merges its files.
+	cppBuild *cppBuildFacts
 	// pythonReExports accumulates every package's `__init__.py` re-exports
 	// discovered during Phase 1 source parsing (addAnalyses), keyed by the
 	// owning package's dotted path, then by symbol name -> origin module
@@ -313,8 +316,14 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	b.artifacts = newArtifactScopeFor(b.ecosystem, b.artifactGraph)
 	graph.artifacts = b.artifacts
 	log.Info().Int("packages", len(packages)).Msg("Parsing source files for call graph")
+	b.cppBuild = nil
+	if b.ecosystem == ecosystemCPP {
+		b.cppBuild = newCPPBuildFacts()
+	}
 	b.analyzePackages(packages, graph)
 	if b.ecosystem == ecosystemCPP {
+		b.resolveCPPCalls(graph, b.cppContractKB())
+		b.cppBuild = nil
 		markCPPProjectLocalCalls(graph)
 	}
 	if b.ecosystem == ecosystemRuby {
@@ -962,6 +971,9 @@ func (b *Builder) applyEcosystemAnalysisHooks(graph *CallGraph, analysis *FileAn
 			addCPPProjectDeclarations(graph, analysis)
 		} else {
 			clearCPPDependencyLocalLinkage(analysis)
+		}
+		if b.cppBuild != nil {
+			b.cppBuild.add(analysis, projectLocal)
 		}
 	}
 	// Re-export accumulation is restricted to project-local analyses only.
@@ -2063,7 +2075,28 @@ func (b *Builder) indexCallDispatch(graph *CallGraph, callerKey string, call *Fu
 		recordCallEdgeResolution(graph, callerKey, alias.CalleeKey, alias.kind(), alias.DeclaredType, call)
 	}
 
+	if call.cpp != nil {
+		for _, edge := range call.cpp.edges {
+			idx.addCallerIndexed(graph.Callers, edge.key, callerKey)
+			recordCallEdgeResolution(graph, callerKey, edge.key, edge.kind, edge.declaredType, call)
+		}
+	}
+
 	b.indexFluentFallback(graph, callerKey, call, idx)
+}
+
+// cppContractKB is the contract KB resolveCPPCalls consults before the
+// build loads it for inference: the configured one, else the installed C++
+// KB, or nil when none loads.
+func (b *Builder) cppContractKB() *contracts.KnowledgeBase {
+	if b.kb != nil {
+		return b.kb
+	}
+	kb, err := contracts.ForEcosystem(b.ecosystem)
+	if err != nil {
+		return nil
+	}
+	return kb
 }
 
 func (b *Builder) indexFluentFallback(graph *CallGraph, callerKey string, call *FunctionCall, idx dispatchIndexes) {
