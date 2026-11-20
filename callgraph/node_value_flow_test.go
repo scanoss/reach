@@ -216,9 +216,18 @@ class Client {
   }
   idle() { this.spare.onIdle = function idle() { return 1; }; return 0; }
 }
+function tlsConnect(o) { return o; }
+function netConnect(o) { return o; }
+function initAsClient(opts, secure) {
+  opts.createConnection = opts.createConnection || (secure ? tlsConnect : netConnect);
+  return http2.request(opts);
+}
 `},
-			want: []string{"app/m.(Client).connect -> app/m.createConnection", "app/m.(Client).connect -> app/m.kept"},
-			not:  []string{"app/m.(Client).idle -> app/m.idle"},
+			want: []string{
+				"app/m.(Client).connect -> app/m.createConnection", "app/m.(Client).connect -> app/m.kept",
+				"app/m.initAsClient -> app/m.tlsConnect", "app/m.initAsClient -> app/m.netConnect",
+			},
+			not: []string{"app/m.(Client).idle -> app/m.idle"},
 		},
 		{
 			name: "returned closure and object, and a bound function",

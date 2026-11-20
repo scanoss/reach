@@ -857,7 +857,8 @@ func (f *nodeValueFlow) addRequiredModules() {
 // handMembers adds an edge from fn to each function the body the argument
 // expr is written in assigns into a member of that same expression before
 // handing it over: node-apn writes `this.config.createConnection = (a) =>
-// tls.connect(..)` and passes this.config to http2.connect, which calls it.
+// tls.connect(..)` and passes this.config to http2.connect, which calls it;
+// ws writes `opts.createConnection = isSecure ? tlsConnect : netConnect`.
 func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn string) {
 	if expr.Type() != goNodeIdentifier && expr.Type() != nodeMemberExpression {
 		return
@@ -881,11 +882,6 @@ func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn st
 			if left == nil || right == nil || left.Type() != nodeMemberExpression {
 				return
 			}
-			switch right.Type() {
-			case nodeFunctionExpression, nodeArrowFunction, nodeGeneratorFunction:
-			default:
-				return
-			}
 			if object := left.ChildByFieldName("object"); object != nil {
 				writes[object.Content(m.src)] = append(writes[object.Content(m.src)], right)
 			}
@@ -893,8 +889,16 @@ func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn st
 		f.memberWrites[key] = writes
 	}
 	for _, right := range writes[expr.Content(m.src)] {
-		if key := f.functionKey(m, right); key != "" {
-			f.edge(fn, key, f.graph.Functions[key].ID, right, "")
+		switch right.Type() {
+		case nodeFunctionExpression, nodeArrowFunction, nodeGeneratorFunction:
+			if key := f.functionKey(m, right); key != "" {
+				f.edge(fn, key, f.graph.Functions[key].ID, right, "")
+			}
+		default:
+			// `opts.createConnection = secure ? tlsConnect : netConnect`.
+			q := f.shapes.query()
+			q.budget = nodeValueBudget / 8
+			f.reach(m, nodeLocalValues(q.values(m, right, 0)), right, fn)
 		}
 	}
 }

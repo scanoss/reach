@@ -432,7 +432,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // getSecureStream } = getStreamFuncs()`, pg) holds each value it can be.
 // A function a body writes into a member of an object it then passes to a
 // call is handed over with that object (node-apn's
-// `this.config.createConnection = ..; http2.connect(url, this.config)`).
+// `this.config.createConnection = ..; http2.connect(url, this.config)`, ws's
+// `opts.createConnection = isSecure ? tlsConnect : netConnect`).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds
