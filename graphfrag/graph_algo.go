@@ -423,6 +423,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // holds only data is followed when another requires it.
 // `exports = module.exports = fn` exports fn as the module, as
 // `module.exports = fn` does (object-hash).
+// A destructured parameter member holds its own default too
+// (`{ processRequest = defaultProcessRequest } = {}`).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

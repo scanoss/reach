@@ -43,6 +43,23 @@ module.exports = { Provider, unrelated };
 			not: []string{"app/provider.(Provider).send -> app/index.write"},
 		},
 		{
+			// graphql-upload's `function graphqlUploadExpress({ processRequest
+			// = defaultProcessRequest } = {})`, called without that member.
+			name: "a destructured member's default when the caller passes none",
+			files: map[string]string{
+				"proc.js": "function processRequest(r) { return r; }\nmodule.exports = processRequest;\n",
+				"mw.js": `const defaultProcessRequest = require("./proc.js");
+function mw({ processRequest = defaultProcessRequest, ...rest } = {}) {
+  function inner(req) { return processRequest(req, rest); }
+  return inner;
+}
+module.exports = mw;
+`,
+				"app.js": "const mw = require('./mw.js');\nmw({ max: 1 })({});\n",
+			},
+			want: []string{"app/mw.inner -> app/proc.processRequest"},
+		},
+		{
 			name: "an instance stored in a field by the constructor it is passed to",
 			files: map[string]string{"m.js": `class Adapter { send(b) { return b; } }
 class Other { send(b) { return b; } }

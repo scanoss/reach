@@ -194,7 +194,11 @@ func (m *nodeShapeModule) parameter(fn *sitter.Node, name string) (nodeParameter
 		case nodeObjectPattern:
 			at.value = nil // the default is the whole object's, not the member's
 			nodeEachNamedChild(param, func(item *sitter.Node) {
-				if item.Type() == "object_assignment_pattern" {
+				// `{ run = defaultRun }`: the member's own default, held
+				// when a caller passes no such member.
+				var memberDefault *sitter.Node
+				if item.Type() == nodeObjectAssignmentPattern {
+					memberDefault = item.ChildByFieldName("right")
 					item = item.ChildByFieldName("left")
 				}
 				if ok || item == nil {
@@ -203,7 +207,7 @@ func (m *nodeShapeModule) parameter(fn *sitter.Node, name string) (nodeParameter
 				switch item.Type() {
 				case nodeShorthandPattern:
 					if item.Content(m.src) == name {
-						at.member = name
+						at.member, at.value = name, memberDefault
 						found, ok = at, true
 					}
 				case nodePairPattern:
