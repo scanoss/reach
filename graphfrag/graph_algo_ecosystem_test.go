@@ -111,3 +111,28 @@ func TestGraphAlgoVersionRubyIsItsOwn(t *testing.T) {
 		t.Errorf("EcosystemForPurl(gem) = %q, want ruby", got)
 	}
 }
+
+// C# graphs carry an id of their own, and a NuGet purl resolves to it.
+func TestGraphAlgoVersionCSharpIsItsOwn(t *testing.T) {
+	for name, id := range map[string]string{
+		"Java":   graphfrag.GraphAlgoVersion,
+		"Python": graphfrag.GraphAlgoVersionPython,
+		"Rust":   graphfrag.GraphAlgoVersionRust,
+		"Node":   graphfrag.GraphAlgoVersionNode,
+		"Go":     graphfrag.GraphAlgoVersionGo,
+		"Ruby":   graphfrag.GraphAlgoVersionRuby,
+	} {
+		if graphfrag.GraphAlgoVersionCSharp == id {
+			t.Fatalf("C# shares the %s id %q", name, id)
+		}
+	}
+	if got := graphfrag.GraphAlgoVersionFor("csharp"); got != graphfrag.GraphAlgoVersionCSharp {
+		t.Errorf("GraphAlgoVersionFor(csharp) = %q", got)
+	}
+	if got := graphfrag.GraphAlgoVersionForPurl("pkg:nuget/BouncyCastle.Cryptography"); got != graphfrag.GraphAlgoVersionCSharp {
+		t.Errorf("a NuGet purl gives %q, want the C# id", got)
+	}
+	if got := graphfrag.EcosystemForPurl("pkg:nuget/BouncyCastle.Cryptography"); got != "csharp" {
+		t.Errorf("EcosystemForPurl(nuget) = %q, want csharp", got)
+	}
+}

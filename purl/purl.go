@@ -96,6 +96,8 @@ func Dependency(ecosystem, module, version string) string {
 		typ, name = packageurl.TypeCargo, module
 	case "ruby":
 		typ, name = packageurl.TypeGem, module
+	case "csharp":
+		typ, name = packageurl.TypeNuget, module
 	case "node":
 		typ = packageurl.TypeNPM
 		namespace, name = splitNpmModule(module)

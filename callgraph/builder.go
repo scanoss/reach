@@ -327,6 +327,9 @@ func (b *Builder) BuildFromDirectories(packages, typeOnlyPackages []PackageDir) 
 	if b.ecosystem == ecosystemPython {
 		b.finishPythonBuild(graph)
 	}
+	if b.ecosystem == ecosystemCSharp {
+		reanchorGuessedCSharpOwners(graph)
+	}
 	if b.ecosystem == ecosystemJava {
 		reanchorGuessedJavaOwners(graph)
 		graph.ServiceProviders = b.collectJavaServiceProviders(packages)
