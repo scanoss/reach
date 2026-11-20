@@ -42,6 +42,7 @@ func TestCPPParser_ConstructionSites(t *testing.T) {
     auto alg = jwt::algorithm::hs256{"secret"};
     QSslKey multi(data,
                   QSsl::Rsa);
+    Botan::SHA_256 vexing();
 }
 `
 	calls := parseCPPCalls(t, src)["f"]
@@ -64,6 +65,7 @@ func TestCPPParser_ConstructionSites(t *testing.T) {
 		{"new_expression", "ns::Bar<int>", "Bar", "ns::Bar<int>", "new ns::Bar<int>{n}", "q", []string{"n"}},
 		{"compound_literal_expression", "jwt::algorithm::hs256", "hs256", "jwt::algorithm::hs256", `jwt::algorithm::hs256{"secret"}`, "alg", []string{`"secret"`}},
 		{"function_declarator", "QSslKey", "QSslKey", "QSslKey", "QSslKey multi(data,\n                  QSsl::Rsa)", "multi", []string{"data", "QSsl::Rsa"}},
+		{"function_declarator", "Botan::SHA_256", "SHA_256", "Botan::SHA_256", "Botan::SHA_256 vexing()", "vexing", nil},
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("calls = %d, want %d: %#v", len(calls), len(want), calls)
@@ -97,7 +99,6 @@ func TestCPPParser_NoConstructionSite(t *testing.T) {
     extern Foo shared;
     Foo copy = other;
     Foo list = {1, 2};
-    Foo fn();
     Foo named(Bar b);
     Foo typed(const Bar&);
     Foo pointer(Bar*);
