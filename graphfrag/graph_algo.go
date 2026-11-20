@@ -485,7 +485,13 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // exists only once its module has run, and a module counts as loaded when
 // the root reaches any function of it, its `<module>` included, over the
 // traversed, ambiguous and kept name_only edges (stitch_node_loaded.go).
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "11"
+//
+// graph-algo-node-12: a name declared first and assigned a require later
+// binds to the module, as `const AES = require('crypto-js/aes')` does. Babel
+// emits that shape for a conditional require (`let AES; AES =
+// require('crypto-js/aes');`, the parse SDK's CryptoController), whose calls
+// node-11 keyed to the file instead of the library export.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "12"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
