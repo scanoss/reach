@@ -440,6 +440,12 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A call's result passed as an argument is handed over when another
 // package's function returns it (`app.use(path, graphqlUploadExpress(o))`
 // reaches graphql-upload's `(default()).<result>`).
+// The runtime drives an HTTP agent: the constructor of a class whose bases
+// reach http.Agent, https.Agent or agent-base's Agent reaches the
+// addRequest, createSocket, createConnection and connect its chain declares
+// (https-proxy-agent's connect). An exported class is also published under
+// its own name, keyed by its constructor, for a class handed over as a value
+// (`createCookieAgent(HttpsProxyAgent)`).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

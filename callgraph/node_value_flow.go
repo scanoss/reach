@@ -210,6 +210,7 @@ func (b *Builder) linkNodeValueFlow(graph *CallGraph) *NodeShapes {
 	}
 	f.recording = false
 	f.resolvePending()
+	f.linkAgentProtocol(files)
 	f.markUntyped()
 	for _, key := range added {
 		if len(graph.Functions[key].ImplicitCalls) == 0 {

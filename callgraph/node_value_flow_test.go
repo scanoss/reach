@@ -469,6 +469,7 @@ exports.Legacy = Legacy;
 		"fakecrypto.Legacy.run":             "fakecrypto/index.(Legacy).run",
 		"fakecrypto.(Totp>open()).open":     "fakecrypto/index.(Base).open",
 		"fakecrypto.(Totp).read":            "fakecrypto/index.(Base).read",
+		"fakecrypto.Totp":                   "fakecrypto/index.(Totp).constructor",
 		"fakecrypto.(Totp>open()).<init>":   "",
 		"fakecrypto.(direct).<init>":        "",
 		"fakecrypto.(client()).<result>":    "",

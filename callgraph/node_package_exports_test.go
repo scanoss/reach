@@ -281,6 +281,8 @@ Object.defineProperty(exports, "Signer", { enumerable: true, get: function () { 
 				"acme.(Signer).sign":       "acme/lib/sign.(Signer).sign",
 				"acme.<module>":            "acme/lib/index.<module>",
 				"acme/lib.importKey":       "acme/lib/key/import.importKey",
+				"acme.Signer":              "acme/lib/sign.(Signer).constructor",
+				"acme/lib.Signer":          "acme/lib/sign.(Signer).constructor",
 				"acme/lib.(Signer).<init>": "acme/lib/sign.(Signer).constructor",
 				"acme/lib.(Signer).sign":   "acme/lib/sign.(Signer).sign",
 				"acme/lib.<module>":        "acme/lib/index.<module>",

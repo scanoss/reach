@@ -107,6 +107,11 @@ func (r *nodePackageCalls) publishModule(module nodePublicModule, out map[string
 		// The definition must be a function's own node: an object on the
 		// line of the function it holds is not that function.
 		key := r.starts[nodeDeclStart{file: filepath.Clean(file), line: line, col: col}]
+		if key == "" {
+			// A class handed over as a value (`createCookieAgent(HttpsProxyAgent)`)
+			// is built by whoever receives it: its constructor.
+			key = r.classConstructorKey(module.file, path)
+		}
 		public := module.spec + "." + strings.Join(path, ".")
 		if path[0] == nodeDefaultExport && len(path) > 1 {
 			// A caller reads the default import's members as the module's:
@@ -362,4 +367,18 @@ func nodeWalkPackageFiles(dir string, visit func(rel string) bool) {
 		return true
 	}
 	walk("")
+}
+
+// classConstructorKey is the key of the constructor of the class the
+// export path names, "" when it names no class with one.
+func (r *nodePackageCalls) classConstructorKey(file string, path []string) string {
+	def, dm := r.shapes.definition(file, path[0], path[1:])
+	if def == nil || dm == nil || (def.Type() != nodeClassDeclaration && def.Type() != nodeClassExpression) {
+		return ""
+	}
+	ctor := nodeClassMember(dm, def, "constructor", false)
+	if ctor == nil {
+		return ""
+	}
+	return r.starts[nodeDeclStart{file: filepath.Clean(dm.path), line: nodeLine(ctor), col: int(ctor.StartPoint().Column) + 1}]
 }
