@@ -361,10 +361,10 @@ module.exports = Protocol;
 `},
 			want: []string{"app/p.(Protocol).parse -> app/p.parseHeader", "app/p.(Protocol).parse -> app/p.parsePacket"},
 			not:  []string{"app/p.(Protocol).parse -> app/p.unrelated"},
-		},{
-		name: "a command whose states return the next one",
-		files: map[string]string{
-			"command.js": `class Command {
+		}, {
+			name: "a command whose states return the next one",
+			files: map[string]string{
+				"command.js": `class Command {
   constructor() { this.next = null; }
   execute(packet) {
     if (!this.next) { this.next = this.start; }
@@ -374,7 +374,7 @@ module.exports = Protocol;
 }
 module.exports = Command;
 `,
-			"handshake.js": `const Command = require('./command');
+				"handshake.js": `const Command = require('./command');
 class ClientHandshake extends Command {
   start(p) { return ClientHandshake.prototype.handshakeInit; }
   handshakeInit(p) { return ClientHandshake.prototype.handshakeResult; }
@@ -383,19 +383,19 @@ class ClientHandshake extends Command {
 }
 module.exports = ClientHandshake;
 `,
-			"conn.js": `const ClientHandshake = require('./handshake');
+				"conn.js": `const ClientHandshake = require('./handshake');
 class Conn {
   constructor() { this._command = new ClientHandshake(); }
   handle(p) { return this._command.execute(p); }
 }
 module.exports = Conn;
 `,
-		},
-		want: []string{
-			"app/command.(Command).execute -> app/handshake.(ClientHandshake).start",
-			"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeInit",
-			"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeResult",
-		},
-		not: []string{"app/command.(Command).execute -> app/handshake.(ClientHandshake).unused"},
-	}})
+			},
+			want: []string{
+				"app/command.(Command).execute -> app/handshake.(ClientHandshake).start",
+				"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeInit",
+				"app/command.(Command).execute -> app/handshake.(ClientHandshake).handshakeResult",
+			},
+			not: []string{"app/command.(Command).execute -> app/handshake.(ClientHandshake).unused"},
+		}})
 }
