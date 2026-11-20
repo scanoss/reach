@@ -444,8 +444,6 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // WebCrypto object, so a call on it under another module's name (jose's
 // webcrypto.js `export default crypto`) is resolved to the runtime, not
 // name_only.
-// A field holds each value the constructor may assign it, not only the
-// first (google-auth-library's IdentityPoolClient supplier).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds
