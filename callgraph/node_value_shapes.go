@@ -55,6 +55,10 @@ type nodeShapeValue struct {
 	// it over (nodeValueFlow.handOver), so calling it draws no second edge
 	// from a callee that every other caller shares.
 	passed bool
+	// method is the method whose `this` this instance is, nil otherwise: a
+	// member its class lacks is looked for on the instances the method is
+	// called on (receiverValues).
+	method *sitter.Node
 }
 
 func (v nodeShapeValue) same(o nodeShapeValue) bool {
@@ -720,10 +724,12 @@ func (q *nodeValueQuery) thisValues(m *nodeShapeModule, n *sitter.Node, depth in
 		switch fn.Type() {
 		case nodeMethodDefinition:
 			owner := nodeMethodOwner(m, fn)
-			if hasNodeToken(fn, "static") {
-				return owner
+			for i := range owner {
+				if owner[i].instance {
+					owner[i].method = fn
+				}
 			}
-			return appendNodeValues(owner, q.receiverValues(m, fn)...)
+			return owner
 		case nodeFieldDefinition, nodePublicFieldDefinition:
 			if body := fn.Parent(); body != nil && body.Parent() != nil {
 				return []nodeShapeValue{{m: m, n: body.Parent(), instance: !hasNodeToken(fn, "static")}}
@@ -983,8 +989,8 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 		}
 	}
 	if value := v.m.thisAssignments(nodeConstructorBody(v))[name]; value != nil {
-		if found := q.values(v.m, value, depth+1); len(found) > 0 {
-			return found
+		if !nodeIsNothing(value) {
+			return q.values(v.m, value, depth+1)
 		}
 		// A field the constructor empties (`this.next = null`) holds what
 		// the methods assign it.
@@ -995,6 +1001,14 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 	var out []nodeShapeValue
 	for _, base := range q.bases(v, depth) {
 		out = appendNodeValues(out, q.instanceMember(base, name, depth+1, up+1)...)
+	}
+	if len(out) == 0 && v.method != nil {
+		// `this` in a base class's method, called on a subclass's instance.
+		for _, r := range q.receiverValues(v.m, v.method) {
+			if r.m != v.m || !sameSyntaxNode(r.n, v.n) {
+				out = appendNodeValues(out, q.instanceMember(r, name, depth+1, up+1)...)
+			}
+		}
 	}
 	return out
 }
@@ -1078,17 +1092,24 @@ func (m *nodeShapeModule) thisAssignmentsOf(body *sitter.Node, name string) []*s
 	if body == nil {
 		return nil
 	}
-	var out []*sitter.Node
+	if found, ok := m.thisAssignedAll[body.StartByte()]; ok {
+		return found[name]
+	}
+	found := make(map[string][]*sitter.Node)
 	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
 		if n.Type() != nodeAssignmentExpression {
 			return
 		}
-		field := nodeThisField(n.ChildByFieldName("left"), m.src)
-		if strings.TrimPrefix(strings.TrimPrefix(field, nodeThisNode+"."), "#") == name {
-			out = append(out, n.ChildByFieldName("right"))
+		if field := nodeThisField(n.ChildByFieldName("left"), m.src); field != "" {
+			field = strings.TrimPrefix(strings.TrimPrefix(field, nodeThisNode+"."), "#")
+			found[field] = append(found[field], n.ChildByFieldName("right"))
 		}
 	})
-	return out
+	if m.thisAssignedAll == nil {
+		m.thisAssignedAll = make(map[uint32]map[string][]*sitter.Node)
+	}
+	m.thisAssignedAll[body.StartByte()] = found
+	return found[name]
 }
 
 // nodeConstructorBody is the body that runs when v is constructed: the
@@ -1267,17 +1288,15 @@ func (q *nodeValueQuery) collectMemberNames(v nodeShapeValue, depth, up int, add
 		return
 	}
 	assigned := func(prefixes ...string) {
-		for _, target := range slices.Sorted(maps.Keys(v.m.assignments().byTarget)) {
-			for _, prefix := range prefixes {
-				if rest, ok := strings.CutPrefix(target, prefix); ok && rest != "" && !strings.ContainsAny(rest, ".[(") && rest != nodePrototypeMember {
-					add(rest)
-				}
+		for _, prefix := range prefixes {
+			for _, rest := range v.m.assignments().memberNamesUnder(prefix) {
+				add(rest)
 			}
 		}
 	}
 	switch {
 	case v.module:
-		for _, name := range slices.Sorted(maps.Keys(nodeExportedNames(v.m.path, map[string]bool{}, 0))) {
+		for _, name := range q.s.exportedNames(v.m.path) {
 			add(name)
 		}
 	case v.instance:

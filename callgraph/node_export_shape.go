@@ -5,8 +5,10 @@ package callgraph
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -46,6 +48,22 @@ type NodeShapes struct {
 	// foreign holds, by the file of a module and member name, what other
 	// modules assign to that member of what it exports (indexForeignWrites).
 	foreign map[string]map[string][]nodeForeignWrite
+	// names remembers exportedNames' answers by file.
+	names map[string][]string
+}
+
+// exportedNames lists, sorted, the names file exports (nodeExportedNames),
+// read once per file.
+func (s *NodeShapes) exportedNames(file string) []string {
+	if names, ok := s.names[file]; ok {
+		return names
+	}
+	if s.names == nil {
+		s.names = make(map[string][]string)
+	}
+	names := slices.Sorted(maps.Keys(nodeExportedNames(file, map[string]bool{}, 0)))
+	s.names[file] = names
+	return names
 }
 
 // nodeForeignWrite is the value one module assigns to a member of another
@@ -123,7 +141,9 @@ type nodeShapeModule struct {
 	// thisAssigned and inherits are built on first use; see thisAssignments
 	// and inherited (node_value_shapes.go).
 	thisAssigned map[uint32]map[string]*sitter.Node
-	inherits     map[string][]*sitter.Node
+	// thisAssignedAll lists every value per field; see thisAssignmentsOf.
+	thisAssignedAll map[uint32]map[string][]*sitter.Node
+	inherits        map[string][]*sitter.Node
 	// declared, programDeclared and imported are built on first use; see
 	// declarations and imports (node_value_shapes.go).
 	declared        map[uint32]map[string]nodeShapeDecl
@@ -172,6 +192,29 @@ func (m *nodeShapeModule) topLevel() []*sitter.Node {
 type nodeAssignments struct {
 	aliases  map[string]bool
 	byTarget map[string]*nodeTargetAssignments
+	// members lists, by the prefix up to a target's last dot, the member
+	// names assigned under it, sorted; built on first use (memberNamesUnder).
+	members map[string][]string
+}
+
+// memberNamesUnder lists the names assigned as `<prefix><name>`, sorted, the
+// prototype left out.
+func (a *nodeAssignments) memberNamesUnder(prefix string) []string {
+	if a.members == nil {
+		a.members = make(map[string][]string)
+		for _, target := range slices.Sorted(maps.Keys(a.byTarget)) {
+			dot := strings.LastIndex(target, ".")
+			if dot < 0 {
+				continue
+			}
+			rest := target[dot+1:]
+			if rest == "" || strings.ContainsAny(rest, "[(") || rest == nodePrototypeMember {
+				continue
+			}
+			a.members[target[:dot+1]] = append(a.members[target[:dot+1]], rest)
+		}
+	}
+	return a.members[prefix]
 }
 
 // nodeTargetAssignments holds the first assignment to one target and the first
