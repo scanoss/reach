@@ -420,7 +420,7 @@ func (f *nodeValueFlow) invoke(m *nodeShapeModule, values []nodeShapeValue, n *s
 			found = found || f.functionKey(v.m, v.n) != ""
 			continue
 		}
-		if v.external != nil && v.external.runtime && len(v.external.steps) > 0 {
+		if v.external != nil && v.external.runtime && nodeRuntimeFunction(v.external) {
 			// A function of the runtime (`tls.connect` with `tls =
 			// require('tls')`): the call is resolved, to nothing of the
 			// program.
@@ -928,4 +928,20 @@ func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn st
 			f.reach(m, nodeLocalValues(q.values(m, right, 0)), right, fn)
 		}
 	}
+}
+
+// nodeRuntimeFunction reports an access that names a function of a runtime
+// module by plain member reads (`tls.connect`, `http2.connect`). What a
+// call or a construction of the runtime returns may hold the program's own
+// objects (`opts.get(key)` on a Map), so a member of it is not one.
+func nodeRuntimeFunction(a *nodeValueAccess) bool {
+	if len(a.steps) == 0 {
+		return false
+	}
+	for _, step := range a.steps {
+		if step.call || step.ctor || step.name == "" {
+			return false
+		}
+	}
+	return true
 }

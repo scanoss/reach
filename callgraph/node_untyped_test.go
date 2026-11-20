@@ -174,3 +174,20 @@ module.exports = connect;
 		t.Fatalf("untyped calls %v, want none", got)
 	}
 }
+
+// A member of a runtime class the program extends is not a runtime
+// function: google-auth-library's BaseExternalAccountClient extends
+// EventEmitter and calls `this.retrieveSubjectToken()`, which only its
+// subclasses declare, so the call stays name_only.
+func TestNodeUntypedRuntimeBaseMemberStaysUntyped(t *testing.T) {
+	t.Parallel()
+	graph := buildNodeFiles(t, map[string]string{"c.js": `const { EventEmitter } = require('events');
+class Base extends EventEmitter {
+  refresh() { return this.retrieveSubjectToken(); }
+}
+module.exports = Base;
+`})
+	if got := nodeUntypedCalls(t, graph); len(got) != 1 || got[0] != "app/c.(Base).refresh retrieveSubjectToken" {
+		t.Fatalf("untyped calls %v, want the call on this", got)
+	}
+}
