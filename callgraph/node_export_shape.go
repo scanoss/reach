@@ -830,9 +830,20 @@ func (s *NodeShapes) commonJSExportValue(m *nodeShapeModule, stmt *sitter.Node, 
 		return nil, nil
 	}
 	if value.Type() == nodeShorthandProperty {
-		return s.binding(m, value, name, depth)
+		return s.shorthandBinding(m, value, name, depth)
 	}
 	return value, m
+}
+
+// shorthandBinding follows the shorthand property `{ name }` to the binding
+// it names. A name destructured from a value (`const { g } = make()`) is
+// the property itself, which the value shapes follow into each value make
+// returns; a single definition would keep only one.
+func (s *NodeShapes) shorthandBinding(m *nodeShapeModule, at *sitter.Node, name string, depth int) (*sitter.Node, *nodeShapeModule) {
+	if b, ok := m.nameBinding(at); ok && b.scope != nil && b.decl.member != "" {
+		return at, m
+	}
+	return s.binding(m, at, name, depth)
 }
 
 func nodeShapeCommonJSExport(stmt *sitter.Node, name string, src []byte) *sitter.Node {
@@ -1069,7 +1080,7 @@ func (s *NodeShapes) definition(file, name string, members []string) (*sitter.No
 // being its definition: `f.bind(self)` among them, which is f.
 func nodeIsUnresolvedValue(n *sitter.Node, src []byte) bool {
 	switch n.Type() {
-	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode:
+	case nodeMemberExpression, nodeSubscriptExpression, goNodeIdentifier, nodeThisNode, nodeShorthandProperty:
 		return true
 	case nodeCallExpression:
 		callee := unwrapNodeCallee(n.ChildByFieldName("function"))
@@ -1180,7 +1191,7 @@ func (s *NodeShapes) objectEntryMember(m *nodeShapeModule, c *sitter.Node, membe
 	switch c.Type() {
 	case nodeShorthandProperty:
 		if c.Content(m.src) == member {
-			return s.binding(m, c, member, depth)
+			return s.shorthandBinding(m, c, member, depth)
 		}
 	case nodePair:
 		if key := c.ChildByFieldName(nodeFieldKey); key != nil && unquoteNodeString(key.Content(m.src)) == member {

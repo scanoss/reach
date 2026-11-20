@@ -43,6 +43,21 @@ module.exports = { Provider, unrelated };
 			not: []string{"app/provider.(Provider).send -> app/index.write"},
 		},
 		{
+			// pg's stream.js: `const { getSecureStream } = getStreamFuncs()`
+			// with each runtime's functions, exported as `{ getSecureStream }`.
+			name: "an export destructured from what a call returns",
+			files: map[string]string{
+				"s.js": `function forNode() { function open(o) { return o } return { open } }
+function forWorker() { function open(o) { return o } return { open } }
+function pick() { if (globalThis.navigator) { return forWorker() } return forNode() }
+const { open } = pick()
+module.exports = { open }
+`,
+				"c.js": "const { open } = require('./s')\nfunction connect(o) { return open(o) }\nmodule.exports = connect\n",
+			},
+			want: []string{"app/c.connect -> app/s.open", "app/c.connect -> app/s.open@1:22"},
+		},
+		{
 			// graphql-upload's `function graphqlUploadExpress({ processRequest
 			// = defaultProcessRequest } = {})`, called without that member.
 			name: "a destructured member's default when the caller passes none",

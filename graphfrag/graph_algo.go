@@ -428,6 +428,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // An export written `inst.method.bind(inst)` publishes the method
 // (web-push's sendNotification), and the arguments `f.bind(self, a)` binds
 // fill f's parameters from the first, self being `this`.
+// An exported `{ name }` destructured from what a call returns (`const {
+// getSecureStream } = getStreamFuncs()`, pg) holds each value it can be.
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds
