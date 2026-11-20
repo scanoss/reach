@@ -930,18 +930,49 @@ func (f *nodeValueFlow) handMembers(m *nodeShapeModule, expr *sitter.Node, fn st
 	}
 }
 
-// nodeRuntimeFunction reports an access that names a function of a runtime
-// module by plain member reads (`tls.connect`, `http2.connect`). What a
-// call or a construction of the runtime returns may hold the program's own
-// objects (`opts.get(key)` on a Map), so a member of it is not one.
+// nodeRuntimeFunction reports an access that names a function of the
+// runtime: a member of a runtime module by plain reads (`tls.connect`,
+// `http2.connect`), or, for a module whose functions hand back values of
+// the runtime only (nodeRuntimeClosedModules), a method of what a chain of
+// its calls returned (`crypto.createHmac(a, k).update(t).digest`,
+// `readline.createInterface(o).close`).
+//
+// What other runtime calls return may be the program's own objects
+// (`store.getStore()` of an AsyncLocalStorage, `util.promisify(f)`), a
+// construction may be of a class the program extends (`this.retrieve()` in
+// a class extending EventEmitter), and a member read off a result may be an
+// object the program stored there (`socket.parser.execute(d)`): a member of
+// any of them is no runtime function.
 func nodeRuntimeFunction(a *nodeValueAccess) bool {
-	if len(a.steps) == 0 {
+	if len(a.steps) == 0 || a.steps[len(a.steps)-1].call {
 		return false
 	}
-	for _, step := range a.steps {
-		if step.call || step.ctor || step.name == "" {
+	closed := nodeRuntimeClosedModules[strings.TrimPrefix(a.module, "node:")]
+	called := false
+	for i, step := range a.steps {
+		switch {
+		case step.ctor || step.name == "":
+			return false
+		case step.call:
+			if !closed {
+				return false
+			}
+			called = true
+		case called && i < len(a.steps)-1:
 			return false
 		}
 	}
 	return true
+}
+
+// nodeRuntimeClosedModules are the runtime modules whose functions, and the
+// methods of what they return, hand back values of the runtime (a Hash, a
+// Socket, a ClientRequest, a Buffer, a string) and never an object of the
+// program. Modules that carry the program's values or functions through
+// (events, stream, util, async_hooks, vm, module, worker_threads) are not
+// listed.
+var nodeRuntimeClosedModules = map[string]bool{
+	"crypto": true, "zlib": true, "readline": true, "fs": true, "fs/promises": true, "os": true, "path": true,
+	"dns": true, "net": true, "tls": true, "http": true, "https": true, "http2": true, "dgram": true,
+	"child_process": true, "url": true, "querystring": true, "string_decoder": true, "buffer": true,
 }

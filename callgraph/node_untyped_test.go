@@ -191,3 +191,51 @@ module.exports = Base;
 		t.Fatalf("untyped calls %v, want the call on this", got)
 	}
 }
+
+// A method of what a call of a closed runtime module returned is a
+// function of the runtime: `crypto.createHmac(..).update(..).digest(..)`
+// chained or through a variable is resolved, not name_only.
+func TestNodeUntypedRuntimeCallResultIsResolved(t *testing.T) {
+	t.Parallel()
+	graph := buildNodeFiles(t, map[string]string{"sig.js": `const crypto = require('crypto');
+const readline = require('node:readline');
+function chained(key, text) {
+  return crypto.createHmac('sha1', key).update(text).digest('base64');
+}
+function held(key, text) {
+  const hmac = crypto.createHmac('md5', key);
+  hmac.update(text);
+  return hmac.digest();
+}
+function ask() {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.close();
+}
+module.exports = { chained, held, ask };
+`})
+	if got := nodeUntypedCalls(t, graph); len(got) != 0 {
+		t.Fatalf("untyped calls %v, want none", got)
+	}
+}
+
+// What the program stored on a runtime object, and what a runtime module
+// that carries the program's values hands back, are not the runtime's:
+// `socket.parser.execute(d)` and `store.getStore().finish()` stay name_only.
+func TestNodeUntypedRuntimeCallResultMemberStaysUntyped(t *testing.T) {
+	t.Parallel()
+	graph := buildNodeFiles(t, map[string]string{"c.js": `const net = require('net');
+const hooks = require('async_hooks');
+function read(opts, d) {
+  const socket = net.connect(opts);
+  socket.parser.execute(d);
+}
+function done() {
+  hooks.executionAsyncResource().finish();
+}
+module.exports = { read, done };
+`})
+	got := nodeUntypedCalls(t, graph)
+	if len(got) != 2 || got[0] != "app/c.done finish" || got[1] != "app/c.read execute" {
+		t.Fatalf("untyped calls %v, want execute and finish", got)
+	}
+}
