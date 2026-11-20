@@ -692,11 +692,9 @@ func (q *nodeValueQuery) results(v nodeShapeValue, depth int) []nodeShapeValue {
 		return q.values(v.m, body, depth+1)
 	}
 	var out []nodeShapeValue
-	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
-		if n.Type() == goNodeReturnStatement && n.NamedChildCount() > 0 {
-			out = appendNodeValues(out, q.values(v.m, n.NamedChild(0), depth+1)...)
-		}
-	})
+	for _, returned := range v.m.returnedValues(body) {
+		out = appendNodeValues(out, q.values(v.m, returned, depth+1)...)
+	}
 	return out
 }
 
@@ -1488,4 +1486,23 @@ func (s *NodeShapes) local(from *nodeShapeModule, spec string) *nodeShapeModule 
 		}
 	}
 	return nil
+}
+
+// returnedValues lists the expressions the return statements of a function
+// body return, outside nested functions, read once per body.
+func (m *nodeShapeModule) returnedValues(body *sitter.Node) []*sitter.Node {
+	if found, ok := m.returned[body.StartByte()]; ok {
+		return found
+	}
+	if m.returned == nil {
+		m.returned = make(map[uint32][]*sitter.Node)
+	}
+	var out []*sitter.Node
+	nodeWalkSkippingFunctions(body, func(n *sitter.Node) {
+		if n.Type() == goNodeReturnStatement && n.NamedChildCount() > 0 {
+			out = append(out, n.NamedChild(0))
+		}
+	})
+	m.returned[body.StartByte()] = out
+	return out
 }

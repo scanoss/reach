@@ -147,6 +147,9 @@ type nodeShapeModule struct {
 	// held lists, per class, the plain functions its fields hold; see
 	// heldFunctions.
 	held map[uint32][]*sitter.Node
+	// returned lists, per function body, what its return statements
+	// return; see returnedValues.
+	returned map[uint32][]*sitter.Node
 	// declared, programDeclared and imported are built on first use; see
 	// declarations and imports (node_value_shapes.go).
 	declared        map[uint32]map[string]nodeShapeDecl
