@@ -264,6 +264,9 @@ func StitchWithOptions(root ComponentKey, deps DependencyGraph, fragments map[Co
 		// candidate; only those of classes the root can hold stay.
 		nameOnly = narrowPythonNameOnly(root, fragments[root], fragments, indexPythonInstantiation(closure, fragments), adjacency, ambiguousCandidates, nameOnly)
 	}
+	// A function of a module nothing loads is no candidate of a Node
+	// name_only call.
+	nameOnly = narrowNodeNameOnly(root, fragments[root], indexNodeModules(closure, fragments), adjacency, ambiguousCandidates, nameOnly)
 	var ambiguousOnly map[graphNode]bool
 	if opts.AmbiguousDispatchAsTyped {
 		for caller, edges := range ambiguousCandidates {

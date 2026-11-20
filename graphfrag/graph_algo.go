@@ -475,6 +475,10 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // where it read unreachable.
 // Under environment targets those candidates come only from the
 // components the caller's depends on or that depend on it, transitively.
+// A candidate in a module the root never loads is dropped: a function
+// exists only once its module has run, and a module counts as loaded when
+// the root reaches any function of it, its `<module>` included, over the
+// traversed, ambiguous and kept name_only edges (stitch_node_loaded.go).
 const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "11"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
