@@ -157,3 +157,20 @@ module.exports = { Protocol, rekey };
 		t.Fatalf("untyped calls %v, want the call on this._cipher", got)
 	}
 }
+
+// A call on a module of the runtime the program holds under a mutable name
+// (undici's `let tls; .. tls = require('tls'); tls.connect(..)`) runs the
+// runtime's function: it is resolved, not name_only.
+func TestNodeUntypedRuntimeModuleHeldLater(t *testing.T) {
+	t.Parallel()
+	graph := buildNodeFiles(t, map[string]string{"connect.js": `let tls;
+function connect(opts) {
+  if (!tls) { tls = require('tls'); }
+  return tls.connect(opts);
+}
+module.exports = connect;
+`})
+	if got := nodeUntypedCalls(t, graph); len(got) != 0 {
+		t.Fatalf("untyped calls %v, want none", got)
+	}
+}

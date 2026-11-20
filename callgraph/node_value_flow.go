@@ -420,6 +420,13 @@ func (f *nodeValueFlow) invoke(m *nodeShapeModule, values []nodeShapeValue, n *s
 			found = found || f.functionKey(v.m, v.n) != ""
 			continue
 		}
+		if v.external != nil && v.external.runtime && len(v.external.steps) > 0 {
+			// A function of the runtime (`tls.connect` with `tls =
+			// require('tls')`): the call is resolved, to nothing of the
+			// program.
+			found = true
+			continue
+		}
 		if v.external != nil && len(v.external.steps) == 0 && !v.external.runtime {
 			// Another package's module called as a function, under a name the
 			// parser could not tie to its import (a parameter, a bound copy):

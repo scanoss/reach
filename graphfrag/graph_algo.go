@@ -440,6 +440,8 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // A call's result passed as an argument is handed over when another
 // package's function returns it (`app.use(path, graphqlUploadExpress(o))`
 // reaches graphql-upload's `(default()).<result>`).
+// A member call on a module of the runtime the program holds (`tls =
+// require('tls'); tls.connect(..)`) is resolved to the runtime, not name_only.
 // The runtime drives an HTTP agent: the constructor of a class whose bases
 // reach http.Agent, https.Agent or agent-base's Agent reaches the
 // addRequest, createSocket, createConnection and connect its chain declares
