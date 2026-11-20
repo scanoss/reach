@@ -421,9 +421,10 @@ func (p *CPPParser) walkCalls(node *sitter.Node, src []byte, filePath, packagePa
 	if cppIntroducesVariableScope(node.Type()) {
 		variableTypes = maps.Clone(variableTypes)
 	}
-	if node.Type() == "declaration" {
+	if node.Type() == cppNodeDeclaration {
 		recordCPPDeclarationTypes(node, src, variableTypes)
 	}
+	p.constructionSites(node, src, filePath, packagePath, localTypes, calls)
 	if node.Type() == cNodeCallExpression {
 		if call := p.parseCall(node, src, filePath, packagePath, staticFunctions, localTypes, variableTypes); call != nil {
 			p.anchors.set(call, node)
@@ -565,7 +566,7 @@ func (p *CPPParser) walkReturnSources(node *sitter.Node, src []byte, filePath, p
 	if cppIntroducesVariableScope(node.Type()) {
 		variableTypes = maps.Clone(variableTypes)
 	}
-	if node.Type() == "declaration" {
+	if node.Type() == cppNodeDeclaration {
 		recordCPPDeclarationTypes(node, src, variableTypes)
 	}
 	if node.Type() == cNodeReturnStatement {
@@ -631,7 +632,7 @@ func cppAssignedVar(node *sitter.Node, src []byte) string {
 		return ""
 	}
 	switch parent.Type() {
-	case "init_declarator":
+	case cppNodeInitDeclarator:
 		if sameSyntaxNode(parent.ChildByFieldName("value"), value) {
 			return cppBoundVariableName(parent.ChildByFieldName("declarator"), src)
 		}

@@ -60,6 +60,11 @@ void temporary(const CryptoPP::byte *in, size_t len, CryptoPP::byte *out) {
 	for _, analysis := range analyses {
 		for _, fn := range analysis.Functions {
 			for _, call := range fn.Calls {
+				// The declaration's construction site keys (CryptoPP::SHA256).SHA256,
+				// which this KB does not contract: its factory is the functional cast.
+				if call.ASTKind != cNodeCallExpression {
+					continue
+				}
 				callee := call.Callee
 				method := cppContractMethod(&callee)
 				if method == "" {
