@@ -434,6 +434,9 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // call is handed over with that object (node-apn's
 // `this.config.createConnection = ..; http2.connect(url, this.config)`, ws's
 // `opts.createConnection = isSecure ? tlsConnect : netConnect`).
+// A field of a class also holds what the plain functions its fields hold
+// assign it, run as its methods (ssh2's `this._parse = parseHeader`, which
+// sets `this._parse = parsePacket`).
 // `this` in a method also holds the instances its calls are made on (a
 // subclass's), a field the constructor empties holds what the methods
 // assign it, and a field a method sets to what calling it returns holds

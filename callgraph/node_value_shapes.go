@@ -990,12 +990,15 @@ func (q *nodeValueQuery) instanceMember(v nodeShapeValue, name string, depth, up
 	}
 	if value := v.m.thisAssignments(nodeConstructorBody(v))[name]; value != nil {
 		if !nodeIsNothing(value) {
-			return q.values(v.m, value, depth+1)
+			return appendNodeValues(q.values(v.m, value, depth+1), q.heldWrites(v, name, depth)...)
 		}
 		// A field the constructor empties (`this.next = null`) holds what
 		// the methods assign it.
 	}
 	if found := q.fieldValues(v, name, depth); len(found) > 0 {
+		return appendNodeValues(found, q.heldWrites(v, name, depth)...)
+	}
+	if found := q.heldWrites(v, name, depth); len(found) > 0 {
 		return found
 	}
 	var out []nodeShapeValue
@@ -1072,6 +1075,76 @@ func (q *nodeValueQuery) fieldValues(v nodeShapeValue, name string, depth int) [
 	}
 	return out
 }
+
+// heldWrites is what the plain functions the fields of v's class hold
+// assign to the field name of this: ssh2's Protocol sets `this._parse =
+// parseHeader`, a function that runs as its method and sets `this._parse =
+// parsePacket` and `this._decipher = new NullDecipher(..)`.
+func (q *nodeValueQuery) heldWrites(v nodeShapeValue, name string, depth int) []nodeShapeValue {
+	if !v.class() {
+		return nil
+	}
+	var out []nodeShapeValue
+	for _, fn := range v.m.heldFunctions(v.n) {
+		for _, value := range v.m.thisAssignmentsOf(fn.ChildByFieldName("body"), name) {
+			if !nodeIsNothing(value) {
+				out = appendNodeValues(out, q.values(v.m, value, depth+1)...)
+			}
+		}
+	}
+	return out
+}
+
+// heldFunctions lists the plain functions (declarations and function
+// expressions, whose `this` is the object they are called on) that the
+// constructor and methods of class assign to a field of this, and those
+// such functions assign in turn, by syntax alone.
+func (m *nodeShapeModule) heldFunctions(class *sitter.Node) []*sitter.Node {
+	if found, ok := m.held[class.StartByte()]; ok {
+		return found
+	}
+	if m.held == nil {
+		m.held = make(map[uint32][]*sitter.Node)
+	}
+	var out []*sitter.Node
+	seen := make(map[uint32]bool)
+	scan := func(body *sitter.Node) {
+		if body == nil {
+			return
+		}
+		m.thisAssignmentsOf(body, "")
+		for _, values := range m.thisAssignedAll[body.StartByte()] {
+			for _, value := range values {
+				fn := nodeUnwrapValue(value)
+				if fn != nil && fn.Type() == goNodeIdentifier {
+					fn = nodeTopLevelFunction(m.root, fn.Content(m.src), m.src)
+				}
+				if fn == nil || seen[fn.StartByte()] || len(out) >= nodeHeldFunctionCap {
+					continue
+				}
+				if fn.Type() == nodeFunctionDeclaration || fn.Type() == nodeFunctionExpression {
+					seen[fn.StartByte()] = true
+					out = append(out, fn)
+				}
+			}
+		}
+	}
+	if body := class.ChildByFieldName("body"); body != nil {
+		nodeEachNamedChild(body, func(member *sitter.Node) {
+			if member.Type() == nodeMethodDefinition {
+				scan(member.ChildByFieldName("body"))
+			}
+		})
+	}
+	for i := 0; i < len(out); i++ {
+		scan(out[i].ChildByFieldName("body"))
+	}
+	m.held[class.StartByte()] = out
+	return out
+}
+
+// nodeHeldFunctionCap bounds the functions one class's fields hold.
+const nodeHeldFunctionCap = 32
 
 // nodeCallsThisField reports whether value calls the field name of this:
 // `this.next(p)` or `this.next.call(this, p)`.

@@ -344,7 +344,24 @@ module.exports = { derive };
 // `this.next = this.next(packet)` over a ClientHandshake's states).
 func TestNodeValueFlow_ReceiverAndStateMachineFields(t *testing.T) {
 	t.Parallel()
-	runNodeFlowCases(t, []nodeFlowCase{{
+	runNodeFlowCases(t, []nodeFlowCase{
+		{
+			// ssh2's Protocol: `this._parse = parseHeader` in the constructor,
+			// and parseHeader, run as this._parse, sets `this._parse =
+			// parsePacket`.
+			name: "a field a plain function the class holds assigns",
+			files: map[string]string{"p.js": `class Protocol {
+  constructor() { this._parse = parseHeader; }
+  parse(chunk) { return this._parse(chunk); }
+}
+function parseHeader(chunk) { this._parse = parsePacket; return 0; }
+function parsePacket(chunk) { return chunk; }
+function unrelated(chunk) { return chunk; }
+module.exports = Protocol;
+`},
+			want: []string{"app/p.(Protocol).parse -> app/p.parseHeader", "app/p.(Protocol).parse -> app/p.parsePacket"},
+			not:  []string{"app/p.(Protocol).parse -> app/p.unrelated"},
+		},{
 		name: "a command whose states return the next one",
 		files: map[string]string{
 			"command.js": `class Command {

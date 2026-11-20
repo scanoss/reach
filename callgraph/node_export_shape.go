@@ -144,6 +144,9 @@ type nodeShapeModule struct {
 	// thisAssignedAll lists every value per field; see thisAssignmentsOf.
 	thisAssignedAll map[uint32]map[string][]*sitter.Node
 	inherits        map[string][]*sitter.Node
+	// held lists, per class, the plain functions its fields hold; see
+	// heldFunctions.
+	held map[uint32][]*sitter.Node
 	// declared, programDeclared and imported are built on first use; see
 	// declarations and imports (node_value_shapes.go).
 	declared        map[uint32]map[string]nodeShapeDecl
