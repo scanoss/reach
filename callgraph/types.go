@@ -237,7 +237,8 @@ type FunctionDecl struct {
 	// that reaches it runs an override instead.
 	Abstract bool
 	// Annotations holds the simple names of the annotations the declaration
-	// carries, as "Override" (Java methods only). Read to recognize functions
+	// carries, as "Override" (Java methods; C# attributes without their
+	// Attribute suffix, as "NonAction"). Read to recognize functions
 	// a framework calls, which no call edge in the graph leads to.
 	Annotations []string
 	// EntryKind is set when a parser recognizes the declaration as an entry

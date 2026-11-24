@@ -56,6 +56,10 @@ type CSharpParser struct {
 	parser       *sitter.Parser
 	includeTests bool
 	anchors      callAnchors
+	projects     *csharpProjects
+	// controllers holds, while a file is parsed, the mark of each type a
+	// catalog attribute declares a controller, by the type's full name.
+	controllers map[string]EntryMark
 }
 
 // NewCSharpParser creates a C# source parser backed by tree-sitter.
@@ -63,12 +67,15 @@ func NewCSharpParser(opts ...ParserOption) *CSharpParser {
 	cfg := newParserConfig(opts)
 	parser := sitter.NewParser()
 	parser.SetLanguage(treecsharp.GetLanguage())
-	return &CSharpParser{parser: parser, includeTests: cfg.includeTests}
+	return &CSharpParser{parser: parser, includeTests: cfg.includeTests, projects: &csharpProjects{}}
 }
 
-// CloneParser returns an independent parser for concurrent use.
+// CloneParser returns an independent parser for concurrent use. It shares
+// the project-file cache.
 func (p *CSharpParser) CloneParser() Parser {
-	return NewCSharpParser(WithIncludeTests(p.includeTests))
+	clone := NewCSharpParser(WithIncludeTests(p.includeTests))
+	clone.projects = p.projects
+	return clone
 }
 
 // PackageSeparator is the C# namespace separator.
@@ -91,6 +98,13 @@ func (p *CSharpParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis,
 		return nil, fmt.Errorf("callgraph: csharp parser: read directory %s: %w", dir, err)
 	}
 	analyses := make([]*FileAnalysis, 0, len(entries))
+	var globalUsings []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.ToLower(filepath.Ext(entry.Name())) == ".cs" {
+			globalUsings = p.projects.globalUsings(dir)
+			break
+		}
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".cs" {
 			continue
@@ -99,7 +113,7 @@ func (p *CSharpParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis,
 			continue
 		}
 		filePath := filepath.Join(dir, entry.Name())
-		analysis, err := p.parseFile(filePath, packagePath)
+		analysis, err := p.parseFile(filePath, packagePath, globalUsings)
 		if err != nil {
 			log.Error().Err(err).Str("file", filePath).Str("package", packagePath).Msg("failed to parse file")
 			continue
@@ -119,7 +133,7 @@ func csharpIsTestFile(name string) bool {
 	return strings.Contains(lower, ".test.") || strings.Contains(lower, ".tests.")
 }
 
-func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, error) {
+func (p *CSharpParser) parseFile(filePath, packagePath string, globalUsings []string) (*FileAnalysis, error) {
 	src, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: csharp parser: read %s: %w", filePath, err)
@@ -131,6 +145,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	}
 	defer tree.Close()
 	defer p.anchors.reset()
+	p.controllers = map[string]EntryMark{}
 
 	analysis := &FileAnalysis{
 		FilePath:      filePath,
@@ -144,6 +159,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	}
 	root := tree.RootNode()
 	p.collectUsings(root, src, analysis)
+	addGlobalUsings(analysis, globalUsings)
 	// A file that declares a namespace is keyed by it, as a Java file is keyed
 	// by its package: the directory it sits in names nothing a caller writes.
 	if ns := csharpFirstNamespace(root, src); ns != "" {
@@ -155,6 +171,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	if decl := p.parseTopLevelProgram(root, src, filePath, analysis.PackagePath, analysis); decl != nil {
 		analysis.Functions = append(analysis.Functions, *decl)
 	}
+	markCSharpControllerActions(analysis, p.controllers)
 	recordCSharpOwnerAlternatives(analysis)
 	return analysis, nil
 }
@@ -281,6 +298,9 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 				ownerType = ownerTypeInterface
 			}
 			csharpRecordBases(node, src, namespace, typePath, analysis)
+			if mark, ok := csharpAttributeEntryMark(csharpWrittenAttributes(node, src), namespace, analysis, csharpTypeAttribute); ok {
+				p.controllers[csharpJoin(namespace, typePath)] = mark
+			}
 			fields = csharpFieldFacts(node, src)
 			p.readFieldInitializers(node, src, filePath, namespace, typePath, fields, analysis)
 			analysis.Functions = append(analysis.Functions,
@@ -429,6 +449,7 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		return nil
 	}
 	parameters := csharpParameters(node.ChildByFieldName("parameters"), src)
+	attributes := csharpWrittenAttributes(node, src)
 	decl := &FunctionDecl{
 		ID:           FunctionID{Package: namespace, Type: typePath, Name: csharpMethodWithArity(name, len(parameters))},
 		FilePath:     filePath,
@@ -444,6 +465,14 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		EntryKind:    csharpEntryKind(name, csharpHasModifier(node, src, "static")),
 		Parameters:   parameters,
 		ReturnType:   csharpReturnType(node, src),
+		Visibility:   csharpVisibility(node, src, ownerType),
+		Annotations:  csharpAttributeNames(attributes),
+	}
+	if mark, ok := csharpAttributeEntryMark(attributes, namespace, analysis, csharpAnyAttribute); ok {
+		markEntry(decl, mark)
+	}
+	if node.Type() == csharpNodeProperty {
+		decl.FunctionType = csharpFunctionTypeProperty
 	}
 	if node.Type() == csharpNodeConstructor {
 		decl.FunctionType = "constructor"
@@ -696,6 +725,76 @@ func csharpReturnType(node *sitter.Node, src []byte) string {
 	return strings.TrimSpace(returns.Content(src))
 }
 
+// csharpFunctionTypeProperty is the FunctionType of a property: its
+// accessors are not methods a framework dispatches to by name.
+const csharpFunctionTypeProperty = "property"
+
+// csharpAccessModifiers are the access modifiers C# writes, in the order a
+// combined one is spelled ("protected internal", "private protected").
+var csharpAccessModifiers = []string{"private", "protected", "internal", "public"}
+
+// csharpVisibility is a member's declared accessibility as written, or the
+// default when it writes none: public in an interface, private elsewhere.
+func csharpVisibility(node *sitter.Node, src []byte, ownerType string) string {
+	var written []string
+	for _, modifier := range csharpAccessModifiers {
+		if csharpHasModifier(node, src, modifier) {
+			written = append(written, modifier)
+		}
+	}
+	switch {
+	case len(written) > 0:
+		return strings.Join(written, " ")
+	case ownerType == ownerTypeInterface:
+		return "public"
+	default:
+		return "private"
+	}
+}
+
+// csharpWrittenAttributes lists the attributes a declaration carries, as
+// written: `[HttpGet("x"), Route("y")]` holds HttpGet and Route.
+func csharpWrittenAttributes(node *sitter.Node, src []byte) []string {
+	var out []string
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		list := node.NamedChild(i)
+		if list.Type() != "attribute_list" {
+			continue
+		}
+		for j := 0; j < int(list.NamedChildCount()); j++ {
+			if attribute := list.NamedChild(j); attribute.Type() == "attribute" {
+				if name := attribute.ChildByFieldName("name"); name != nil {
+					out = append(out, csharpTypeName(name, src))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// csharpAttributeName is the simple name of an attribute as written,
+// without the Attribute suffix C# lets a use drop: [NonActionAttribute] and
+// [Microsoft.AspNetCore.Mvc.NonAction] are both NonAction.
+func csharpAttributeName(written string) string {
+	simple := written[strings.LastIndex(written, csharpSeparator)+1:]
+	if trimmed := strings.TrimSuffix(simple, "Attribute"); trimmed != "" {
+		return trimmed
+	}
+	return simple
+}
+
+// csharpAttributeNames are the simple names of written attributes.
+func csharpAttributeNames(written []string) []string {
+	if len(written) == 0 {
+		return nil
+	}
+	out := make([]string, len(written))
+	for i, name := range written {
+		out[i] = csharpAttributeName(name)
+	}
+	return out
+}
+
 func csharpHasModifier(node *sitter.Node, src []byte, modifier string) bool {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
@@ -805,6 +904,7 @@ func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namesp
 		if call := p.parseInvocation(node, src, filePath, namespace, typePath, variableTypes, values, analysis); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
+			analysis.EntryRefs = append(analysis.EntryRefs, csharpRegisteredHandlers(node, src, call, namespace, typePath, variableTypes, values.memberTypes(), analysis)...)
 		}
 	case csharpNodeObjectCreation:
 		if call := p.parseObjectCreation(node, src, filePath, namespace, values, analysis); call != nil {
@@ -924,7 +1024,7 @@ func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, 
 			return nil
 		}
 		call.Callee.Name = csharpTypeName(name, src)
-		p.resolveReceiver(call, receiver, src, namespace, typePath, variableTypes, analysis)
+		p.resolveReceiver(call, receiver, src, namespace, typePath, variableTypes, values.memberTypes(), analysis)
 	default:
 		return nil
 	}
@@ -937,9 +1037,11 @@ func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, 
 }
 
 // resolveReceiver types a member call's receiver: a local the body declared,
-// `this`, a constructor the call is chained on, or a type name the file's
-// usings qualify.
-func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node, src []byte, namespace, typePath string, variableTypes map[string]string, analysis *FileAnalysis) {
+// a member of the enclosing type, `this`, a constructor the call is chained
+// on, or a type name the file's usings qualify. members holds the declared
+// type of each field, auto-property and primary-constructor parameter of the
+// enclosing type; a local or parameter of the same name shadows it.
+func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node, src []byte, namespace, typePath string, variableTypes, members map[string]string, analysis *FileAnalysis) {
 	switch receiver.Type() {
 	case csharpNodeIdentifier:
 		text := receiver.Content(src)
@@ -949,12 +1051,20 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
 			return
 		}
+		if declared, ok := members[text]; ok {
+			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
+			return
+		}
 		call.StaticReceiver = true
 		call.Callee.Package, call.Callee.Type = csharpOwner(text, namespace, analysis)
 	case "this_expression":
 		call.Callee.Type = typePath
 		call.Callee.Package = namespace
 	case csharpNodeMemberAccess, csharpNodeQualifiedName:
+		if declared, ok := members[csharpThisMember(receiver, src)]; ok {
+			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
+			return
+		}
 		// A dotted receiver is a qualified type (`N.M.T.Create()`) unless its
 		// head is a local: the parser keeps the written path and the graph
 		// splits it on the namespace the file knows.
@@ -977,6 +1087,18 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 	default:
 		call.Callee.Package = namespace
 	}
+}
+
+// csharpThisMember is the member name of a `this.name` receiver, or "".
+func csharpThisMember(receiver *sitter.Node, src []byte) string {
+	if receiver.Type() != csharpNodeMemberAccess {
+		return ""
+	}
+	expression, name := receiver.ChildByFieldName("expression"), receiver.ChildByFieldName("name")
+	if expression == nil || name == nil || expression.Content(src) != "this" {
+		return ""
+	}
+	return name.Content(src)
 }
 
 func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePath, namespace string, values *csharpValues, analysis *FileAnalysis) *FunctionCall {

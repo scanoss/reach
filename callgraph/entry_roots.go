@@ -59,6 +59,9 @@ func (t *Tracer) entryMark(decl *FunctionDecl, isUserType func(string) bool) (En
 	if isMainFunction(decl) {
 		return EntryMark{Kind: RootKindMain}, true
 	}
+	if isCSharpDeclaration(decl) {
+		return t.csharpSupertypeEntryMark(decl, isUserType)
+	}
 	return t.javaCallbackEntryMark(decl, isUserType)
 }
 

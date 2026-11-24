@@ -42,7 +42,9 @@ const (
 	// ShapeDecorator is a Java annotation or a Python or TypeScript decorator
 	// on the function: @GetMapping, @app.route("/x"), @Post(). In Rust it is
 	// an attribute on the function (#[get("/")]) or on the impl block whose
-	// methods the framework calls (#[tonic::async_trait]).
+	// methods the framework calls (#[tonic::async_trait]). In C# it is an
+	// attribute on the method ([HttpGet]) or on the controller type whose
+	// actions the framework calls ([ApiController]).
 	ShapeDecorator Shape = "decorator"
 	// ShapeRegistrationCall is a call that passes the function to the
 	// framework: app.get("/x", handler), http.HandleFunc("/x", h),
@@ -102,12 +104,14 @@ var shapesByLanguage = map[string][]Shape{
 	"python": {ShapeDecorator, ShapeRegistrationCall, ShapeSupertype},
 	"go":     {ShapeRegistrationCall, ShapeHandlerField, ShapeSupertype, ShapeInterfaceMethod, ShapeServerRegistration},
 	"rust":   {ShapeDecorator, ShapeRegistrationCall},
+	"csharp": {ShapeDecorator, ShapeRegistrationCall, ShapeSupertype},
 }
 
 // packageSeparator is how each language spells a subpackage, for matching
 // from: "flask" covers "flask.views", "github.com/go-chi/chi" covers
-// "github.com/go-chi/chi/v5", "actix_web" covers "actix_web::web".
-var packageSeparator = map[string]string{"java": ".", "python": ".", "node": "/", "go": "/", "rust": "::"}
+// "github.com/go-chi/chi/v5", "actix_web" covers "actix_web::web",
+// "Microsoft.AspNetCore" covers "Microsoft.AspNetCore.Mvc".
+var packageSeparator = map[string]string{"java": ".", "python": ".", "node": "/", "go": "/", "rust": "::", "csharp": "."}
 
 // Entry is one catalog entry.
 type Entry struct {

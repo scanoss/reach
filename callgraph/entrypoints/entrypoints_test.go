@@ -69,6 +69,14 @@ func TestLoadEmbedded(t *testing.T) {
 		{"rust", ShapeRegistrationCall, "futures::future", "", "and_then", false},
 		{"rust", ShapeRegistrationCall, "lambda_runtime", "", "service_fn", true},
 		{"rust", ShapeRegistrationCall, "tower", "", "service_fn", false},
+		{"csharp", ShapeSupertype, "Microsoft.AspNetCore.Mvc", "ControllerBase", "Create", true},
+		{"csharp", ShapeSupertype, "Shop.Web", "ControllerBase", "Create", false},
+		{"csharp", ShapeSupertype, "Microsoft.Extensions.Hosting", "BackgroundService", "ExecuteAsync", true},
+		{"csharp", ShapeSupertype, "Microsoft.Extensions.Hosting", "BackgroundService", "Rotate", false},
+		{"csharp", ShapeDecorator, "Microsoft.AspNetCore.Mvc", "", "HttpGet", true},
+		{"csharp", ShapeDecorator, "Acme.Fake", "", "HttpGet", false},
+		{"csharp", ShapeRegistrationCall, "Microsoft.AspNetCore.Builder", "", "MapGet", true},
+		{"csharp", ShapeRegistrationCall, "Shop.Jobs", "", "MapGet", false},
 	} {
 		if _, got := catalog.Match(tc.language, tc.shape, tc.pkg, tc.typeName, tc.name); got != tc.want {
 			t.Errorf("Match(%s, %s, %q, %q, %q) = %v, want %v", tc.language, tc.shape, tc.pkg, tc.typeName, tc.name, got, tc.want)
