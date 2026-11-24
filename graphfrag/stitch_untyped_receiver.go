@@ -24,8 +24,8 @@ import "strings"
 // declared type, and keys it by the interface's own method. When a component
 // of the closure declares that interface, the key finds the method's
 // declaration, which has no body, and the call stopped there. Its candidates
-// are the methods of that name in scope as well, the ones it has when no
-// component declares the interface (`aead.Seal` on a crypto/cipher.AEAD).
+// are the methods of that name in scope as well, as when no component
+// declares the interface (`aead.Seal` on a crypto/cipher.AEAD).
 func goInterfaceCandidates(resolve edgeResolver, byMethodArity map[string][]graphNode, scope map[ComponentKey]bool) edgeResolver {
 	return func(e callEdge) edgeTargets {
 		targets := resolve(e)
@@ -37,7 +37,7 @@ func goInterfaceCandidates(resolve edgeResolver, byMethodArity map[string][]grap
 			found[n] = true
 		}
 		for _, callee := range byMethodArity[nameOnlyLookupKey(e)] {
-			if scope[callee.Component] && !found[callee] {
+			if _, _, method := splitFunctionKey(callee.Function); method && scope[callee.Component] && !found[callee] {
 				targets.nodes = append(targets.nodes, callee)
 			}
 		}

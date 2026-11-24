@@ -71,11 +71,13 @@ func goInterfaceFixture(projectAlgo string) map[ComponentKey]Fragment {
 				{Signature: "example.com/hash.(standard).Sum"},
 				{Signature: "example.com/hash.(plain).Sum"},
 				{Signature: "example.com/hash.(table).Reset"},
+				{Signature: "example.com/hash.Sum"},
 			},
 			CryptoOperations: []CryptoOperation{
 				{Function: "example.com/hash.(standard).Sum", FindingID: "f-standard", RuleID: "rule.digest"},
 				{Function: "example.com/hash.(plain).Sum", FindingID: "f-plain", RuleID: "rule.copy"},
 				{Function: "example.com/hash.(table).Reset", FindingID: "f-reset", RuleID: "rule.table"},
+				{Function: "example.com/hash.Sum", FindingID: "f-free", RuleID: "rule.free"},
 			},
 		},
 	}
@@ -84,13 +86,15 @@ func goInterfaceFixture(projectAlgo string) map[ComponentKey]Fragment {
 // A Go call on an interface a dependency declares names no implementation.
 // The interface's own method has no body, so matching the call to it alone
 // read every implementation as unreachable: the methods of that name may run,
-// and what they reach is unknown, as for an interface no component declares.
+// and what they reach is unknown. A function of that name is no method of
+// any type, so the call cannot run it.
 func TestStitch_GoInterfaceCallReadsItsImplementationsUnknown(t *testing.T) {
 	t.Parallel()
 	got := verdictsOf(t, goApp, goLib, goInterfaceFixture(GraphAlgoVersionGo))
 	wantVerdict(t, got, "f-standard", ReachabilityUnknown, UnresolvedReasonDispatch)
 	wantVerdict(t, got, "f-plain", ReachabilityUnknown, UnresolvedReasonDispatch)
 	wantNoRoute(t, got, "f-reset")
+	wantNoRoute(t, got, "f-free")
 }
 
 // The same call sites from a project of another ecosystem keep the match to
@@ -98,7 +102,7 @@ func TestStitch_GoInterfaceCallReadsItsImplementationsUnknown(t *testing.T) {
 func TestStitch_InterfaceKeyedNameOnlyCallIsUnchangedOutsideGo(t *testing.T) {
 	t.Parallel()
 	got := verdictsOf(t, goApp, goLib, goInterfaceFixture(GraphAlgoVersion))
-	for _, id := range []string{"f-standard", "f-plain", "f-reset"} {
+	for _, id := range []string{"f-standard", "f-plain", "f-reset", "f-free"} {
 		wantNoRoute(t, got, id)
 	}
 }
