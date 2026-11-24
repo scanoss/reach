@@ -56,6 +56,7 @@ type CSharpParser struct {
 	parser       *sitter.Parser
 	includeTests bool
 	anchors      callAnchors
+	projects     *csharpProjects
 }
 
 // NewCSharpParser creates a C# source parser backed by tree-sitter.
@@ -63,12 +64,15 @@ func NewCSharpParser(opts ...ParserOption) *CSharpParser {
 	cfg := newParserConfig(opts)
 	parser := sitter.NewParser()
 	parser.SetLanguage(treecsharp.GetLanguage())
-	return &CSharpParser{parser: parser, includeTests: cfg.includeTests}
+	return &CSharpParser{parser: parser, includeTests: cfg.includeTests, projects: &csharpProjects{}}
 }
 
-// CloneParser returns an independent parser for concurrent use.
+// CloneParser returns an independent parser for concurrent use. It shares
+// the project-file cache.
 func (p *CSharpParser) CloneParser() Parser {
-	return NewCSharpParser(WithIncludeTests(p.includeTests))
+	clone := NewCSharpParser(WithIncludeTests(p.includeTests))
+	clone.projects = p.projects
+	return clone
 }
 
 // PackageSeparator is the C# namespace separator.
@@ -91,6 +95,13 @@ func (p *CSharpParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis,
 		return nil, fmt.Errorf("callgraph: csharp parser: read directory %s: %w", dir, err)
 	}
 	analyses := make([]*FileAnalysis, 0, len(entries))
+	var globalUsings []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.ToLower(filepath.Ext(entry.Name())) == ".cs" {
+			globalUsings = p.projects.globalUsings(dir)
+			break
+		}
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || strings.ToLower(filepath.Ext(entry.Name())) != ".cs" {
 			continue
@@ -99,7 +110,7 @@ func (p *CSharpParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis,
 			continue
 		}
 		filePath := filepath.Join(dir, entry.Name())
-		analysis, err := p.parseFile(filePath, packagePath)
+		analysis, err := p.parseFile(filePath, packagePath, globalUsings)
 		if err != nil {
 			log.Error().Err(err).Str("file", filePath).Str("package", packagePath).Msg("failed to parse file")
 			continue
@@ -119,7 +130,7 @@ func csharpIsTestFile(name string) bool {
 	return strings.Contains(lower, ".test.") || strings.Contains(lower, ".tests.")
 }
 
-func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, error) {
+func (p *CSharpParser) parseFile(filePath, packagePath string, globalUsings []string) (*FileAnalysis, error) {
 	src, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: csharp parser: read %s: %w", filePath, err)
@@ -144,6 +155,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string) (*FileAnalysis, e
 	}
 	root := tree.RootNode()
 	p.collectUsings(root, src, analysis)
+	addGlobalUsings(analysis, globalUsings)
 	// A file that declares a namespace is keyed by it, as a Java file is keyed
 	// by its package: the directory it sits in names nothing a caller writes.
 	if ns := csharpFirstNamespace(root, src); ns != "" {
