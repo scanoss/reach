@@ -1,0 +1,11 @@
+schema_version: "1"
+language: csharp
+framework:
+  name: aspnetcore
+  description: "ASP.NET Core MVC and Web API: the actions of a controller, its public instance methods other than [NonAction] ones and property accessors."
+entries:
+  - shape: supertype
+    from: [Microsoft.AspNetCore.Mvc]
+    types: [Controller, ControllerBase]
+    names: ["*"]
+    root_kind: framework_entry

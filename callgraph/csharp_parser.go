@@ -456,6 +456,11 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		EntryKind:    csharpEntryKind(name, csharpHasModifier(node, src, "static")),
 		Parameters:   parameters,
 		ReturnType:   csharpReturnType(node, src),
+		Visibility:   csharpVisibility(node, src, ownerType),
+		Annotations:  csharpAttributeNames(node, src),
+	}
+	if node.Type() == csharpNodeProperty {
+		decl.FunctionType = csharpFunctionTypeProperty
 	}
 	if node.Type() == csharpNodeConstructor {
 		decl.FunctionType = "constructor"
@@ -706,6 +711,77 @@ func csharpReturnType(node *sitter.Node, src []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(returns.Content(src))
+}
+
+// csharpFunctionTypeProperty is the FunctionType of a property: its
+// accessors are not methods a framework dispatches to by name.
+const csharpFunctionTypeProperty = "property"
+
+// csharpAccessModifiers are the access modifiers C# writes, in the order a
+// combined one is spelled ("protected internal", "private protected").
+var csharpAccessModifiers = []string{"private", "protected", "internal", "public"}
+
+// csharpVisibility is a member's declared accessibility as written, or the
+// default when it writes none: public in an interface, private elsewhere.
+func csharpVisibility(node *sitter.Node, src []byte, ownerType string) string {
+	var written []string
+	for _, modifier := range csharpAccessModifiers {
+		if csharpHasModifier(node, src, modifier) {
+			written = append(written, modifier)
+		}
+	}
+	switch {
+	case len(written) > 0:
+		return strings.Join(written, " ")
+	case ownerType == ownerTypeInterface:
+		return "public"
+	default:
+		return "private"
+	}
+}
+
+// csharpWrittenAttributes lists the attributes a declaration carries, as
+// written: `[HttpGet("x"), Route("y")]` holds HttpGet and Route.
+func csharpWrittenAttributes(node *sitter.Node, src []byte) []string {
+	var out []string
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		list := node.NamedChild(i)
+		if list.Type() != "attribute_list" {
+			continue
+		}
+		for j := 0; j < int(list.NamedChildCount()); j++ {
+			if attribute := list.NamedChild(j); attribute.Type() == "attribute" {
+				if name := attribute.ChildByFieldName("name"); name != nil {
+					out = append(out, csharpTypeName(name, src))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// csharpAttributeName is the simple name of an attribute as written,
+// without the Attribute suffix C# lets a use drop: [NonActionAttribute] and
+// [Microsoft.AspNetCore.Mvc.NonAction] are both NonAction.
+func csharpAttributeName(written string) string {
+	simple := written[strings.LastIndex(written, csharpSeparator)+1:]
+	if trimmed := strings.TrimSuffix(simple, "Attribute"); trimmed != "" {
+		return trimmed
+	}
+	return simple
+}
+
+// csharpAttributeNames are the simple names of a declaration's attributes.
+func csharpAttributeNames(node *sitter.Node, src []byte) []string {
+	written := csharpWrittenAttributes(node, src)
+	if len(written) == 0 {
+		return nil
+	}
+	out := make([]string, len(written))
+	for i, name := range written {
+		out[i] = csharpAttributeName(name)
+	}
+	return out
 }
 
 func csharpHasModifier(node *sitter.Node, src []byte, modifier string) bool {

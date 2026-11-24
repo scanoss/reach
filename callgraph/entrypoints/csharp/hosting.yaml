@@ -1,0 +1,16 @@
+schema_version: "1"
+language: csharp
+framework:
+  name: hosting
+  description: "Microsoft.Extensions.Hosting: the lifecycle methods the generic host calls on a hosted service."
+entries:
+  - shape: supertype
+    from: [Microsoft.Extensions.Hosting]
+    types: [BackgroundService]
+    names: [ExecuteAsync, StartAsync, StopAsync]
+    root_kind: framework_entry
+  - shape: supertype
+    from: [Microsoft.Extensions.Hosting]
+    types: [IHostedService]
+    names: [StartAsync, StopAsync]
+    root_kind: framework_entry

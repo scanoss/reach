@@ -102,12 +102,14 @@ var shapesByLanguage = map[string][]Shape{
 	"python": {ShapeDecorator, ShapeRegistrationCall, ShapeSupertype},
 	"go":     {ShapeRegistrationCall, ShapeHandlerField, ShapeSupertype, ShapeInterfaceMethod, ShapeServerRegistration},
 	"rust":   {ShapeDecorator, ShapeRegistrationCall},
+	"csharp": {ShapeDecorator, ShapeRegistrationCall, ShapeSupertype},
 }
 
 // packageSeparator is how each language spells a subpackage, for matching
 // from: "flask" covers "flask.views", "github.com/go-chi/chi" covers
-// "github.com/go-chi/chi/v5", "actix_web" covers "actix_web::web".
-var packageSeparator = map[string]string{"java": ".", "python": ".", "node": "/", "go": "/", "rust": "::"}
+// "github.com/go-chi/chi/v5", "actix_web" covers "actix_web::web",
+// "Microsoft.AspNetCore" covers "Microsoft.AspNetCore.Mvc".
+var packageSeparator = map[string]string{"java": ".", "python": ".", "node": "/", "go": "/", "rust": "::", "csharp": "."}
 
 // Entry is one catalog entry.
 type Entry struct {
