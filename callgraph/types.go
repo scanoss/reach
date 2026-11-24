@@ -463,6 +463,13 @@ type FunctionCall struct {
 	// selector calls on a local only). Only then does the call that produced
 	// the variable say what value it holds here.
 	ReceiverBoundOnce bool
+	// ReceiverProducer is the key of the function whose result ReceiverVar
+	// holds, when the graph does not declare that function: the callee of the
+	// one call that binds the variable, a local the enclosing function binds
+	// exactly once (receiverProducers). The graph cannot read what such a
+	// function builds; a reader that holds its graph can, and then knows the
+	// class of the object this call runs on. Empty otherwise.
+	ReceiverProducer string
 	// AssignedVar is the local variable this call's result is bound to, e.g.
 	// "digest" in `SHA3Digest digest = new SHA3Digest(256)`. Empty when the call
 	// result is not assigned to a variable. For fluent chains only the chain root

@@ -270,6 +270,12 @@ func receiverProducers(fn *FunctionDecl) map[string]string {
 // The call keeps its callee unless that class itself declares a method of the
 // same name (and arity, where the name carries it). It runs before the caller
 // index is built, so the index links the class's method directly.
+//
+// A producer the graph does not declare (a dependency read for its types
+// only) cannot be asked what it builds. The call then records it
+// (FunctionCall.ReceiverProducer), for a stitch that holds the producer's
+// fragment to finish the same resolution (graphfrag's
+// typeConstructedReceivers).
 func resolveConstructedReceivers(graph *CallGraph) int {
 	r := constructedReceiverResolver{graph: graph, methods: indexTypeMethods(graph), classes: make(map[string]constructedClassAnswer)}
 	resolved := 0
@@ -316,6 +322,10 @@ func (r *constructedReceiverResolver) resolveFunction(fn *FunctionDecl) int {
 		}
 		producer, ok := producers[call.ReceiverVar]
 		if !ok {
+			continue
+		}
+		if r.graph.Functions[producer] == nil {
+			call.ReceiverProducer = producer
 			continue
 		}
 		class, ok := r.classOf(producer)
