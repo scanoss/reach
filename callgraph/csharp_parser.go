@@ -57,6 +57,9 @@ type CSharpParser struct {
 	includeTests bool
 	anchors      callAnchors
 	projects     *csharpProjects
+	// controllers holds, while a file is parsed, the mark of each type a
+	// catalog attribute declares a controller, by the type's full name.
+	controllers map[string]EntryMark
 }
 
 // NewCSharpParser creates a C# source parser backed by tree-sitter.
@@ -142,6 +145,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string, globalUsings []st
 	}
 	defer tree.Close()
 	defer p.anchors.reset()
+	p.controllers = map[string]EntryMark{}
 
 	analysis := &FileAnalysis{
 		FilePath:      filePath,
@@ -167,6 +171,7 @@ func (p *CSharpParser) parseFile(filePath, packagePath string, globalUsings []st
 	if decl := p.parseTopLevelProgram(root, src, filePath, analysis.PackagePath, analysis); decl != nil {
 		analysis.Functions = append(analysis.Functions, *decl)
 	}
+	markCSharpControllerActions(analysis, p.controllers)
 	recordCSharpOwnerAlternatives(analysis)
 	return analysis, nil
 }
@@ -293,6 +298,9 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 				ownerType = ownerTypeInterface
 			}
 			csharpRecordBases(node, src, namespace, typePath, analysis)
+			if mark, ok := csharpAttributeEntryMark(csharpWrittenAttributes(node, src), namespace, analysis, csharpTypeAttribute); ok {
+				p.controllers[csharpJoin(namespace, typePath)] = mark
+			}
 			fields = csharpFieldFacts(node, src)
 			p.readFieldInitializers(node, src, filePath, namespace, typePath, fields, analysis)
 			analysis.Functions = append(analysis.Functions,
@@ -441,6 +449,7 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		return nil
 	}
 	parameters := csharpParameters(node.ChildByFieldName("parameters"), src)
+	attributes := csharpWrittenAttributes(node, src)
 	decl := &FunctionDecl{
 		ID:           FunctionID{Package: namespace, Type: typePath, Name: csharpMethodWithArity(name, len(parameters))},
 		FilePath:     filePath,
@@ -457,7 +466,10 @@ func (p *CSharpParser) parseFunction(node *sitter.Node, src []byte, filePath, na
 		Parameters:   parameters,
 		ReturnType:   csharpReturnType(node, src),
 		Visibility:   csharpVisibility(node, src, ownerType),
-		Annotations:  csharpAttributeNames(node, src),
+		Annotations:  csharpAttributeNames(attributes),
+	}
+	if mark, ok := csharpAttributeEntryMark(attributes, namespace, analysis, csharpAnyAttribute); ok {
+		markEntry(decl, mark)
 	}
 	if node.Type() == csharpNodeProperty {
 		decl.FunctionType = csharpFunctionTypeProperty
@@ -771,9 +783,8 @@ func csharpAttributeName(written string) string {
 	return simple
 }
 
-// csharpAttributeNames are the simple names of a declaration's attributes.
-func csharpAttributeNames(node *sitter.Node, src []byte) []string {
-	written := csharpWrittenAttributes(node, src)
+// csharpAttributeNames are the simple names of written attributes.
+func csharpAttributeNames(written []string) []string {
 	if len(written) == 0 {
 		return nil
 	}

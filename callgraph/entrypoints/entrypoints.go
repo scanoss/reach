@@ -42,7 +42,9 @@ const (
 	// ShapeDecorator is a Java annotation or a Python or TypeScript decorator
 	// on the function: @GetMapping, @app.route("/x"), @Post(). In Rust it is
 	// an attribute on the function (#[get("/")]) or on the impl block whose
-	// methods the framework calls (#[tonic::async_trait]).
+	// methods the framework calls (#[tonic::async_trait]). In C# it is an
+	// attribute on the method ([HttpGet]) or on the controller type whose
+	// actions the framework calls ([ApiController]).
 	ShapeDecorator Shape = "decorator"
 	// ShapeRegistrationCall is a call that passes the function to the
 	// framework: app.get("/x", handler), http.HandleFunc("/x", h),

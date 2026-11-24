@@ -2,10 +2,14 @@ schema_version: "1"
 language: csharp
 framework:
   name: aspnetcore
-  description: "ASP.NET Core MVC and Web API: the actions of a controller, its public instance methods other than [NonAction] ones and property accessors."
+  description: "ASP.NET Core MVC and Web API: the actions of a controller (a type deriving from Controller or ControllerBase, or carrying [ApiController], [Controller] or [Route]), its public instance methods other than [NonAction] ones and property accessors; and a method carrying a routing attribute."
 entries:
   - shape: supertype
     from: [Microsoft.AspNetCore.Mvc]
     types: [Controller, ControllerBase]
     names: ["*"]
+    root_kind: framework_entry
+  - shape: decorator
+    from: [Microsoft.AspNetCore.Mvc]
+    names: [ApiController, Controller, Route, HttpGet, HttpPost, HttpPut, HttpDelete, HttpPatch, HttpHead, HttpOptions, AcceptVerbs]
     root_kind: framework_entry
