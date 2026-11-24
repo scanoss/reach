@@ -281,6 +281,11 @@ public final class Main {
         return h.sum(new byte[0]);
     }
 
+    static byte[] useConstructed() {
+        Hasher h = new org.example.liba.Fast();
+        return h.sum(new byte[0]);
+    }
+
     static byte[] useEither(boolean fips) {
         Hasher h = fips ? Hashers.standard() : Hashers.plain();
         return h.sum(new byte[0]);
@@ -304,6 +309,9 @@ public final class Main {
 		if got := receiverProducerOf(t, g, "org.example.app.(Main)."+caller, "sum"); got != "" {
 			t.Errorf("%s: receiver producer %q, want none: the local is not bound once by one call", caller, got)
 		}
+	}
+	if got := receiverProducerOf(t, g, "org.example.app.(Main).useConstructed#0", "sum"); got != "" {
+		t.Errorf("useConstructed: receiver producer %q, want none: a constructor returns nothing to read", got)
 	}
 }
 

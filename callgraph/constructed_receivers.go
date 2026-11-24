@@ -325,7 +325,11 @@ func (r *constructedReceiverResolver) resolveFunction(fn *FunctionDecl) int {
 			continue
 		}
 		if r.graph.Functions[producer] == nil {
-			call.ReceiverProducer = producer
+			// A constructor returns nothing to read: the object's class is
+			// the one the call already names.
+			if !strings.Contains(producer, "."+constructorMethodName) {
+				call.ReceiverProducer = producer
+			}
 			continue
 		}
 		class, ok := r.classOf(producer)
