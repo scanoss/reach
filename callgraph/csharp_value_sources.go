@@ -60,6 +60,16 @@ func (v *csharpValues) declare(name, typeName string) {
 	}
 }
 
+// memberTypes is the declared type of each member of the enclosing type a
+// method body can name bare: its fields, auto-properties and
+// primary-constructor parameters.
+func (v *csharpValues) memberTypes() map[string]string {
+	if v == nil {
+		return nil
+	}
+	return v.fieldTypes
+}
+
 // typeOf is the type a name is declared with: a local or parameter of the
 // body, else a field of the enclosing type.
 func (v *csharpValues) typeOf(name string) string {
@@ -243,6 +253,8 @@ func csharpIsName(text string) bool {
 
 // csharpFields holds what a type's fields declare, by the name a method of
 // that type writes them with: their literal value and their declared type.
+// types also holds the auto-properties and the primary-constructor
+// parameters, which a method names the way it names a field.
 type csharpFields struct {
 	values, types map[string]string
 	// staticCalls are the calls the type's static field initializers make,
@@ -294,6 +306,22 @@ func csharpFieldFacts(node *sitter.Node, src []byte) *csharpFields {
 			}
 			if declared != "" {
 				out.types[name.Content(src)] = declared
+			}
+		}
+	}
+	csharpWalkTypeBody(body, func(member *sitter.Node) {
+		if member.Type() != csharpNodeProperty {
+			return
+		}
+		if name, typeNode := member.ChildByFieldName("name"), member.ChildByFieldName("type"); name != nil && typeNode != nil {
+			out.types[name.Content(src)] = csharpTypeName(typeNode, src)
+		}
+	})
+	if list := csharpChildByType(node, "parameter_list"); list != nil {
+		for i := 0; i < int(list.NamedChildCount()); i++ {
+			parameter := list.NamedChild(i)
+			if name, typeNode := parameter.ChildByFieldName("name"), parameter.ChildByFieldName("type"); name != nil && typeNode != nil {
+				out.types[name.Content(src)] = csharpTypeName(typeNode, src)
 			}
 		}
 	}

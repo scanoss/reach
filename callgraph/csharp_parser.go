@@ -924,7 +924,7 @@ func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, 
 			return nil
 		}
 		call.Callee.Name = csharpTypeName(name, src)
-		p.resolveReceiver(call, receiver, src, namespace, typePath, variableTypes, analysis)
+		p.resolveReceiver(call, receiver, src, namespace, typePath, variableTypes, values.memberTypes(), analysis)
 	default:
 		return nil
 	}
@@ -937,9 +937,11 @@ func (p *CSharpParser) parseInvocation(node *sitter.Node, src []byte, filePath, 
 }
 
 // resolveReceiver types a member call's receiver: a local the body declared,
-// `this`, a constructor the call is chained on, or a type name the file's
-// usings qualify.
-func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node, src []byte, namespace, typePath string, variableTypes map[string]string, analysis *FileAnalysis) {
+// a member of the enclosing type, `this`, a constructor the call is chained
+// on, or a type name the file's usings qualify. members holds the declared
+// type of each field, auto-property and primary-constructor parameter of the
+// enclosing type; a local or parameter of the same name shadows it.
+func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node, src []byte, namespace, typePath string, variableTypes, members map[string]string, analysis *FileAnalysis) {
 	switch receiver.Type() {
 	case csharpNodeIdentifier:
 		text := receiver.Content(src)
@@ -949,12 +951,20 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
 			return
 		}
+		if declared, ok := members[text]; ok {
+			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
+			return
+		}
 		call.StaticReceiver = true
 		call.Callee.Package, call.Callee.Type = csharpOwner(text, namespace, analysis)
 	case "this_expression":
 		call.Callee.Type = typePath
 		call.Callee.Package = namespace
 	case csharpNodeMemberAccess, csharpNodeQualifiedName:
+		if declared, ok := members[csharpThisMember(receiver, src)]; ok {
+			call.Callee.Package, call.Callee.Type = csharpOwner(declared, namespace, analysis)
+			return
+		}
 		// A dotted receiver is a qualified type (`N.M.T.Create()`) unless its
 		// head is a local: the parser keeps the written path and the graph
 		// splits it on the namespace the file knows.
@@ -977,6 +987,18 @@ func (p *CSharpParser) resolveReceiver(call *FunctionCall, receiver *sitter.Node
 	default:
 		call.Callee.Package = namespace
 	}
+}
+
+// csharpThisMember is the member name of a `this.name` receiver, or "".
+func csharpThisMember(receiver *sitter.Node, src []byte) string {
+	if receiver.Type() != csharpNodeMemberAccess {
+		return ""
+	}
+	expression, name := receiver.ChildByFieldName("expression"), receiver.ChildByFieldName("name")
+	if expression == nil || name == nil || expression.Content(src) != "this" {
+		return ""
+	}
+	return name.Content(src)
 }
 
 func (p *CSharpParser) parseObjectCreation(node *sitter.Node, src []byte, filePath, namespace string, values *csharpValues, analysis *FileAnalysis) *FunctionCall {
