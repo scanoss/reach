@@ -12,11 +12,16 @@ type csharpEntryRoots struct {
 	rules    map[string]string
 }
 
-// csharpEntryRules builds a graph over the files and reads its roots, with
-// the application's packages unknown and known.
+// csharpEntryRules builds a graph over the files and reads its roots.
 func csharpEntryRules(t *testing.T, files map[string]string) csharpEntryRoots {
 	t.Helper()
-	graph := buildCSharpGraph(t, files)
+	return csharpRootsOf(t, buildCSharpGraph(t, files))
+}
+
+// csharpRootsOf reads a graph's roots, with the application's packages
+// unknown and known.
+func csharpRootsOf(t *testing.T, graph *CallGraph) csharpEntryRoots {
+	t.Helper()
 	tracer := NewTracer(graph, csharpSeparator)
 	out := csharpEntryRoots{declared: map[string]bool{}}
 	for _, userPackages := range []map[string]bool{nil, {"Shop": true}} {

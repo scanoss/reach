@@ -85,3 +85,97 @@ public class Endpoints {
 	})
 	assertCSharpRoots(t, rules, nil, "Shop.Web.(Endpoints).Get#0", "Shop.Web.(Endpoints).List#0")
 }
+
+const (
+	csharpMapRule     = "csharp/aspnetcore:registration_call:MapGet"
+	csharpWebProject  = `<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>`
+	csharpHashHelpers = `namespace Shop.Crypto;
+public static class Hasher { public static byte[] Hash() { return null; } }
+`
+)
+
+// A method group a minimal-API Map call registers in top-level statements
+// is an entry point: a local function by its name, a static method as
+// Type.Name. The Builder namespace comes from the project's implicit usings.
+func TestCSharpMinimalAPIMethodGroupsAreEntryPoints(t *testing.T) {
+	graph := buildCSharpGraph(t, map[string]string{
+		"Shop.csproj": csharpWebProject,
+		"Crypto.cs":   csharpHashHelpers,
+		"Handlers.cs": `namespace Shop.Api;
+public static class Handlers {
+    public static byte[] Options() { return null; }
+    public static byte[] Audit() { return null; }
+}`,
+		"Program.cs": `using Shop.Api;
+using Shop.Crypto;
+var app = WebApplication.Create(args);
+app.MapGet("/users/{id}", GetUser);
+app.MapMethods("/keys", new[] { "OPTIONS" }, Handlers.Options);
+app.MapPost("/sign", () => Hasher.Hash());
+app.Run();
+static byte[] GetUser(int id) { return null; }
+static byte[] Unused() { return null; }
+`,
+	})
+	rules := csharpRootsOf(t, graph)
+	assertCSharpRoots(t, rules, map[string]string{
+		"Acme.(Program).GetUser#1":      csharpMapRule,
+		"Shop.Api.(Handlers).Options#0": csharpMapRule,
+	}, "Acme.(Program).Unused#0", "Shop.Api.(Handlers).Audit#0")
+	if callers := graph.Callers["Shop.Crypto.(Hasher).Hash#0"]; len(callers) != 1 || callers[0] != "Acme.(Program).Main#1" {
+		t.Errorf("callers of the lambda's call = %q, want the generated Main", callers)
+	}
+}
+
+// An extension method that maps endpoints on an IEndpointRouteBuilder
+// registers every overload of the method group it names.
+func TestCSharpMappedEndpointsInAnExtensionMethod(t *testing.T) {
+	rules := csharpEntryRules(t, map[string]string{
+		"OrderHandlers.cs": `namespace Shop.Handlers;
+public static class OrderHandlers {
+    public static byte[] Create(int id) { return null; }
+    public static byte[] Create(int id, string note) { return null; }
+    public static byte[] Delete(int id) { return null; }
+    public static byte[] Audit() { return null; }
+}`,
+		"OrderEndpoints.cs": `using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
+using Shop.Handlers;
+namespace Shop.Api;
+public static class OrderEndpoints {
+    public static void MapOrders(this IEndpointRouteBuilder app) {
+        app.MapPost("/orders", OrderHandlers.Create);
+        app.MapDelete(pattern: "/orders/{id}", handler: OrderHandlers.Delete);
+    }
+}`,
+	})
+	assertCSharpRoots(t, rules, map[string]string{
+		"Shop.Handlers.(OrderHandlers).Create#1": csharpMapRule,
+		"Shop.Handlers.(OrderHandlers).Create#2": csharpMapRule,
+		"Shop.Handlers.(OrderHandlers).Delete#1": csharpMapRule,
+	}, "Shop.Handlers.(OrderHandlers).Audit#0")
+}
+
+// A receiver declared with a Builder type is evidence on its own.
+func TestCSharpMapOnAFrameworkReceiver(t *testing.T) {
+	rules := csharpEntryRules(t, map[string]string{"Endpoints.cs": `namespace Shop.Api;
+public static class Endpoints {
+    public static void Map(Microsoft.AspNetCore.Builder.WebApplication app) { app.MapPut("/keys", Rotate); }
+    public static byte[] Rotate() { return null; }
+}`})
+	assertCSharpRoots(t, rules, map[string]string{"Shop.Api.(Endpoints).Rotate#0": csharpMapRule})
+}
+
+// A MapGet of the application's own, in a file without the Builder namespace
+// in scope, registers nothing.
+func TestCSharpOwnMapGetIsNotARegistration(t *testing.T) {
+	rules := csharpEntryRules(t, map[string]string{
+		"Router.cs": `namespace Shop.Jobs;
+public static class Router { public static void MapGet(string path, System.Func<byte[]> run) { } }
+public static class Jobs {
+    public static byte[] Run() { return null; }
+    public static void Schedule() { Router.MapGet("/nightly", Run); }
+}`,
+	})
+	assertCSharpRoots(t, rules, nil, "Shop.Jobs.(Jobs).Run#0")
+}

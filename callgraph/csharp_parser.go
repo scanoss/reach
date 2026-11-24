@@ -904,6 +904,7 @@ func (p *CSharpParser) walkCalls(node *sitter.Node, src []byte, filePath, namesp
 		if call := p.parseInvocation(node, src, filePath, namespace, typePath, variableTypes, values, analysis); call != nil {
 			p.anchors.set(call, node)
 			*calls = append(*calls, *call)
+			analysis.EntryRefs = append(analysis.EntryRefs, csharpRegisteredHandlers(node, src, call, namespace, typePath, variableTypes, values.memberTypes(), analysis)...)
 		}
 	case csharpNodeObjectCreation:
 		if call := p.parseObjectCreation(node, src, filePath, namespace, values, analysis); call != nil {

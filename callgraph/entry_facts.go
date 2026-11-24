@@ -48,6 +48,10 @@ type EntryRef struct {
 	// under the root module a manifest-named project prefixes onto its own,
 	// and under no other leading segments.
 	Module bool
+	// Overloads says Function.Name carries no arity: every overload of the
+	// name matches, as a C# method group (app.MapGet("/x", Handlers.Get))
+	// names them.
+	Overloads bool
 	// Mark is the root kind the handler gets, and the catalog entry that gave it.
 	Mark EntryMark
 }
@@ -71,7 +75,7 @@ func resolveEntryRefs(graph *CallGraph, pythonRoots []string) {
 			markEntry(decl, ref.Mark)
 			continue
 		}
-		if !ref.AllExported && !ref.Module {
+		if !ref.AllExported && !ref.Module && !ref.Overloads {
 			continue
 		}
 		if byPackage == nil {
@@ -80,8 +84,12 @@ func resolveEntryRefs(graph *CallGraph, pythonRoots []string) {
 				byPackage[decl.ID.Package] = append(byPackage[decl.ID.Package], decl)
 			}
 		}
-		if ref.Module {
+		switch {
+		case ref.Module:
 			markPythonModuleFunction(byPackage, ref, pythonRoots)
+			continue
+		case ref.Overloads:
+			markOverloads(byPackage, ref)
 			continue
 		}
 		markExportedMethods(byPackage, ref)
@@ -97,6 +105,15 @@ func markExportedMethods(byPackage map[string][]*FunctionDecl, ref *EntryRef) {
 	}
 	for _, decl := range byPackage[ref.Function.Package] {
 		if ref.matchesMethod(decl) && (inService == nil || (decl.OwnerType != goOwnerInterface && inService(decl))) {
+			markEntry(decl, ref.Mark)
+		}
+	}
+}
+
+// markOverloads marks every overload of the method ref names.
+func markOverloads(byPackage map[string][]*FunctionDecl, ref *EntryRef) {
+	for _, decl := range byPackage[ref.Function.Package] {
+		if decl.ID.Type == ref.Function.Type && BaseFunctionName(decl.ID.Name) == ref.Function.Name {
 			markEntry(decl, ref.Mark)
 		}
 	}
