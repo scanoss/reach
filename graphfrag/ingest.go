@@ -38,6 +38,11 @@ func (e *GraphFragmentExport) ToFragment(component ComponentKey) Fragment {
 	// allocates each occurrence anew.
 	in := make(internTable)
 	appendFragmentFunctions(&frag, e.Functions, in)
+	if constructsRecorded(e.ScanMetadata.Ecosystem, component) {
+		for i := range e.Functions {
+			frag.Functions[i].Constructs = constructedClass(e.Functions[i].ReturnSources)
+		}
+	}
 	for i := range e.Functions {
 		if kind := e.Functions[i].EntryKind; kind != "" && frag.EntryKinds != nil {
 			frag.EntryKinds[e.Functions[i].Key] = kind
@@ -166,6 +171,7 @@ func appendExternalCalls(frag *Fragment, calls []GraphFragmentExternal, in inter
 			EntryCall:                toCallSite(ec.EntryCall, in),
 			ResolvedReceiverType:     in.get(ec.ResolvedReceiverType),
 			CandidateModules:         ec.CandidateModules,
+			ReceiverProducer:         in.get(ec.ReceiverProducer),
 		})
 	}
 }

@@ -286,6 +286,11 @@ import (
 // call argument (a callback) from the function that writes it on the same
 // line. A fragment before 1.38, or a function without columns, places a call
 // by lines only.
+//
+// An external call may also carry receiver_producer
+// (GraphFragmentExternal.ReceiverProducer). It is no version of its own: only
+// a project's call sites carry it, in a request, and no stored fragment does,
+// so a reader that does not know it stitches the document as it always did.
 const SchemaVersion = "graph-fragment-1.38"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
@@ -1677,6 +1682,15 @@ type GraphFragmentExternal struct {
 	// since it cannot name one module; the candidates are the modules the
 	// receiver may hold the member from. Omitted otherwise.
 	CandidateModules []string `json:"candidate_modules,omitempty"`
+	// ReceiverProducer is the key of the function whose result the call's
+	// receiver holds: the callee of the one call that binds receiver_var, a
+	// local its function binds exactly once (the graph's
+	// FunctionCall.ReceiverProducer). A project's call sites carry it for a
+	// producer their own graph does not declare, so that a stitch that holds
+	// the producer's fragment can read there the class of the object the
+	// method runs on. Optional and additive: a document without it stitches
+	// as before, and a stored fragment never carries it.
+	ReceiverProducer string `json:"receiver_producer,omitempty"`
 }
 
 // GraphFragmentCryptoOp is one crypto finding annotation attached to a function
