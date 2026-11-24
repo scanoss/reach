@@ -2,7 +2,7 @@ schema_version: "1"
 language: csharp
 framework:
   name: aspnetcore
-  description: "ASP.NET Core MVC and Web API: the actions of a controller (a type deriving from Controller or ControllerBase, or carrying [ApiController], [Controller] or [Route]), its public instance methods other than [NonAction] ones and property accessors; a method carrying a routing attribute; and the method group a minimal-API Map call registers."
+  description: "ASP.NET Core MVC and Web API: the actions of a controller (a type deriving from Controller or ControllerBase, or carrying [ApiController], [Controller] or [Route]), its public instance methods other than [NonAction] ones and property accessors; a method carrying a routing attribute; the Invoke or InvokeAsync of a view component; and the method group a minimal-API Map call registers."
 entries:
   - shape: supertype
     from: [Microsoft.AspNetCore.Mvc]
@@ -17,4 +17,9 @@ entries:
     from: [Microsoft.AspNetCore.Builder]
     names: [MapGet, MapPost, MapPut, MapDelete, MapPatch, MapMethods]
     path: required
+    root_kind: framework_entry
+  - shape: supertype
+    from: [Microsoft.AspNetCore.Mvc]
+    types: [ViewComponent]
+    names: [Invoke, InvokeAsync]
     root_kind: framework_entry

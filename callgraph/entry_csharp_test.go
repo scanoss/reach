@@ -149,3 +149,22 @@ func TestCSharpOwnBackgroundServiceIsNotTheFrameworks(t *testing.T) {
 		})
 	}
 }
+
+// A view component's Invoke or InvokeAsync is what a view renders it through;
+// its other methods are not.
+func TestCSharpViewComponentInvokeIsAnEntryPoint(t *testing.T) {
+	rules := csharpEntryRules(t, map[string]string{
+		"Cart.cs": `using Microsoft.AspNetCore.Mvc;
+namespace Shop.Web;
+public class CartViewComponent : ViewComponent {
+    public Task<IViewComponentResult> InvokeAsync(long id) { return Sign(id); }
+    public Task<IViewComponentResult> Sign(long id) { return null; }
+}
+public class Badge : ViewComponent { public IViewComponentResult Invoke() { return null; } }
+public class Widget { public Task<IViewComponentResult> InvokeAsync(long id) { return null; } }`,
+	})
+	assertCSharpRoots(t, rules, map[string]string{
+		"Shop.Web.(CartViewComponent).InvokeAsync#1": "csharp/aspnetcore:supertype:Invoke",
+		"Shop.Web.(Badge).Invoke#0":                  "csharp/aspnetcore:supertype:Invoke",
+	}, "Shop.Web.(CartViewComponent).Sign#1", "Shop.Web.(Widget).InvokeAsync#1")
+}

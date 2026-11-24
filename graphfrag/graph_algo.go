@@ -663,8 +663,8 @@ const rubyGraphAlgoPrefix = "graph-algo-rb-"
 // each file's on-demand imports; a function records its visibility and
 // attribute names, and a property is FunctionType "property"; the C# entry
 // catalog (entrypoints/csharp) marks controller actions, ASP.NET Core routing
-// attributes, minimal-API method groups and hosted-service lifecycle methods
-// as framework entries.
+// attributes, view components' Invoke, minimal-API method groups and
+// hosted-service lifecycle methods as framework entries.
 const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "2"
 
 // csharpGraphAlgoPrefix starts every C# graph algorithm id: a fragment stamped
