@@ -771,6 +771,12 @@ func buildAdjacency(
 			}
 			resolve = pythonNameOnlyCandidates(pythonUnresolvedAsNameOnly(resolve, key, modules, byMethodArity), key, fragment, modules, byMethodArity, scope)
 		}
+		switch fragmentEcosystem(fragment) {
+		case "go":
+			resolve = goInterfaceCandidates(resolve, byMethodArity, targetSet)
+		case "rust":
+			resolve = rustUntypedCandidates(resolve, key, fragment, byMethodArity, targetSet)
+		}
 		if fragmentEcosystem(fragment) == "node" {
 			scope := targetSet
 			if closureTargets(key) {
