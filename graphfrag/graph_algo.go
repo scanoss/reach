@@ -654,7 +654,18 @@ const rubyGraphAlgoPrefix = "graph-algo-rb-"
 
 // GraphAlgoVersionCSharp is the C# call graph algorithm id. It moves when a
 // C# graph changes, and re-mines C# graphs alone.
-const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "1"
+//
+// graph-algo-cs-2: a member call whose receiver is a field, an auto-property
+// or a primary-constructor parameter of the enclosing type (`_svc.M()`,
+// `this._svc.M()`) is an instance call of the member's declared type, so it
+// dispatches through an interface to the implementation; the nearest
+// .csproj's implicit usings (ImplicitUsings, by SDK) and <Using> items join
+// each file's on-demand imports; a function records its visibility and
+// attribute names, and a property is FunctionType "property"; the C# entry
+// catalog (entrypoints/csharp) marks controller actions, ASP.NET Core routing
+// attributes, minimal-API method groups and hosted-service lifecycle methods
+// as framework entries.
+const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "2"
 
 // csharpGraphAlgoPrefix starts every C# graph algorithm id: a fragment stamped
 // with one is a C# graph.
