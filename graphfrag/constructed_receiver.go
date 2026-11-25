@@ -14,7 +14,8 @@ import "strings"
 //
 // The two halves of the answer sit in two fragments. The caller's says the
 // receiver is the result of that one call (ExternalCall.ReceiverProducer),
-// the factory's what every return of it builds (Function.Constructs). The
+// the factory's what every return of it builds (Function.Constructs, read
+// from the fragment's constructs, graph-fragment-1.39). The
 // stitch holds both, so it types the receiver there, and the dispatch policy
 // narrows the call's candidates by that type as it does for a receiver the
 // producer typed itself (disambiguateByReceiverType). An object built with
@@ -23,9 +24,9 @@ import "strings"
 // It only ever narrows: without one of the two facts the call keeps the
 // candidates, and the verdict, it has without this rule.
 
-// constructsRecorded reports whether a fragment's return provenance tells an
-// instantiation from any other call, which only a Java fragment's does: its
-// constructors are keyed `<init>`.
+// constructsRecorded reports whether a fragment's constructs fields can be
+// read, which only a Java fragment's can: the producer writes them for Java
+// functions only, where `new T(...)` builds a T and nothing else.
 func constructsRecorded(ecosystem string, component ComponentKey) bool {
 	if ecosystem == "" {
 		ecosystem = EcosystemForPurl(component.Purl)
@@ -33,40 +34,10 @@ func constructsRecorded(ecosystem string, component ComponentKey) bool {
 	return ecosystem == "java"
 }
 
-const constructorKeyName = "<init>"
-
-// constructedClass is the one class every return of a function builds with
-// `new`, as `package.(Type)`, read from its return provenance; "" when the
-// returns do not single one out. A return of null yields no object and is
-// passed over. `new T() { ... }` builds an anonymous subclass of T, not a T.
-func constructedClass(returns []GraphFragmentRawSource) string {
-	class := ""
-	for i := range returns {
-		source := &returns[i]
-		if source.Type == "VALUE" && source.Value == "null" {
-			continue
-		}
-		built := instantiatedClass(source)
-		if built == "" || (class != "" && built != class) {
-			return ""
-		}
-		class = built
-	}
-	return class
-}
-
-func instantiatedClass(source *GraphFragmentRawSource) string {
-	if source.Type != "CALL_RESULT" || !strings.HasPrefix(source.Value, "new ") || !strings.HasSuffix(source.Value, ")") {
-		return ""
-	}
-	pkg, typ, name, ok := functionKeyParts(source.CallTarget)
-	if !ok || !strings.HasPrefix(name, constructorKeyName+"#") {
-		return ""
-	}
-	return classKey(pkg, typ)
-}
-
-func classKey(pkg, typ string) string {
+// ClassKey is the `package.(Type)` key of a class, the form of
+// GraphFragmentFunction.Constructs: the owner of its constructor's function
+// key.
+func ClassKey(pkg, typ string) string {
 	if pkg == "" {
 		return "(" + typ + ")"
 	}

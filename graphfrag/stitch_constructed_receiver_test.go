@@ -15,7 +15,7 @@ const (
 	appMainFn     = "com.acme.app.(Main).main#1"
 )
 
-func constructs(class string) GraphFragmentRawSource {
+func newOf(class string) GraphFragmentRawSource {
 	return GraphFragmentRawSource{
 		Type: "CALL_RESULT", DeclaredType: class, Value: "new " + class + "()",
 		CallTarget: "org.example.hash.(" + class + ").<init>#0",
@@ -31,13 +31,19 @@ func hasherDependency(t *testing.T) Fragment {
 	return hasherDependencyOf(t, "java")
 }
 
+// Each factory carries the constructs its producer writes (the parser's
+// callgraph.FunctionDecl.ConstructedClass) and the return_sources it traced.
+// Only constructs counts: return_sources list no entry for a return the
+// tracer cannot read, so the ones that seem to build one class decide
+// nothing.
 func hasherDependencyOf(t *testing.T, ecosystem string) Fragment {
 	t.Helper()
 	sum := "org.example.hash.Hasher.sum(byte[]): byte[]"
-	factory := func(name string, returns ...GraphFragmentRawSource) GraphFragmentFunction {
+	factory := func(name, constructs string, returns ...GraphFragmentRawSource) GraphFragmentFunction {
 		return GraphFragmentFunction{
 			Key: "org.example.hash.(Hashers)." + name + "#0", FunctionName: "org.example.hash.Hashers." + name,
 			CanonicalSignature: "org.example.hash.Hashers." + name + "(): Hasher", ReturnSources: returns,
+			Constructs: constructs,
 		}
 	}
 	doc := GraphFragmentExport{
@@ -47,20 +53,23 @@ func hasherDependencyOf(t *testing.T, ecosystem string) Fragment {
 			{Key: hasherSumFn, FunctionName: "org.example.hash.Hasher.sum", CanonicalSignature: sum, Abstract: true},
 			{Key: standardSumFn, FunctionName: "org.example.hash.Hashers.Standard.sum", CanonicalSignature: "org.example.hash.Hashers.Standard.sum(byte[]): byte[]", CompatibleCanonicalSignatures: []string{sum}},
 			{Key: plainSumFn, FunctionName: "org.example.hash.Hashers.Plain.sum", CanonicalSignature: "org.example.hash.Hashers.Plain.sum(byte[]): byte[]", CompatibleCanonicalSignatures: []string{sum}},
-			factory("standard", constructs("Standard")),
-			factory("plain", constructs("Plain")),
-			factory("either", constructs("Standard"), constructs("Plain")),
-			factory("orNull", constructs("Standard"), GraphFragmentRawSource{Type: "VALUE", Value: "null"}),
-			factory("cached", constructs("Standard"), GraphFragmentRawSource{Type: "FIELD", Name: "cached"}),
-			factory("anonymous", GraphFragmentRawSource{
+			factory("standard", "org.example.hash.(Standard)", newOf("Standard")),
+			factory("plain", "org.example.hash.(Plain)", newOf("Plain")),
+			factory("orNull", "org.example.hash.(Standard)", newOf("Standard"), GraphFragmentRawSource{Type: "VALUE", Value: "null"}),
+			// `return new a.b.Box<String>();` beside `return new Standard();`:
+			// the tracer lists the second return only, the parser knows better.
+			factory("untraceable", "", newOf("Standard")),
+			factory("either", "", newOf("Standard"), newOf("Plain")),
+			factory("cached", "", newOf("Standard"), GraphFragmentRawSource{Type: "FIELD", Name: "cached"}),
+			factory("anonymous", "", GraphFragmentRawSource{
 				Type: "CALL_RESULT", DeclaredType: "Standard", Value: "new Standard() { }",
 				CallTarget: "org.example.hash.(Standard).<init>#0",
 			}),
-			factory("foreign", GraphFragmentRawSource{
+			factory("foreign", "org.example.other.(Standard)", GraphFragmentRawSource{
 				Type: "CALL_RESULT", DeclaredType: "Standard", Value: "new Standard()",
 				CallTarget: "org.example.other.(Standard).<init>#0",
 			}),
-			factory("unread"),
+			factory("unread", ""),
 		},
 	}
 	frag := doc.ToFragment(componentC)
@@ -159,6 +168,7 @@ func TestStitch_ReceiverKeepsAmbiguousDispatchWithoutOneConstructedClass(t *test
 	t.Parallel()
 	cases := []struct{ name, factory, receiverProducer string }{
 		{"a client that does not send the producer", "standard", ""},
+		{"a factory whose return sources miss a return", "untraceable", producerKey("untraceable")},
 		{"a factory that builds two classes", "either", producerKey("either")},
 		{"a factory that also returns a field", "cached", producerKey("cached")},
 		{"a factory that builds an anonymous subclass", "anonymous", producerKey("anonymous")},
@@ -181,9 +191,9 @@ func TestStitch_ReceiverKeepsAmbiguousDispatchWithoutOneConstructedClass(t *test
 	}
 }
 
-// Only a Java fragment's return provenance tells an instantiation from any
-// other call: a fragment of another ecosystem constructs nothing, whatever
-// its returns look like, so a call into it is never narrowed.
+// The producer writes constructs for Java functions only: a fragment of
+// another ecosystem constructs nothing, whatever it carries, so a call into it
+// is never narrowed.
 func TestFragment_ConstructsNothingOutsideJava(t *testing.T) {
 	t.Parallel()
 	for _, ecosystem := range []string{"python", "go", "rust", "node"} {
@@ -196,7 +206,9 @@ func TestFragment_ConstructsNothingOutsideJava(t *testing.T) {
 	}
 }
 
-func TestFragment_ConstructsOnlyWhenEveryReturnBuildsOneClass(t *testing.T) {
+// Constructs is read from the fragment's constructs only, never derived from
+// return_sources: a fragment before 1.39 constructs nothing.
+func TestFragment_ConstructsReadFromItsFieldOnly(t *testing.T) {
 	t.Parallel()
 	dep := hasherDependency(t)
 	want := map[string]string{
@@ -207,5 +219,50 @@ func TestFragment_ConstructsOnlyWhenEveryReturnBuildsOneClass(t *testing.T) {
 		if fn.Constructs != want[fn.Signature] {
 			t.Errorf("%s: constructs %q, want %q", fn.Signature, fn.Constructs, want[fn.Signature])
 		}
+	}
+}
+
+// A stored structural graph keeps constructs through re-encoding, under its
+// wire key.
+func TestFragment_ConstructsSurvivesEncoding(t *testing.T) {
+	t.Parallel()
+	dep := hasherDependency(t)
+	data, err := EncodeFragment(dep)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var wire struct {
+		Functions []map[string]any `json:"functions"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	found := false
+	for _, fn := range wire.Functions {
+		if fn["key"] == producerKey("standard") {
+			found = fn["constructs"] == "org.example.hash.(Standard)"
+		}
+	}
+	if !found {
+		t.Errorf("encoded standard factory carries no constructs %q", "org.example.hash.(Standard)")
+	}
+	back, err := DecodeFragment(componentC, data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for i := range back.Functions {
+		if back.Functions[i].Constructs != dep.Functions[i].Constructs {
+			t.Errorf("%s: constructs %q after a round trip, want %q", back.Functions[i].Signature, back.Functions[i].Constructs, dep.Functions[i].Constructs)
+		}
+	}
+}
+
+func TestClassKey(t *testing.T) {
+	t.Parallel()
+	if got := ClassKey("org.example", "Hashers.Standard"); got != "org.example.(Hashers.Standard)" {
+		t.Errorf("ClassKey = %q", got)
+	}
+	if got := ClassKey("", "Standard"); got != "(Standard)" {
+		t.Errorf("ClassKey without package = %q", got)
 	}
 }

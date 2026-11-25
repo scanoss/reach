@@ -40,7 +40,7 @@ func (e *GraphFragmentExport) ToFragment(component ComponentKey) Fragment {
 	appendFragmentFunctions(&frag, e.Functions, in)
 	if constructsRecorded(e.ScanMetadata.Ecosystem, component) {
 		for i := range e.Functions {
-			frag.Functions[i].Constructs = constructedClass(e.Functions[i].ReturnSources)
+			frag.Functions[i].Constructs = e.Functions[i].Constructs
 		}
 	}
 	for i := range e.Functions {

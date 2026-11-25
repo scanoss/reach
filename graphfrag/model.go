@@ -159,10 +159,10 @@ type Function struct {
 	// when the fragment's AbstractMethods is set.
 	Abstract bool
 	// Constructs is the one class every return of the function builds with
-	// `new`, as `package.(Type)`, the owner of the constructor's key. Empty
-	// when a return yields anything else, when two returns build different
-	// classes, and for a fragment that does not record what its functions
-	// return (see constructedClass).
+	// `new`, as `package.(Type)`, the owner of the constructor's key: the
+	// fragment's constructs (GraphFragmentFunction.Constructs), read for a
+	// Java fragment only. Empty when the fragment does not carry it (a
+	// fragment before 1.39 never does): nothing is derived in its place.
 	Constructs string
 }
 
