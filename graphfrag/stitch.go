@@ -775,7 +775,7 @@ func buildAdjacency(
 		case "go":
 			resolve = goInterfaceCandidates(resolve, byMethodArity, targetSet)
 		case "rust":
-			resolve = rustUntypedCandidates(resolve, key, fragment, byMethodArity, targetSet)
+			resolve = rustUntypedCandidates(resolve, key, fragments, functionsByNode, byMethodArity, targetSet)
 		}
 		if fragmentEcosystem(fragment) == "node" {
 			scope := targetSet
