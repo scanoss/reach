@@ -5,6 +5,7 @@ package callgraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -98,6 +99,33 @@ func (p *NodeParser) SubPackagePath(parentPath, dirName string) string {
 // PackageSeparator returns the npm package-path separator.
 func (p *NodeParser) PackageSeparator() string { return "/" }
 
+// MaxNodeSourceBytes bounds the JavaScript and TypeScript files reach reads.
+// A file past it is a bundle (emscripten glue, an asm.js build, a webpack or
+// rollup output), not authored source: parsing it costs a superlinear share
+// of the scan and gives no call a reader can follow. The value keeps parity
+// with crypto-finder 0.54.0, whose opengrep target selection never read a
+// file over 1,000,000 bytes (opengrep's --max-target-bytes default).
+const MaxNodeSourceBytes = 1_000_000
+
+// ErrNodeSourceTooLarge marks a file refused because it is larger than
+// MaxNodeSourceBytes. Every reader of JavaScript or TypeScript source (the
+// parser, NodeModuleExports, NodeCodeNames) wraps it, so a caller can tell a
+// skipped bundle from an unreadable file with errors.Is.
+var ErrNodeSourceTooLarge = errors.New("source file larger than the node source cap")
+
+// readNodeSource reads a JavaScript or TypeScript file, refusing one larger
+// than MaxNodeSourceBytes before reading it.
+func readNodeSource(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > MaxNodeSourceBytes {
+		return nil, fmt.Errorf("%d bytes, cap %d: %w", info.Size(), MaxNodeSourceBytes, ErrNodeSourceTooLarge)
+	}
+	return os.ReadFile(path)
+}
+
 // ParseDirectory parses supported JavaScript and TypeScript files in dir.
 func (p *NodeParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis, error) {
 	entries, err := os.ReadDir(dir)
@@ -112,6 +140,12 @@ func (p *NodeParser) ParseDirectory(dir, packagePath string) ([]*FileAnalysis, e
 		}
 		filePath := filepath.Join(dir, entry.Name())
 		analysis, parseErr := p.ParseFile(filePath, packagePath)
+		if errors.Is(parseErr, ErrNodeSourceTooLarge) {
+			// Not parsed, not lost: the warning names the file a scan leaves
+			// out of the graph.
+			log.Warn().Err(parseErr).Str("file", filePath).Str("package", packagePath).Msg("callgraph: node parser: skipping file over the source size cap")
+			continue
+		}
 		if parseErr != nil {
 			log.Error().Err(parseErr).Str("file", filePath).Str("package", packagePath).Msg("failed to parse file")
 			continue
@@ -189,7 +223,7 @@ func shadowedByNodeSibling(filePath, stem, ext string) bool {
 
 // ParseFile parses one JavaScript or TypeScript source file.
 func (p *NodeParser) ParseFile(filePath, packagePath string) (*FileAnalysis, error) {
-	src, err := os.ReadFile(filePath)
+	src, err := readNodeSource(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node parser: read %s: %w", filePath, err)
 	}

@@ -5,7 +5,6 @@ package callgraph
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -57,7 +56,7 @@ func NodeModuleExports(filePath string) (*NodeExports, error) {
 	if parser.parserForFile(filePath) == nil {
 		return nil, fmt.Errorf("callgraph: node exports: unsupported source file %s", filePath)
 	}
-	src, err := os.ReadFile(filePath)
+	src, err := readNodeSource(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node exports: read %s: %w", filePath, err)
 	}
