@@ -463,7 +463,7 @@ func (s *NodeShapes) module(path string) *nodeShapeModule {
 	if s.parser.parserForFile(path) == nil {
 		return nil
 	}
-	src, err := os.ReadFile(path)
+	src, err := readNodeSource(path)
 	if err != nil {
 		return nil
 	}
@@ -998,7 +998,7 @@ func NodeCodeNames(path string) (map[string]bool, error) {
 	if parser.parserForFile(path) == nil {
 		return nil, fmt.Errorf("callgraph: node names: unsupported source file %s", path)
 	}
-	src, err := os.ReadFile(path)
+	src, err := readNodeSource(path)
 	if err != nil {
 		return nil, fmt.Errorf("callgraph: node names: read %s: %w", path, err)
 	}

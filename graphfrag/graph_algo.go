@@ -491,7 +491,13 @@ const rustGraphAlgoPrefix = "graph-algo-rs-"
 // emits that shape for a conditional require (`let AES; AES =
 // require('crypto-js/aes');`, the parse SDK's CryptoController), whose calls
 // node-11 keyed to the file instead of the library export.
-const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "12"
+//
+// graph-algo-node-13: a JavaScript or TypeScript file larger than
+// callgraph.MaxNodeSourceBytes (1,000,000 bytes, the cap crypto-finder 0.54.0
+// scanned under) is not parsed or indexed. A package that ships minified
+// bundles past it (emscripten glue, a single-line webpack or rollup output)
+// loses those files' functions and edges, where node-12 parsed them.
+const GraphAlgoVersionNode = nodeGraphAlgoPrefix + "13"
 
 // nodeGraphAlgoPrefix starts every Node graph algorithm id: a fragment
 // stamped with one is a Node graph.
