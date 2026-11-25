@@ -158,6 +158,12 @@ type Function struct {
 	// Abstract marks a function declared without a body (1.24+), meaningful
 	// when the fragment's AbstractMethods is set.
 	Abstract bool
+	// Constructs is the one class every return of the function builds with
+	// `new`, as `package.(Type)`, the owner of the constructor's key: the
+	// fragment's constructs (GraphFragmentFunction.Constructs), read for a
+	// Java fragment only. Empty when the fragment does not carry it (a
+	// fragment before 1.39 never does): nothing is derived in its place.
+	Constructs string
 }
 
 // CallSite carries the per-edge call-site invocation detail: the line number and
@@ -508,6 +514,11 @@ type ExternalCall struct {
 	// reach the member in, its target caller-local (1.29, Node). See
 	// GraphFragmentExternal.CandidateModules.
 	CandidateModules []string
+
+	// ReceiverProducer is the key of the function whose result the receiver
+	// holds (see GraphFragmentExternal.ReceiverProducer). Empty when the
+	// producer did not say.
+	ReceiverProducer string
 }
 
 // CryptoOperation is a crypto finding attached to a function.

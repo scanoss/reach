@@ -286,7 +286,19 @@ import (
 // call argument (a callback) from the function that writes it on the same
 // line. A fragment before 1.38, or a function without columns, places a call
 // by lines only.
-const SchemaVersion = "graph-fragment-1.38"
+//
+// 1.39 adds two facts for a call on an object a dependency's factory built.
+// A Java function carries constructs: the one class every return of it
+// builds as a plain `new T(...)`, as `package.(Type)`, written only when no
+// return yields anything else (a return of null is passed over). An external
+// call may carry receiver_producer: the key of the function whose result its
+// receiver holds, a local bound once to that one call (only a project's call
+// sites carry it, in a request). The stitch types the receiver with the class
+// its producer constructs and narrows the call's candidates by it. A Java
+// fragment before 1.39 carries no constructs, and the call keeps the
+// candidates it has without them: constructs is never derived from
+// return_sources, which list no entry for a return the parser cannot trace.
+const SchemaVersion = "graph-fragment-1.39"
 
 // GraphAlgoVersion identifies the callgraph-CONSTRUCTION algorithm version. It
 // is independent of the binary version (cf_version) and the wire schema
@@ -474,7 +486,13 @@ const SchemaVersion = "graph-fragment-1.38"
 // stitch reaches a registered ServiceLoader implementation only through them,
 // so a stored graph of a component that registers providers must be mined
 // again (one without registrations is unchanged).
-const GraphAlgoVersion = "graph-algo-39"
+//
+// graph-algo-40: Java functions carry constructs (graph-fragment-1.39), the
+// one class every return builds with `new`. The stitch narrows a call on a
+// factory's result by it only, so a stored graph of a component whose
+// factories build one class must be mined again for the narrowing (one
+// without it keeps every candidate, as before).
+const GraphAlgoVersion = "graph-algo-40"
 
 // GraphFragmentExport is the on-the-wire JSON shape emitted by
 // `crypto-finder scan --export-graph-fragment` for a single component. It is a
@@ -1431,8 +1449,17 @@ type GraphFragmentFunction struct {
 	WrittenParameters []GraphFragmentWrittenParameter `json:"written_parameters,omitempty"`
 	// ReturnSources (1.21+) is the provenance of the values the function
 	// returns, as the parser traced it.
-	ReturnSources  []GraphFragmentRawSource `json:"return_sources,omitempty"`
-	InferredReturn json.RawMessage          `json:"-"`
+	ReturnSources []GraphFragmentRawSource `json:"return_sources,omitempty"`
+	// Constructs (1.39+, Java only) is the one class every return of the
+	// function builds as a plain `new T(...)`, as ClassKey(package, Type),
+	// the owner of the constructor's key. The producer writes it only when
+	// each return that yields an object builds that class: a return of null
+	// is passed over, and any other returned value (a call result, a field,
+	// `new T() { ... }`, another class, an expression it cannot read) leaves
+	// it out (callgraph.FunctionDecl.ConstructedClass). A stitch types a
+	// receiver its producer built with it (see typeConstructedReceivers).
+	Constructs     string          `json:"constructs,omitempty"`
+	InferredReturn json.RawMessage `json:"-"`
 }
 
 // GraphFragmentWrittenParameter is one parameter of a function as the source
@@ -1677,6 +1704,15 @@ type GraphFragmentExternal struct {
 	// since it cannot name one module; the candidates are the modules the
 	// receiver may hold the member from. Omitted otherwise.
 	CandidateModules []string `json:"candidate_modules,omitempty"`
+	// ReceiverProducer is the key of the function whose result the call's
+	// receiver holds: the callee of the one call that binds receiver_var, a
+	// local its function binds exactly once (the graph's
+	// FunctionCall.ReceiverProducer). A project's call sites carry it for a
+	// producer their own graph does not declare, so that a stitch that holds
+	// the producer's fragment can read there the class of the object the
+	// method runs on (1.39+). A document without it stitches as before, and
+	// a stored fragment never carries it.
+	ReceiverProducer string `json:"receiver_producer,omitempty"`
 }
 
 // GraphFragmentCryptoOp is one crypto finding annotation attached to a function

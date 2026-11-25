@@ -234,6 +234,119 @@ public final class Main {
 	}
 }
 
+// receiverProducerOf is the ReceiverProducer of caller's call of method.
+func receiverProducerOf(t *testing.T, graph *CallGraph, caller, method string) string {
+	t.Helper()
+	fn := graph.Functions[caller]
+	if fn == nil {
+		t.Fatalf("%s is not in the graph", caller)
+	}
+	for i := range fn.Calls {
+		if BaseFunctionName(fn.Calls[i].Callee.Name) == method {
+			return fn.Calls[i].ReceiverProducer
+		}
+	}
+	t.Fatalf("%s does not call %s", caller, method)
+	return ""
+}
+
+// The factory lives in a dependency the graph does not hold, so the graph
+// cannot read what it builds. The call then names the factory, for a reader
+// that holds its graph: only for a local bound once, by that one call.
+func TestConstructedReceiver_NamesAProducerOutsideTheGraph(t *testing.T) {
+	t.Parallel()
+	g := buildJavaGraph(t, map[string]string{
+		"org/example/app/Main.java": `package org.example.app;
+
+import org.example.liba.Hasher;
+import org.example.liba.Hashers;
+
+public final class Main {
+    static byte[] useStandard() {
+        Hasher h = Hashers.standard();
+        return h.sum(new byte[0]);
+    }
+
+    private Hasher configured;
+
+    byte[] useRebound(boolean fips) {
+        Hasher h = Hashers.plain();
+        if (fips) {
+            h = this.configured;
+        }
+        return h.sum(new byte[0]);
+    }
+
+    static byte[] useParameter(Hasher h) {
+        return h.sum(new byte[0]);
+    }
+
+    static byte[] useConstructed() {
+        Hasher h = new org.example.liba.Fast();
+        return h.sum(new byte[0]);
+    }
+
+    static byte[] useEither(boolean fips) {
+        Hasher h = fips ? Hashers.standard() : Hashers.plain();
+        return h.sum(new byte[0]);
+    }
+
+    static byte[] useShadowed(boolean fips) {
+        if (fips) {
+            Hasher h = Hashers.standard();
+            return h.sum(new byte[0]);
+        }
+        Hasher h = Hashers.plain();
+        return h.sum(new byte[0]);
+    }
+}
+`,
+	})
+	if got, want := receiverProducerOf(t, g, "org.example.app.(Main).useStandard#0", "sum"), "org.example.liba.(Hashers).standard#0"; got != want {
+		t.Errorf("useStandard: receiver producer %q, want %q", got, want)
+	}
+	for _, caller := range []string{"useRebound#1", "useParameter#1", "useEither#1", "useShadowed#1"} {
+		if got := receiverProducerOf(t, g, "org.example.app.(Main)."+caller, "sum"); got != "" {
+			t.Errorf("%s: receiver producer %q, want none: the local is not bound once by one call", caller, got)
+		}
+	}
+	if got := receiverProducerOf(t, g, "org.example.app.(Main).useConstructed#0", "sum"); got != "" {
+		t.Errorf("useConstructed: receiver producer %q, want none: a constructor returns nothing to read", got)
+	}
+}
+
+// A producer the graph declares is read there: the call is resolved, or kept,
+// and names no producer for another reader.
+func TestConstructedReceiver_NamesNoProducerTheGraphDeclares(t *testing.T) {
+	t.Parallel()
+	g := buildJavaGraph(t, map[string]string{
+		"org/example/liba/Hasher.java":  "package org.example.liba;\n\npublic interface Hasher {\n    byte[] sum(byte[] data);\n}\n",
+		"org/example/liba/Hashers.java": javaHashersSource,
+		"org/example/app/Main.java": `package org.example.app;
+
+import org.example.liba.Hasher;
+import org.example.liba.Hashers;
+
+public final class Main {
+    static byte[] useStandard() {
+        Hasher h = Hashers.standard();
+        return h.sum(new byte[0]);
+    }
+
+    static byte[] useAnonymous() {
+        Hasher h = Hashers.anonymous();
+        return h.sum(new byte[0]);
+    }
+}
+`,
+	})
+	for _, caller := range []string{"useStandard#0", "useAnonymous#0"} {
+		if got := receiverProducerOf(t, g, "org.example.app.(Main)."+caller, "sum"); got != "" {
+			t.Errorf("%s: receiver producer %q, want none", caller, got)
+		}
+	}
+}
+
 // A function returning `Box<dyn Trait>` built from one struct: the trait
 // method call on its result reaches that struct's impl.
 func TestConstructedReceiver_RustBoxedTraitObject(t *testing.T) {
@@ -285,4 +398,95 @@ pub fn use_plain() -> Vec<u8> {
 	plain := "hashers.(Plain).sum"
 	assertOnlyCallee(t, g, "hashers.use_standard", standard, plain)
 	assertOnlyCallee(t, g, "hashers.use_plain", plain, standard)
+}
+
+// ConstructedClass is what a Java fragment writes as a function's constructs:
+// one class, built with a plain `new` on every return that yields an object,
+// and nothing as soon as one return yields anything else, including a return
+// the parser cannot trace into a source.
+func TestConstructedClass_JavaReturns(t *testing.T) {
+	t.Parallel()
+	g := buildJavaGraph(t, map[string]string{
+		"org/example/liba/Hasher.java": "package org.example.liba;\n\npublic interface Hasher {\n    byte[] sum(byte[] data);\n}\n",
+		"org/example/liba/Factories.java": `package org.example.liba;
+
+public final class Factories {
+    static final class Standard implements Hasher {
+        public byte[] sum(byte[] data) { return data; }
+    }
+
+    static final class Plain implements Hasher {
+        public byte[] sum(byte[] data) { return data; }
+    }
+
+    private static Hasher cached;
+
+    static Hasher standard() {
+        return new Standard();
+    }
+
+    static Hasher orNull(boolean off) {
+        if (off) {
+            return null;
+        }
+        return new Standard();
+    }
+
+    static Hasher untraceable(boolean fast) {
+        if (fast) {
+            return new org.example.liba.Box<String>();
+        }
+        return new Standard();
+    }
+
+    static Hasher delegated(boolean fast, Object helper) {
+        if (fast) {
+            return helper.make();
+        }
+        return new Standard();
+    }
+
+    static Hasher either(boolean fips) {
+        if (fips) {
+            return new Standard();
+        }
+        return new Plain();
+    }
+
+    static Hasher anonymous() {
+        return new Standard() { };
+    }
+
+    static Hasher field() {
+        return cached;
+    }
+
+    static Hasher onlyNull() {
+        return null;
+    }
+}
+`,
+	})
+	standard := FunctionID{Package: "org.example.liba", Type: "Standard"}
+	want := map[string]FunctionID{"standard#0": standard, "orNull#1": standard}
+	for _, name := range []string{"standard#0", "orNull#1", "untraceable#1", "delegated#2", "either#1", "anonymous#0", "field#0", "onlyNull#0"} {
+		key := "org.example.liba.(Factories)." + name
+		decl := g.Functions[key]
+		if decl == nil {
+			t.Fatalf("%s is not in the graph", key)
+		}
+		got, ok := decl.ConstructedClass()
+		wantClass, wantOK := want[name]
+		if ok != wantOK || got != wantClass {
+			t.Errorf("%s: ConstructedClass() = %+v, %v; want %+v, %v", name, got, ok, wantClass, wantOK)
+		}
+	}
+	// The hole return_sources leave: the tracer names no type for a scoped
+	// generic `new`, so the list holds the `new Standard()` alone.
+	if sources := g.Functions["org.example.liba.(Factories).untraceable#1"].ReturnSources; len(sources) != 1 {
+		t.Errorf("untraceable: %d return sources, want the one this test is about: %+v", len(sources), sources)
+	}
+	if got, ok := (*FunctionDecl)(nil).ConstructedClass(); ok {
+		t.Errorf("nil decl: ConstructedClass() = %+v, want none", got)
+	}
 }

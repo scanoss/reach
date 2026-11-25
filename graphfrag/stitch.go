@@ -700,6 +700,13 @@ type callEdge struct {
 	// dispatch edge it names what the walk could not narrow, which is the whole
 	// reason a consumer would want to see it.
 	declaredType string
+	// receiverProducer is the external call's ReceiverProducer. When it
+	// constructs one class, typeConstructedReceivers sets resolvedReceiverType
+	// to that class's simple name, receiverPackage to its package and
+	// receiverConstructed.
+	receiverProducer    string
+	receiverPackage     string
+	receiverConstructed bool
 }
 
 // buildAdjacency composes the traversable call graph from the fragment closure
@@ -755,6 +762,7 @@ func buildAdjacency(
 			delete(others, key)
 			resolve = preferDeclared(resolve, callEdgeResolver(key, componentSigs, others, functionsBySignature, functionsByCanonicalSignature, aliasByKey, byMethodArity, public, hierarchy))
 		}
+		typeConstructedReceivers(edges, resolve, functionsByNode)
 		if fragmentEcosystem(fragment) == "python" {
 			scope := targetSet
 			if closureTargets(key) {
@@ -762,6 +770,12 @@ func buildAdjacency(
 				delete(scope, key)
 			}
 			resolve = pythonNameOnlyCandidates(pythonUnresolvedAsNameOnly(resolve, key, modules, byMethodArity), key, fragment, modules, byMethodArity, scope)
+		}
+		switch fragmentEcosystem(fragment) {
+		case "go":
+			resolve = goInterfaceCandidates(resolve, byMethodArity, targetSet)
+		case "rust":
+			resolve = rustUntypedCandidates(resolve, key, fragments, functionsByNode, byMethodArity, targetSet)
 		}
 		if fragmentEcosystem(fragment) == "node" {
 			scope := targetSet
@@ -886,7 +900,7 @@ func collectCallEdges(fragment Fragment) []callEdge {
 			caller: c.Caller, target: c.TargetSignature, targetCanonicalSignature: c.TargetCanonicalSignature, resolution: c.Resolution,
 			method: c.MethodName, arity: c.Arity, callSite: c.CallSite, startCol: c.StartCol, endCol: c.EndCol, internal: false, entryCall: c.EntryCall,
 			resolvedReceiverType: c.ResolvedReceiverType, declaredType: c.DeclaredType,
-			receiverVar: c.ReceiverVar, chainID: c.ChainID,
+			receiverVar: c.ReceiverVar, chainID: c.ChainID, receiverProducer: c.ReceiverProducer,
 		})
 	}
 	return edges
@@ -1363,10 +1377,11 @@ func applyDispatchGroups(
 // resolve: it only ever narrows an already-ambiguous group to at most one
 // survivor, never invents a candidate that resolve() did not already produce.
 func disambiguateByReceiverType(group []callEdge, targets []adjacencyEdge, ownerTypes map[graphNode]string) (adjacencyEdge, bool) {
-	resolvedType := simpleTypeName(firstResolvedReceiverType(group))
-	if resolvedType == "" {
+	receiver := firstTypedReceiver(group)
+	if receiver == nil {
 		return adjacencyEdge{}, false
 	}
+	resolvedType := simpleTypeName(receiver.resolvedReceiverType)
 
 	var match adjacencyEdge
 	matches := 0
@@ -1377,6 +1392,11 @@ func disambiguateByReceiverType(group []callEdge, targets []adjacencyEdge, owner
 		}
 	}
 	if matches != 1 {
+		return adjacencyEdge{}, false
+	}
+	// A class read off the receiver's producer names its package too: a
+	// candidate of that simple name in another package is another class.
+	if receiver.receiverConstructed && !declaredIn(ownerTypes[match.target], receiver.receiverPackage) {
 		return adjacencyEdge{}, false
 	}
 	return match, true
@@ -1392,14 +1412,15 @@ func simpleTypeName(typeName string) string {
 	return typeName
 }
 
-func firstResolvedReceiverType(group []callEdge) string {
+// firstTypedReceiver is the first edge of group whose receiver type is
+// resolved, nil when none is.
+func firstTypedReceiver(group []callEdge) *callEdge {
 	for i := range group {
-		e := &group[i]
-		if e.resolvedReceiverType != "" {
-			return e.resolvedReceiverType
+		if group[i].resolvedReceiverType != "" {
+			return &group[i]
 		}
 	}
-	return ""
+	return nil
 }
 
 func appendAdjacencyEdges(

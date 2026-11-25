@@ -201,6 +201,30 @@ func (m typeMethods) constructedClass(graph *CallGraph, key string) (string, boo
 	return class, true
 }
 
+// ConstructedClass is the one class every object-yielding return of fn
+// builds as a plain instance (Java's `new T(...)`), as its Package and Type.
+// A return of null yields no object and is passed over. It reports false
+// when any return yields something else (a call result, a field, `new T() {
+// ... }`, an expression the parser cannot read), when two returns build
+// different classes, when no return builds one, and when the parser could not
+// tell an instantiation from a plain call: those it records by position only,
+// and only the graph's call resolution names their class. Unlike the in-graph
+// resolution it does not ask whether the graph declares the class: a reader
+// of the function's fragment matches it against what it holds. A fragment
+// producer writes it as graphfrag's constructs (graph-fragment-1.39).
+func (fn *FunctionDecl) ConstructedClass() (FunctionID, bool) {
+	if fn == nil || fn.constructed.other || len(fn.constructed.sites) > 0 || len(fn.constructed.classes) == 0 {
+		return FunctionID{}, false
+	}
+	class := fn.constructed.classes[0]
+	for _, c := range fn.constructed.classes[1:] {
+		if c != class {
+			return FunctionID{}, false
+		}
+	}
+	return class, true
+}
+
 // instantiatedClass reads the class a returned call at site instantiates off
 // its resolved callee: `Name(...)` resolved as package.Name names the class
 // package.Name; a constructor callee names its own type. Whether that class
@@ -270,6 +294,12 @@ func receiverProducers(fn *FunctionDecl) map[string]string {
 // The call keeps its callee unless that class itself declares a method of the
 // same name (and arity, where the name carries it). It runs before the caller
 // index is built, so the index links the class's method directly.
+//
+// A producer the graph does not declare (a dependency read for its types
+// only) cannot be asked what it builds. The call then records it
+// (FunctionCall.ReceiverProducer), for a stitch that holds the producer's
+// fragment to finish the same resolution (graphfrag's
+// typeConstructedReceivers).
 func resolveConstructedReceivers(graph *CallGraph) int {
 	r := constructedReceiverResolver{graph: graph, methods: indexTypeMethods(graph), classes: make(map[string]constructedClassAnswer)}
 	resolved := 0
@@ -316,6 +346,14 @@ func (r *constructedReceiverResolver) resolveFunction(fn *FunctionDecl) int {
 		}
 		producer, ok := producers[call.ReceiverVar]
 		if !ok {
+			continue
+		}
+		if r.graph.Functions[producer] == nil {
+			// A constructor returns nothing to read: the object's class is
+			// the one the call already names.
+			if !strings.Contains(producer, "."+constructorMethodName) {
+				call.ReceiverProducer = producer
+			}
 			continue
 		}
 		class, ok := r.classOf(producer)
