@@ -399,3 +399,94 @@ pub fn use_plain() -> Vec<u8> {
 	assertOnlyCallee(t, g, "hashers.use_standard", standard, plain)
 	assertOnlyCallee(t, g, "hashers.use_plain", plain, standard)
 }
+
+// ConstructedClass is what a Java fragment writes as a function's constructs:
+// one class, built with a plain `new` on every return that yields an object,
+// and nothing as soon as one return yields anything else, including a return
+// the parser cannot trace into a source.
+func TestConstructedClass_JavaReturns(t *testing.T) {
+	t.Parallel()
+	g := buildJavaGraph(t, map[string]string{
+		"org/example/liba/Hasher.java": "package org.example.liba;\n\npublic interface Hasher {\n    byte[] sum(byte[] data);\n}\n",
+		"org/example/liba/Factories.java": `package org.example.liba;
+
+public final class Factories {
+    static final class Standard implements Hasher {
+        public byte[] sum(byte[] data) { return data; }
+    }
+
+    static final class Plain implements Hasher {
+        public byte[] sum(byte[] data) { return data; }
+    }
+
+    private static Hasher cached;
+
+    static Hasher standard() {
+        return new Standard();
+    }
+
+    static Hasher orNull(boolean off) {
+        if (off) {
+            return null;
+        }
+        return new Standard();
+    }
+
+    static Hasher untraceable(boolean fast) {
+        if (fast) {
+            return new org.example.liba.Box<String>();
+        }
+        return new Standard();
+    }
+
+    static Hasher delegated(boolean fast, Object helper) {
+        if (fast) {
+            return helper.make();
+        }
+        return new Standard();
+    }
+
+    static Hasher either(boolean fips) {
+        if (fips) {
+            return new Standard();
+        }
+        return new Plain();
+    }
+
+    static Hasher anonymous() {
+        return new Standard() { };
+    }
+
+    static Hasher field() {
+        return cached;
+    }
+
+    static Hasher onlyNull() {
+        return null;
+    }
+}
+`,
+	})
+	standard := FunctionID{Package: "org.example.liba", Type: "Standard"}
+	want := map[string]FunctionID{"standard#0": standard, "orNull#1": standard}
+	for _, name := range []string{"standard#0", "orNull#1", "untraceable#1", "delegated#2", "either#1", "anonymous#0", "field#0", "onlyNull#0"} {
+		key := "org.example.liba.(Factories)." + name
+		decl := g.Functions[key]
+		if decl == nil {
+			t.Fatalf("%s is not in the graph", key)
+		}
+		got, ok := decl.ConstructedClass()
+		wantClass, wantOK := want[name]
+		if ok != wantOK || got != wantClass {
+			t.Errorf("%s: ConstructedClass() = %+v, %v; want %+v, %v", name, got, ok, wantClass, wantOK)
+		}
+	}
+	// The hole return_sources leave: the tracer names no type for a scoped
+	// generic `new`, so the list holds the `new Standard()` alone.
+	if sources := g.Functions["org.example.liba.(Factories).untraceable#1"].ReturnSources; len(sources) != 1 {
+		t.Errorf("untraceable: %d return sources, want the one this test is about: %+v", len(sources), sources)
+	}
+	if got, ok := (*FunctionDecl)(nil).ConstructedClass(); ok {
+		t.Errorf("nil decl: ConstructedClass() = %+v, want none", got)
+	}
+}
