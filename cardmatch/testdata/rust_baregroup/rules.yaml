@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # A bare group at the top of a use declaration (`use {a::X, b::{Y}};`) is
 # transparent: each of its trees reads as a declaration of its own
 # (TestRustBareGroupAsOpenGrep).

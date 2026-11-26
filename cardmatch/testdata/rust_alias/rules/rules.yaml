@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented rules for the OpenGrep pin test of Rust type alias hand cards
 # (TestRustAliasCardsAsOpenGrep, rust_card_test.go): pattern-regex rules, which
 # the Rust compiler skips, read by the hand cards of ../cards/rules.cards

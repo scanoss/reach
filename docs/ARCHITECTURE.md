@@ -64,7 +64,7 @@ itself or stays on the live graph (step 4a).
 | `cardmatch` | Cards matcher: a ruleset (card files, rule YAML) against a fragment's call sites ([CARDMATCH.md](CARDMATCH.md)) | `graphfrag`, `parsememo`, YAML, regexp2 |
 | `parsememo` | Cross-process parse memo, bound to the binary | standard library |
 | `internal/importguard` | Test-only: keeps reach's imports to the standard library, reach and an allowed module list | — |
-| `internal/rulesetguard` | Test-only: fails on content of a private ruleset anywhere in the repository | — |
+| `internal/rulesetguard` | Test-only: fails on ruleset-shaped content anywhere in the repository (rule-id-shaped tokens, crypto rule files outside testdata, unmarked rule fixtures) | — |
 
 The layout is flat on purpose: every package is importable by applications,
 so none is under `internal/` except the test-only guards and cardmatch's

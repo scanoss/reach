@@ -1,3 +1,4 @@
+# rulesetguard: invented
 rules:
 - id: config
   message: m

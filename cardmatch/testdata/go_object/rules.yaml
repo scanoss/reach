@@ -1,3 +1,4 @@
+# rulesetguard: invented
 rules:
 - id: object
   message: m
