@@ -61,10 +61,14 @@ itself or stays on the live graph (step 4a).
 | `graphwalk` | Generic backward traversal (`Reach`, `Condense`, `Count`, `Routes`, `Select`) | standard library |
 | `skip`, `javaruntime`, `perf`, `purl` | Support packages the builder and stitcher use | — |
 | `language`, `paramcondition` | For domains: language detection of a directory; the `param[<selector>]<op><value>` condition parser. No reach package imports them | — |
+| `cardmatch` | Cards matcher: a ruleset (card files, rule YAML) against a fragment's call sites ([CARDMATCH.md](CARDMATCH.md)) | `graphfrag`, `parsememo`, YAML, regexp2 |
+| `parsememo` | Cross-process parse memo, bound to the binary | standard library |
 | `internal/importguard` | Test-only: keeps reach's imports to the standard library, reach and an allowed module list | — |
+| `internal/rulesetguard` | Test-only: fails on content of a private ruleset anywhere in the repository | — |
 
 The layout is flat on purpose: every package is importable by applications,
-so none is under `internal/` except the test-only guard. `graphfrag` does not
+so none is under `internal/` except the test-only guards and cardmatch's
+JavaScript pattern parser (`cardmatch/internal/jspat`). `graphfrag` does not
 import `callgraph`: a service that only stitches stored fragments does not
 pull in the parsers.
 

@@ -40,6 +40,7 @@ and [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 | Stitch a dependency closure | `graphfrag.Stitch` | Composes stored fragments into root-to-target chains; renders the callgraph JSON |
 | Walk backwards | `graphwalk` | The traversal shared by the live graph and the stitcher |
 | Start chains at real entry points | `callgraph/entrypoints` | One embedded YAML file per framework (web, task queues, CLI, containers) |
+| Match a ruleset against call sites | `cardmatch` | Card files and rules supplied by the application; see [docs/CARDMATCH.md](docs/CARDMATCH.md) |
 
 ## Packages
 
@@ -57,6 +58,8 @@ and [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 | `skip` | Which files and directories a walk skips |
 | `javaruntime` | Java runtime selection for bytecode and platform signature indexing |
 | `perf` | Opt-in wall-clock, CPU and allocation timings of build phases |
+| `cardmatch` | The cards matcher: loads card files or compiles rules, matches them against a graph fragment |
+| `parsememo` | Cross-process memo of parsed files, by content, bound to the binary |
 
 How they fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

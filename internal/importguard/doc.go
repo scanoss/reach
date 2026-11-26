@@ -15,6 +15,7 @@ const Module = "github.com/scanoss/reach"
 // import from. Adding one is a deliberate change: it becomes a dependency of
 // every application that builds on reach.
 var AllowedModules = []string{
+	"github.com/dlclark/regexp2",
 	"github.com/go-enry/go-enry/v2",
 	"github.com/package-url/packageurl-go",
 	"github.com/pelletier/go-toml/v2",
