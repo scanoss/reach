@@ -16,8 +16,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # testdata holds source fixtures whose recorded fragments pin their
+      # exact layout, so they stay as written.
       - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: |
+          out="$(gofmt -l $(git ls-files '*.go' | grep -v '/testdata/'))"
+          test -z "$out" || { echo "$out"; exit 1; }
       - name: Build
         run: go build ./...
       - name: Vet
@@ -27,5 +31,9 @@ jobs:
       # pass never hides a new import.
       - name: Import guard
         run: go test -count=1 -v ./internal/importguard/
+      # Also part of the full run. Fails when a file holds a rule id or message
+      # of a private ruleset (internal/rulesetguard).
+      - name: Ruleset content guard
+        run: go test -count=1 -v ./internal/rulesetguard/
       - name: Test
         run: go test -race ./...
