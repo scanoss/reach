@@ -50,6 +50,7 @@ against a KB before tagging.
 | Graph changes bump the graph algorithm id | A change that alters the structural graph of an ecosystem bumps that ecosystem's id (`graphfrag.GraphAlgoVersion`, `GraphAlgoVersionPython`, `GraphAlgoVersionRust`, `GraphAlgoVersionNode` or `GraphAlgoVersionGo`) and documents the bump above the constant. Bump only the ecosystem that changed. | crypto-finder's `TestGraphAlgoVersionGuard`, after the reach bump |
 | Errors | Return wrapped errors with a stable package prefix: `fmt.Errorf("callgraph: ...: %w", err)`. The application decides what an error means to its user. | Review |
 | No ruleset content | Detection rulesets that applications run on reach are private. No rule, rule id, card, message or fixture taken from one, in code, tests, testdata or docs. Tests build small invented rules. | `go test ./internal/rulesetguard`; refresh its denylist with `go run ./internal/rulesetguard/gen -ruleset <dir>` |
+| Tests run from the module cache | No `go.mod` below the module root: the module zip leaves out its directory, so applications running reach's tests from their module cache would miss it. A fixture that needs one keeps it as `go.mod.fixture`. | `go test ./internal/moduleguard` |
 | Headers | Every Go file starts with the two lines below. | Review |
 | Commits | [Conventional Commits](https://www.conventionalcommits.org/). | Review |
 

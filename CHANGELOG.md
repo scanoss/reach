@@ -29,3 +29,11 @@ pull requests.
 
 - CI's `gofmt` step skips `testdata/`: source fixtures keep the layout their
   recorded fragments pin.
+
+### Fixed
+
+- `cardmatch` tests pass when run from the module cache. The Go fixtures
+  under `cardmatch/testdata` held a `go.mod`, so the module zip left their
+  directories out (`stat testdata/go_producer: no such file or directory`).
+  They keep it as `go.mod.fixture` now, and `internal/moduleguard` fails on
+  any `go.mod` below the module root.
