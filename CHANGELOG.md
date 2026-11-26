@@ -50,7 +50,6 @@ pull requests.
   directories out (`stat testdata/go_producer: no such file or directory`).
   They keep it as `go.mod.fixture` now, and `internal/moduleguard` fails on
   any `go.mod` below the module root.
-
 - A dependency purl is no longer prefixed twice when the module the graph
   records is already a purl (NuGet, npm, Cargo and gem dependencies):
   `pkg:nuget/pkg:nuget%2FAcme.Crypto@2.4.0` is now `pkg:nuget/Acme.Crypto@2.4.0`,
