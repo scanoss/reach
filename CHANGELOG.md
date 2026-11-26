@@ -9,6 +9,17 @@ pull requests.
 
 ### Added
 
+- `appreach`: application reachability, moved from crypto-finder
+  (`pkg/appreach`, the part that knows nothing of findings or responses) and
+  relicensed MIT. `ParseDependencies` canonicalizes a pinned closure (purls,
+  PEP 503 names, PEP 440 versions) into `Pins`; `NewClosure` names modules,
+  splices components without a graph out of the dependency graph and builds
+  the application's root fragment from its call sites; `Closure.Run`
+  stitches with a fixed policy and returns the callgraph export and one
+  `Verdict` per finding id (`reachable`, `unreachable`, or `unknown` with a
+  reason such as `ambiguous_dispatch` or `dependency_without_graph`). Also
+  `PurlToModule`, `ParsePurl`, `PyPIVersion`, `ComputeFindingID`,
+  `FindingOwners`, `StitchIDs` and `DecodeProducerGraph`.
 - `cardmatch`: the cards matcher, moved from crypto-finder
   (`internal/cardmatch`) and relicensed MIT. It matches card files or
   OpenGrep-style rules against a graph fragment's call sites.
