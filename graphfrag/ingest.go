@@ -172,6 +172,7 @@ func appendExternalCalls(frag *Fragment, calls []GraphFragmentExternal, in inter
 			ResolvedReceiverType:     in.get(ec.ResolvedReceiverType),
 			CandidateModules:         ec.CandidateModules,
 			ReceiverProducer:         in.get(ec.ReceiverProducer),
+			CandidateOwners:          ec.CandidateOwners,
 		})
 	}
 }

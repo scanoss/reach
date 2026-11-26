@@ -25,10 +25,30 @@ pull requests.
   whose rules carry a CycloneDX crypto block, and on a rule or card file
   under `testdata/` without the line `# rulesetguard: invented`.
 
+- `graphfrag`: a C# external call carries `candidate_owners`
+  (`graph-fragment-1.40`), the fully qualified types its owner can be: the
+  caller's own namespace first, then one per `using` of the file. The stitch
+  re-keys a C# call on them when nothing else resolves it and keeps the one
+  owner a dependency declares, so an application's call into a NuGet
+  dependency is no longer always unreachable. Two owners that resolve to
+  different declarations take no edge. A fragment before 1.40 carries none and
+  stitches as before.
+
 ### Changed
 
+- C# graphs move to `graph-algo-cs-3`: a receiver spelled with the name of a
+  field, property or event the file declares is read as that value, not as a
+  type a `using` could name, so it carries no owner alternatives. Stored
+  `graph-algo-cs-2` C# graphs must be mined again.
 - CI's `gofmt` step skips `testdata/`: source fixtures keep the layout their
   recorded fragments pin.
+
+### Fixed
+
+- A dependency purl is no longer prefixed twice when the module the graph
+  records is already a purl (NuGet, npm, Cargo and gem dependencies):
+  `pkg:nuget/pkg:nuget%2FAcme.Crypto@2.4.0` is now `pkg:nuget/Acme.Crypto@2.4.0`,
+  on chain frames and on the file-level dependency purl alike.
 
 ### Removed
 
