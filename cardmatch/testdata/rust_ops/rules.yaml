@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented rules for the Rust matcher's OpenGrep pin test of binary
 # expressions, sequence contexts that end in one, typed fn parameter contexts
 # and reference types (TestRustOpsAsOpenGrep, rust_ops_test.go). They run on

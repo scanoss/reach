@@ -31,8 +31,10 @@ jobs:
       # pass never hides a new import.
       - name: Import guard
         run: go test -count=1 -v ./internal/importguard/
-      # Also part of the full run. Fails when a file holds a rule id or message
-      # of a private ruleset (internal/rulesetguard).
+      # Also part of the full run. Fails when a file holds something shaped
+      # like a detection ruleset: a rule-id-shaped token, a rule with a
+      # CycloneDX crypto block outside testdata, or an unmarked rule fixture
+      # (internal/rulesetguard).
       - name: Ruleset content guard
         run: go test -count=1 -v ./internal/rulesetguard/
       - name: Test

@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented taint rules for the Rust matcher's OpenGrep pin test (rust_taint_test.go).
 # They run on the .rs files in this directory, copied under src/ of a crate.
 # expected.json is what OpenGrep 1.33.1 reports for them, recorded from the crate

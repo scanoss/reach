@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Tuple let statements (TestRustTupleLetsAsOpenGrep): a tuple pattern binds
 # its names one by one, with or without a written type, and a later let of a
 # name hides the first let from the site.

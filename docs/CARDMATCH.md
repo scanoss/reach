@@ -78,7 +78,8 @@ Each memo file is bound to the binary that wrote it.
 
 reach is public. Tests build small invented rules (acme, example.com). The
 ruleset guard (`internal/rulesetguard`, CI step `Ruleset content guard`)
-fails a pull request that adds a rule id or message of a private ruleset
-(it holds salted hashes of them, never the content), a token shaped like a
-rule id that `allowed_ids.txt` does not list as invented, or a YAML file
-outside `testdata/` whose rules carry a CycloneDX crypto block.
+fails a pull request that adds a token shaped like a rule id that
+`allowed_ids.txt` does not list as invented, a YAML or card file outside
+`testdata/` whose rules carry a CycloneDX crypto block, or a rule or card
+file under `testdata/` without the line `# rulesetguard: invented`. It knows
+nothing of any private ruleset: it catches a pasted rule file by its shape.

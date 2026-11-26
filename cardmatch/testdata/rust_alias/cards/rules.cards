@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented Rust hand cards for the pattern-regex rules of ../rules/rules.yaml,
 # with type alias patterns. A pattern for each way the regex lets the mode path
 # be written: a type alias pattern reads the aliased type as written, so
