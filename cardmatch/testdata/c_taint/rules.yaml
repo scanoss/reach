@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented taint rule for the C matcher's OpenGrep pin test (c_taint_test.go).
 # It runs on the .c files in this directory, copied under src/. expected.json is
 # what OpenGrep 1.33.1 reports for it, recorded from the copy's root with:

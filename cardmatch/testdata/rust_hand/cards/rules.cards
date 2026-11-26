@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented Rust hand cards for the rules of ../rules/rules.yaml. A pattern for
 # each way the regex lets the path be written (OpenGrep does not read a
 # turbofish path through a use, nor a shorter pattern path as a longer one);

@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # `use $IMPORT;` and `use $M::$N;` on a use group with a self leaf
 # (`use a::{self, B};`) elsewhere in the file (TestRustSelfGroupAsOpenGrep).
 rules:

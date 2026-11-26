@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented rules for the Rust matcher's OpenGrep pin test of focus-metavariable,
 # metavariable-regex named groups and metavariable path heads
 # (TestRustFocusAndGroupsAsOpenGrep, rust_pin_test.go). They run on main.rs and

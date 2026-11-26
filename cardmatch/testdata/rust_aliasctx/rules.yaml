@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Type alias items as enclosing contexts (TestRustAliasContextAsOpenGrep):
 # `type $T = $M::Digest;` followed by `...` holds at a call after the alias in
 # the block that declares it, comparing the aliased type by its last segment.

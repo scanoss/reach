@@ -1,0 +1,55 @@
+// Copyright (C) 2026 SCANOSS.COM
+// SPDX-License-Identifier: MIT
+
+package graphfrag
+
+import "testing"
+
+// An ecosystem with no module name of its own (nuget, npm, cargo, gem)
+// records the purl as the module. Composing a purl from it again prefixed and
+// escaped it twice.
+func TestExportDependencyInfoPurlShapes(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, ecosystem, module, purl, version, want string
+	}{
+		{"nuget module is a purl", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "2.4.0", "pkg:nuget/Acme.Crypto@2.4.0"},
+		{"purl already carries the version", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto@2.0.0", "2.0.0", "pkg:nuget/Acme.Crypto@2.0.0"},
+		{"a version that needs escaping", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "1.0.0+build", "pkg:nuget/Acme.Crypto@1.0.0%2Bbuild"},
+		{"npm records the purl as its module", "node", "pkg:npm/left-pad", "pkg:npm/left-pad", "1.3.0", "pkg:npm/left-pad@1.3.0"},
+		{"a scoped npm name is not escaped twice", "node", "pkg:npm/%40scope/pkg", "pkg:npm/%40scope/pkg", "1.0.0", "pkg:npm/%40scope/pkg@1.0.0"},
+		{"cargo records the purl as its module", "rust", "pkg:cargo/ring", "pkg:cargo/ring", "0.17.0", "pkg:cargo/ring@0.17.0"},
+		{"a frame with no module is unchanged", "java", "", "pkg:maven/net.crypto/lib", "2.0.0", "pkg:maven/net.crypto/lib"},
+		{"a named module is unchanged", "java", "net.crypto:lib", "pkg:maven/net.crypto/lib", "2.0.0", "pkg:maven/net.crypto/lib@2.0.0"},
+	} {
+		frame := &CallFrame{Module: c.module, Component: ComponentKey{Purl: c.purl, Version: c.version}}
+		if got := exportDependencyInfo(frame, c.ecosystem).PURL; got != c.want {
+			t.Errorf("%s: purl %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// BuildDependencyInfo names the same dependency on the file-level block, and
+// must agree with the chain frames of the same response. A frame with no
+// module at all is left out: the two have disagreed there since before this
+// pass (the frame omits the version, the block carries it), and settling that
+// would move every ecosystem.
+func TestBuildDependencyInfoAgreesWithTheChainFrames(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, ecosystem, module, purl, version string
+	}{
+		{"npm records the purl as its module", "node", "pkg:npm/acme-sign", "pkg:npm/acme-sign", "2.0.1"},
+		{"cargo records the purl as its module", "rust", "pkg:cargo/ring", "pkg:cargo/ring", "0.17.0"},
+		{"nuget records the purl as its module", "csharp", "pkg:nuget/Acme.Crypto", "pkg:nuget/Acme.Crypto", "2.4.0"},
+		{"a named module", "java", "net.crypto:lib", "pkg:maven/net.crypto/lib", "2.0.0"},
+	} {
+		key := ComponentKey{Purl: c.purl, Version: c.version}
+		frame := &CallFrame{Module: c.module, Component: key}
+		chain := exportDependencyInfo(frame, c.ecosystem).PURL
+		file := BuildDependencyInfo(ScanMeta{Ecosystem: c.ecosystem}, Fragment{Module: c.module}, key).PURL
+		if chain != file {
+			t.Errorf("%s: chain frame %q, file block %q", c.name, chain, file)
+		}
+	}
+}

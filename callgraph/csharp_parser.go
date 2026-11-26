@@ -40,6 +40,8 @@ const (
 	csharpNodeBlock               = "block"
 	csharpNodeFieldDeclaration    = "field_declaration"
 	csharpNodeProperty            = "property_declaration"
+	csharpNodeEvent               = "event_declaration"
+	csharpNodeEventField          = "event_field_declaration"
 	csharpNodeLocalDeclaration    = "local_declaration_statement"
 	csharpNodeArrowClause         = "arrow_expression_clause"
 	csharpNodeUsingStatement      = "using_statement"
@@ -302,6 +304,7 @@ func (p *CSharpParser) walk(node *sitter.Node, src []byte, filePath, namespace, 
 				p.controllers[csharpJoin(namespace, typePath)] = mark
 			}
 			fields = csharpFieldFacts(node, src)
+			csharpRecordValueNames(node, src, analysis)
 			p.readFieldInitializers(node, src, filePath, namespace, typePath, fields, analysis)
 			analysis.Functions = append(analysis.Functions,
 				p.parseClassInitializer(node, src, filePath, namespace, typePath, fields, analysis)...)
@@ -1227,14 +1230,62 @@ func recordCSharpOwnerAlternatives(analysis *FileAnalysis) {
 	for i := range analysis.Functions {
 		calls := analysis.Functions[i].Calls
 		for j := range calls {
-			calls[j].OwnerAlternatives = csharpOwnerAlternatives(calls[j].Callee, analysis)
+			calls[j].OwnerAlternatives = csharpOwnerAlternatives(&calls[j], analysis)
 		}
 	}
 }
 
-func csharpOwnerAlternatives(callee FunctionID, analysis *FileAnalysis) []string {
+// csharpRecordValueNames notes the value members a type declares, so a
+// receiver written with one of their names is read as a value. Properties
+// matter most: C# spells them PascalCase, the way it spells a type.
+func csharpRecordValueNames(node *sitter.Node, src []byte, analysis *FileAnalysis) {
+	body := node.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if analysis.csharpValueNames == nil {
+			analysis.csharpValueNames = map[string]bool{}
+		}
+		analysis.csharpValueNames[name] = true
+	}
+	csharpWalkTypeBody(body, func(member *sitter.Node) {
+		switch member.Type() {
+		case csharpNodeProperty, csharpNodeEvent:
+			if name := member.ChildByFieldName("name"); name != nil {
+				add(name.Content(src))
+			}
+		case csharpNodeEventField, csharpNodeFieldDeclaration:
+			declaration := csharpChildByType(member, csharpNodeVariableDeclaration)
+			if declaration == nil {
+				return
+			}
+			for i := 0; i < int(declaration.NamedChildCount()); i++ {
+				declarator := declaration.NamedChild(i)
+				if declarator.Type() != csharpNodeVariableDeclarator {
+					continue
+				}
+				if name := declarator.ChildByFieldName("name"); name != nil {
+					add(name.Content(src))
+				}
+			}
+		}
+	})
+}
+
+func csharpOwnerAlternatives(call *FunctionCall, analysis *FileAnalysis) []string {
+	callee := call.Callee
 	typ := callee.Type
 	if typ == "" || strings.ContainsAny(typ, ".<>[]()") {
+		return nil
+	}
+	// `Registry.Init(..)` on a field named Registry reads a value: a using
+	// cannot make it name a type. `new Registry()`, and a local it binds,
+	// still name the type.
+	if analysis.csharpValueNames[typ] && BaseFunctionName(callee.Name) != constructorMethodName && call.ReceiverVar == "" {
 		return nil
 	}
 	if _, declared := analysis.ClassBases[typ]; declared {

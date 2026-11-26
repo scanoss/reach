@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Bare path patterns matched where a path is written as a type
 # (graph-fragment-1.35; TestRustTypeRefsAsOpenGrep): a one-segment name
 # matches a type whose last segment is that name, a longer path only through

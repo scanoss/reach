@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Bare paths whose last segment names a type or a variant (acme_kms::Spec::Es256).
 # They are served where a value is read, a struct literal's path and a
 # one-segment name a use brings in included (TestRustRefsAsOpenGrep).
