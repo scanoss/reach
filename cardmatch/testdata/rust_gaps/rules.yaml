@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented rules for the Rust matcher's OpenGrep pin test of two positives in
 # one `patterns` and of metavariable-regex on a metavariable some branches do
 # not bind (TestRustGapsAsOpenGrep, rust_pin_test.go). They run on plain.rs and

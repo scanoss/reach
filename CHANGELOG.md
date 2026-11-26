@@ -20,10 +20,10 @@ pull requests.
 - `github.com/dlclark/regexp2` is an allowed module (`internal/importguard`):
   cards and rules use Python `re` patterns (lookahead, named groups), which
   Go's RE2 rejects.
-- CI step `Ruleset content guard` (`internal/rulesetguard`): fails on a rule
-  id or message of a private ruleset (a list of salted hashes, never the
-  content), on an unlisted rule-id-shaped token, and on a YAML file outside
-  `testdata/` whose rules carry a CycloneDX crypto block.
+- CI step `Ruleset content guard` (`internal/rulesetguard`): fails on an
+  unlisted rule-id-shaped token, on a YAML or card file outside `testdata/`
+  whose rules carry a CycloneDX crypto block, and on a rule or card file
+  under `testdata/` without the line `# rulesetguard: invented`.
 
 - `graphfrag`: a C# external call carries `candidate_owners`
   (`graph-fragment-1.40`), the fully qualified types its owner can be: the
@@ -49,3 +49,10 @@ pull requests.
   records is already a purl (NuGet, npm, Cargo and gem dependencies):
   `pkg:nuget/pkg:nuget%2FAcme.Crypto@2.4.0` is now `pkg:nuget/Acme.Crypto@2.4.0`,
   on chain frames and on the file-level dependency purl alike.
+
+### Removed
+
+- The ruleset guard no longer carries a list of hashed rule ids and messages
+  (`internal/rulesetguard/denylist.txt`) or its generator
+  (`internal/rulesetguard/gen`): a public hash list can be probed. The guard
+  keeps the checks that need no knowledge of a private ruleset.

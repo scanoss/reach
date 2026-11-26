@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Method calls whose receiver is parenthesized or a tuple
 # (TestRustGroupReceiverAsOpenGrep): OpenGrep binds $X of `$X.m(...)` to a
 # parenthesized expression with its parentheses, but a plain name without

@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # A let statement as the positive (TestRustLetsAsOpenGrep): the material a
 # program creates for a call later in the function, as a random fill of the
 # buffer or the literal the buffer is bound to when nothing fills it. The

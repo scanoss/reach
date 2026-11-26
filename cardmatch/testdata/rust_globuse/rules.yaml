@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # A glob use (`use other::*;`, in a group, of a longer path, through
 # `use super::*;`) is no `use $CRATE::$TYPE;` (TestRustGlobUseAsOpenGrep).
 rules:

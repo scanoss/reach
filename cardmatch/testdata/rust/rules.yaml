@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Invented rules for the Rust matcher's OpenGrep pin test (rust_pin_test.go). They
 # run on the .rs files in this directory, copied under src/ of a crate. expected.json
 # is what OpenGrep 1.33.1 reports for them (1.22.0, which recorded the rules before

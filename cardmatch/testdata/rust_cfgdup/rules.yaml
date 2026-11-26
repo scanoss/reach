@@ -1,3 +1,4 @@
+# rulesetguard: invented
 # Functions of one name in one file under mutually exclusive #[cfg]
 # attributes (TestRustCfgVariantsAsOpenGrep): every variant's calls match.
 rules:

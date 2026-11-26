@@ -1,6 +1,7 @@
 # Rule-id-shaped tokens that are invented, not taken from a private ruleset.
 # One per line; add an id here only when you made it up for a test.
 java.jca.keygenerator.generate-key
-go.acme.secret-rule-id
 java.acme.invented-rule
 python.foo.bar-baz
+java.acme-jca.cipher.aes-gcm-encrypt
+python.acme-crypto.hash.sha256-digest
