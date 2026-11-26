@@ -671,7 +671,13 @@ const rubyGraphAlgoPrefix = "graph-algo-rb-"
 // catalog (entrypoints/csharp) marks controller actions, ASP.NET Core routing
 // attributes, view components' Invoke, minimal-API method groups and
 // hosted-service lifecycle methods as framework entries.
-const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "2"
+//
+// graph-algo-cs-3: a receiver spelled with the name of a value the file
+// declares (a field, a property, an event) is read as that value, not as a
+// type a using could name, so it carries no owner alternatives and the graph
+// no longer re-anchors the call onto a using's namespace. A stored
+// graph-algo-cs-2 graph was built before that and must be mined again.
+const GraphAlgoVersionCSharp = csharpGraphAlgoPrefix + "3"
 
 // csharpGraphAlgoPrefix starts every C# graph algorithm id: a fragment stamped
 // with one is a C# graph.

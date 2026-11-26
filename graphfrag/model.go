@@ -519,6 +519,10 @@ type ExternalCall struct {
 	// holds (see GraphFragmentExternal.ReceiverProducer). Empty when the
 	// producer did not say.
 	ReceiverProducer string
+	// CandidateOwners are the types a C# call's owner can be, its target
+	// keyed on the caller's own namespace (1.40). See
+	// GraphFragmentExternal.CandidateOwners.
+	CandidateOwners []string
 }
 
 // CryptoOperation is a crypto finding attached to a function.

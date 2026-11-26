@@ -1652,8 +1652,16 @@ func buildExportNode(frame *CallFrame, root ComponentKey, ecosystem string) Expo
 func exportDependencyInfo(frame *CallFrame, ecosystem string) *ExportDependencyInfo {
 	module := moduleFromFrame(frame)
 	packageURL := purl.Dependency(ecosystem, frame.Module, frame.Component.Version)
-	if frame.Module == "" && strings.HasPrefix(frame.Component.Purl, "pkg:") {
+	switch {
+	case frame.Module == "" && strings.HasPrefix(frame.Component.Purl, "pkg:"):
 		packageURL = frame.Component.Purl
+	case strings.HasPrefix(frame.Module, "pkg:") && strings.HasPrefix(frame.Component.Purl, "pkg:"):
+		// A module that is already a purl (an ecosystem with no module name of
+		// its own, such as nuget) would be prefixed and escaped a second time.
+		packageURL = frame.Component.Purl
+		if versioned := purl.WithVersion(frame.Component.Purl, frame.Component.Version); versioned != "" {
+			packageURL = versioned
+		}
 	}
 	return &ExportDependencyInfo{
 		Module:  module,
@@ -2018,7 +2026,11 @@ func splitFnName(fn string) (class, method string) {
 // possible) rather than shipping an empty one.
 func BuildDependencyInfo(meta ScanMeta, frag Fragment, key ComponentKey) *ExportDependencyInfo {
 	packageURL := purl.Dependency(meta.Ecosystem, frag.Module, key.Version)
-	if packageURL == "" && strings.HasPrefix(key.Purl, "pkg:") {
+	// A module that is already a purl names no module of its own, as an
+	// absent one does: composing a purl from it would prefix and escape it a
+	// second time, and the file-level dependency_info would then contradict
+	// the chain frames of the same response.
+	if (packageURL == "" || strings.HasPrefix(frag.Module, "pkg:")) && strings.HasPrefix(key.Purl, "pkg:") {
 		if versioned := purl.WithVersion(key.Purl, key.Version); versioned != "" {
 			packageURL = versioned
 		} else {
