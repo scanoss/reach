@@ -6,6 +6,8 @@ package callgraph
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -50,5 +52,51 @@ class H {
 	}
 	if got := alts["App.(Sm4Engine).Create#0"]; len(got) == 0 {
 		t.Errorf("type receiver: no alternatives, want the usings")
+	}
+}
+
+// A value member spelled like a type hides the type only where the name reads
+// as a value. `new Sm4Engine()` always names a type, and so does a local that
+// one constructs: both keep the owners the usings allow.
+func TestCSharpTypeNamedLikeAValueKeepsOwnerAlternatives(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "P.cs")
+	src := `using Acme.Crypto.Engines;
+namespace App;
+public static class Service {
+    public static Box Sm4Engine { get; set; }
+    public static void Run(byte[] m) {
+        var engine = new Sm4Engine();
+        engine.Init(true, m);
+        Sm4Engine.Init(false, m);
+    }
+}`
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	analysis, err := NewCSharpParser().parseFile(path, "App", nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	byLine := map[int][]string{}
+	for _, fn := range analysis.Functions {
+		for _, call := range fn.Calls {
+			byLine[call.Line] = call.OwnerAlternatives
+		}
+	}
+	want := []string{"App.Sm4Engine", "Acme.Crypto.Engines.Sm4Engine"}
+	if got := byLine[6]; !slices.Equal(got, want) {
+		t.Errorf("constructor: alternatives %q, want %q", got, want)
+	}
+	if got := byLine[7]; !slices.Equal(got, want) {
+		t.Errorf("constructed local: alternatives %q, want %q", got, want)
+	}
+	// The property reads as a value of its declared type, never as the type
+	// its name spells.
+	for _, owner := range byLine[8] {
+		if strings.HasSuffix(owner, ".Sm4Engine") {
+			t.Errorf("property receiver: alternative %q names the type its name spells", owner)
+		}
 	}
 }
