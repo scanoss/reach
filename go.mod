@@ -3,6 +3,7 @@ module github.com/scanoss/reach
 go 1.26.0
 
 require (
+	github.com/dlclark/regexp2 v1.11.5
 	github.com/go-enry/go-enry/v2 v2.9.2
 	github.com/package-url/packageurl-go v0.1.6
 	github.com/pelletier/go-toml/v2 v2.4.3
