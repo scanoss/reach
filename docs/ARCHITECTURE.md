@@ -25,8 +25,9 @@ source tree (+ dependency JARs / installed packages, type-only)
 4a. Live reachability graphwalk over CallGraph.Callers, from a target back to
    │                  roots or entry points (callgraph/entrypoints)
    ▼
-4b. Fragment          graphfrag.Fragment: one component's structural graph and
-   │                  its target annotations, stored as graph-fragment JSON
+4b. Fragment          fragbuild.Build → GraphFragmentExport: one component's
+   │                  structural graph; the domain adds its target annotations,
+   │                  ToFragment → graphfrag.Fragment, stored as graph-fragment JSON
    ▼
 5. Stitch             graphfrag.Stitch over the dependency closure's fragments
                       → Result.Chains; Result.ToCallgraphExport renders JSON
@@ -38,16 +39,17 @@ source tree (+ dependency JARs / installed packages, type-only)
 | 2 Build | `Builder.BuildFromDirectories(packages, typeOnlyPackages)` | Package directories; type-only ones are indexed, not parsed | `*CallGraph` |
 | 3 Resolve | `Builder.SetTypeResolver`, `callgraph.NewTypeResolverForEcosystem` | JARs, JDK, installed packages, contracts | Typed edges in the same `CallGraph` |
 | 4a Walk | `graphwalk.Reach`, `Routes`, `Count` | Adjacency function + target | Reachable set, routes |
-| 4b Store | `graphfrag.EncodeFragment`, `DecodeFragment`, `GraphFragmentExport.ToFragment` | `Fragment` / JSON | JSON / `Fragment` |
+| 4b Store | `fragbuild.Build`; `graphfrag.EncodeFragment`, `DecodeFragment`, `GraphFragmentExport.ToFragment` | `CallGraph`; `Fragment` / JSON | `GraphFragmentExport`; JSON / `Fragment` |
 | 5 Stitch | `graphfrag.Stitch`, `StitchWithOptions` | Root, `DependencyGraph`, fragments | `*Result` |
 
 Steps 2 and 3 run inside one `BuildFromDirectories` call: the builder parses,
 indexes callers, then runs type resolution and the contract passes that
 correct call targets.
 
-Turning a `CallGraph` into a `Fragment` is not in reach yet. crypto-finder
-does it in its own scan code. A new domain either builds `Fragment` values
-itself or stays on the live graph (step 4a).
+`fragbuild.Build` turns a `CallGraph` into its graph fragment
+(`GraphFragmentExport`), the input `cardmatch` reads. After the domain
+annotates its targets, `ToFragment` turns it into the `Fragment` the stitch
+composes.
 
 ## Packages
 
@@ -63,6 +65,8 @@ itself or stays on the live graph (step 4a).
 | `language`, `paramcondition` | For domains: language detection of a directory; the `param[<selector>]<op><value>` condition parser. No reach package imports them | — |
 | `cardmatch` | Cards matcher: a ruleset (card files, rule YAML) against a fragment's call sites ([CARDMATCH.md](CARDMATCH.md)) | `graphfrag`, `parsememo`, YAML, regexp2 |
 | `parsememo` | Cross-process parse memo, bound to the binary | standard library |
+| `fragbuild` | Builds the graph fragment of a call graph | `callgraph`, `callgraph/contracts`, `cpreproc`, `graphfrag`, `purl` |
+| `cpreproc` | Statically false C preprocessor regions of a C or C++ file | standard library, zerolog |
 | `appreach` | Application reachability over a pinned closure: closure parsing, dependency-graph splice, fixed stitch policy, verdicts | `graphfrag`, `purl`, packageurl-go |
 | `internal/importguard` | Test-only: keeps reach's imports to the standard library, reach and an allowed module list | — |
 | `internal/rulesetguard` | Test-only: fails on ruleset-shaped content anywhere in the repository (rule-id-shaped tokens, crypto rule files outside testdata, unmarked rule fixtures) | — |

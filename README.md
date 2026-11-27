@@ -36,6 +36,7 @@ and [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 | Parse source | `callgraph` | tree-sitter parsers for Java, Python, Go, JavaScript/TypeScript, C, C++, Rust |
 | Build the call graph | `callgraph.Builder`, `CallGraph` | Links call sites to declarations, including dispatch through interfaces, supertypes and fluent chains. `CallGraph.Callers` is the reverse index. |
 | Resolve types | `callgraph` resolvers | Java bytecode and JDK platform signatures, Python dependency signatures, per-language manifests, and return types from library contracts |
+| Build one component's fragment | `fragbuild.Build` | Projects a call graph onto the graph-fragment format the matcher and the stitcher read |
 | Store one component's graph | `graphfrag` | The graph-fragment JSON format, encode and decode |
 | Stitch a dependency closure | `graphfrag.Stitch` | Composes stored fragments into root-to-target chains; renders the callgraph JSON |
 | Walk backwards | `graphwalk` | The traversal shared by the live graph and the stitcher |
@@ -62,6 +63,8 @@ and [docs/NEW_DOMAIN.md](docs/NEW_DOMAIN.md).
 | `cardmatch` | The cards matcher: loads card files or compiles rules, matches them against a graph fragment |
 | `parsememo` | Cross-process memo of parsed files, by content, bound to the binary |
 | `appreach` | Application reachability: closure parsing (purls, PyPI spelling), stitch policy, verdicts and reasons, served chains |
+| `fragbuild` | Builds the graph fragment of a call graph, the input `cardmatch` reads |
+| `cpreproc` | Statically false C preprocessor regions of a C or C++ file |
 
 How they fit together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
