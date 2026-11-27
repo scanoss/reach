@@ -118,7 +118,7 @@ that send a prompt or load a model, and contracts type the client objects
 
 | Topic | What to know |
 |---|---|
-| Building fragments from a `CallGraph` | Not in reach yet. crypto-finder builds them in its scan code. Build `graphfrag.Fragment` (or `GraphFragmentExport`) yourself, or stay on the live graph. Copy `CallGraph.PythonExports` or `CallGraph.NodePackageExports` into the fragment's `exports`: without it a stitch cannot join a client's call spelled with a dependency's public names (`jwt.encode`, `acme-sign.sign`) to the dependency's declaration. |
+| Building fragments from a `CallGraph` | `fragbuild.Build(fragbuild.Input{...})` builds one, `exports` included: without them a stitch cannot join a client's call spelled with a dependency's public names to the dependency's declaration. Annotating the targets is still the domain's job; `ToFragment` then gives the `Fragment` `Stitch` takes. |
 | Global state | `SetSource` and `SetHints` are process-wide. Install once before the first build; two domains in one process share them. |
 | Stored format | Fragments and callgraph JSON keep their keys (`crypto_*` included) and carry schema and graph algorithm ids. Key your caches on `GraphAlgoVersionFor(ecosystem)`. See [ARCHITECTURE.md](ARCHITECTURE.md#schema-versioning). |
 | Fail-closed stitch | The stitcher does not follow name-only or ambiguous dispatch by default; a target behind such an edge is not reached and the edge is in `Result.Suppressed`. `StitchOptions` changes the policy. |

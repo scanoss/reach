@@ -9,6 +9,10 @@ pull requests.
 
 ### Added
 
+- `fragbuild`: builds the graph fragment of a call graph (`fragbuild.Build`),
+  the input `cardmatch` reads.
+- `cpreproc`: reads the regions of a C or C++ file that `#if 0` and other
+  statically false conditionals disable.
 - `appreach`: application reachability, moved from crypto-finder
   (`pkg/appreach`, the part that knows nothing of findings or responses) and
   relicensed MIT. `ParseDependencies` canonicalizes a pinned closure (purls,
